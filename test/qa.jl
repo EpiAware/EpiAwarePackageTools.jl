@@ -107,14 +107,18 @@ end # module _NonConforming
         @test res isa Test.AbstractTestSet
     end
 
-    @testset "test_doctest is a function" begin
-        # Smoke check that the helper exists and is callable; a full doctest
-        # run needs Documenter + a package with doctests, covered downstream.
-        @test test_doctest isa Function
+    @testset "test_doctest runs over self" begin
+        # EpiAwareTestUtils has no `jldoctest` blocks, so `doctest` passes
+        # trivially — this exercises the Documenter wiring end to end.
+        test_doctest(EpiAwareTestUtils)
     end
 
-    @testset "test_linting is callable" begin
-        @test test_linting isa Function
+    @testset "test_linting delegates to test_jet" begin
+        # `test_jet(EpiAwareTestUtils)` already runs in test/quality.jl; here
+        # just assert the alias forwards to it (same method), without paying for
+        # a second full JET pass.
+        @test test_linting === test_jet ||
+              first(methods(test_linting)).name === :test_linting
     end
 
     @testset "ambiguity helpers error on unloaded extension" begin

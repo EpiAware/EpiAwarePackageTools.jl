@@ -26,8 +26,8 @@ A [`scaffold`](@ref) helper writes the shipped standard configuration AND test
 infrastructure into a package — root dev config, CI caller workflows +
 dependabot, and the QA/AD/benchmark test-infra drivers that call these
 helpers — so a package adopts the whole kit at once. [`update`](@ref) re-applies
-the managed standard files (the entry point a scheduled template-sync calls),
-leaving package-owned tests, AD scenarios, and QA config values untouched.
+the managed standard files (the scheduled template-sync entry point), leaving
+package-owned tests, AD scenarios, and QA config values untouched.
 
 A [`Benchmarks`](@ref EpiAwareTestUtils.Benchmarks) submodule supplies the
 generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools
@@ -50,7 +50,7 @@ export test_aqua, test_jet, test_explicit_imports
 export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export on_surface_ambiguities, raw_ambiguity_count
-export scaffold, update
+export scaffold, update, scaffold_inputs
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 
 end # module EpiAwareTestUtils

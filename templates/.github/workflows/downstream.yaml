@@ -25,11 +25,11 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'downstream' ||
       github.event.label.name == 'reverse-deps'
-    uses: EpiAware/.github/.github/workflows/downstream.yml@main
+    uses: {{ORG}}/.github/.github/workflows/downstream.yml@main
     secrets: inherit  # pragma: allowlist secret
     with:
       # JSON list of downstreams. Each entry needs `repo` (owner/name) and may
       # set `group` (GROUP env for the downstream suite) and `allow_fail` (true
       # keeps a failure from reding the run). Empty by default; e.g.:
-      #   [{"repo":"EpiAware/SomeDownstream.jl","group":"All"}]
+      #   [{"repo":"{{ORG}}/SomeDownstream.jl","group":"All"}]
       downstreams: '[]'

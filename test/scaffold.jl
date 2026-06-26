@@ -2,13 +2,17 @@
 # the package-owned skeletons; `update` re-applies only the managed files and is
 # idempotent, never touching package-owned files.
 
-using EpiAwareTestUtils: SCAFFOLD_TEMPLATES
+using EpiAwareTestUtils: SCAFFOLD_TEMPLATES, _templates_dir, scaffold_inputs
+using Dates: year, now
 
-# Build a minimal package root with a Project.toml so `{{PACKAGE}}` substitution
-# has a name to resolve.
-function _fake_pkg(dir; name = "FakePkg")
+# Build a minimal package root with a Project.toml so placeholder substitution
+# (name, authors) has values to resolve.
+function _fake_pkg(dir; name = "FakePkg",
+        authors = "[\"Ada Lovelace\", \"FakeOrg contributors\"]")
     write(joinpath(dir, "Project.toml"),
-        "name = \"$name\"\nuuid = \"00000000-0000-0000-0000-000000000000\"\n")
+        "name = \"$name\"\n" *
+        "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+        "authors = $authors\n")
     return dir
 end
 
@@ -49,12 +53,49 @@ const OWNED_DESTS = [t.dest for t in SCAFFOLD_TEMPLATES if !t.managed]
                 "benchmark/compare.jl")
                 @test isfile(joinpath(dir, f))
             end
-            # CI callers invoke the org reusables.
+            # CI callers invoke the org reusables; `{{ORG}}` defaults to
+            # EpiAware (no Project.toml org field), so the slug is filled.
             test_yaml = read(joinpath(dir, ".github/workflows/test.yaml"),
                 String)
             @test occursin("EpiAware/.github/.github/workflows/tests.yml",
                 test_yaml)
             @test occursin("downgrade.yml", test_yaml)
+            @test !occursin("{{ORG}}", test_yaml)
+        end
+    end
+
+    @testset "P0 runnability files present" begin
+        mktempdir() do dir
+            _fake_pkg(dir; name = "Wombat")
+            scaffold(dir)
+            # The pre-commit baseline, codecov flags, ad CI caller, and the
+            # isolated-env manifests the managed runners need.
+            for f in (".secrets.baseline", "codecov.yml",
+                ".github/workflows/ad.yaml",
+                "test/Project.toml", "test/jet/Project.toml",
+                "test/formatter/Project.toml", "test/ad/Project.toml",
+                "test/ADFixtures/Project.toml",
+                "test/ADFixtures/src/ADFixtures.jl")
+                @test isfile(joinpath(dir, f))
+            end
+            # codecov has the unit + ad-* flags; ad caller invokes the reusable.
+            cov = read(joinpath(dir, "codecov.yml"), String)
+            @test occursin("ad-forwarddiff", cov)
+            @test occursin("carryforward", cov)
+            adyaml = read(joinpath(dir, ".github/workflows/ad.yaml"), String)
+            @test occursin("EpiAware/.github/.github/workflows/ad.yml", adyaml)
+
+            # The seeded ADFixtures registry and the AD env agree on its UUID.
+            reg = read(joinpath(dir, "test/ADFixtures/Project.toml"), String)
+            adenv = read(joinpath(dir, "test/ad/Project.toml"), String)
+            m = match(r"uuid = \"([^\"]+)\"", reg)
+            @test m !== nothing
+            @test occursin("ADFixtures = \"$(m.captures[1])\"", adenv)
+            @test !occursin("{{ADFIXTURES_UUID}}", reg)
+            # The jet env references the package by name + UUID.
+            jetenv = read(joinpath(dir, "test/jet/Project.toml"), String)
+            @test occursin("Wombat = \"00000000-0000-0000-0000-000000000000\"",
+                jetenv)
         end
     end
 
@@ -78,6 +119,75 @@ const OWNED_DESTS = [t.dest for t in SCAFFOLD_TEMPLATES if !t.managed]
             @test !occursin("{{PACKAGE}}", cfg)
             jet = read(joinpath(dir, "test/jet/runtests.jl"), String)
             @test occursin("JET.test_package(Wombat", jet)
+        end
+    end
+
+    @testset "author/holder/org/repo/reviewer placeholders" begin
+        mktempdir() do dir
+            _fake_pkg(dir; name = "Wombat",
+                authors = "[\"Ada Lovelace <ada@x.org>\", \"Wombat team\"]")
+            scaffold(dir)
+
+            # LICENSE holder defaults to the joined Project.toml authors
+            # (emails stripped), with the current year.
+            lic = read(joinpath(dir, "LICENSE"), String)
+            @test occursin("Ada Lovelace, Wombat team", lic)
+            @test occursin(string(year(now())), lic)
+            @test !occursin("{{HOLDER}}", lic)
+            @test !occursin("{{YEAR}}", lic)
+
+            # Dependabot reviewer defaults to the org (no person hardcoded).
+            dep = read(joinpath(dir, ".github/dependabot.yml"), String)
+            @test occursin("- \"EpiAware\"", dep)
+            @test !occursin("{{REVIEWER}}", dep)
+            @test !occursin("seabbs", dep)
+        end
+    end
+
+    @testset "input overrides win over Project.toml + defaults" begin
+        mktempdir() do dir
+            _fake_pkg(dir; name = "Wombat")
+            scaffold(dir; org = "MyOrg", holder = "The Holder",
+                reviewer = "octocat")
+            lic = read(joinpath(dir, "LICENSE"), String)
+            @test occursin("The Holder", lic)
+            test_yaml = read(joinpath(dir, ".github/workflows/test.yaml"),
+                String)
+            @test occursin("MyOrg/.github/.github/workflows/tests.yml",
+                test_yaml)
+            dep = read(joinpath(dir, ".github/dependabot.yml"), String)
+            @test occursin("- \"octocat\"", dep)
+        end
+    end
+
+    @testset "scaffold_inputs derives repo + defaults" begin
+        mktempdir() do dir
+            _fake_pkg(dir; name = "Wombat")
+            inp = scaffold_inputs(dir)
+            @test inp.PACKAGE == "Wombat"
+            @test inp.ORG == "EpiAware"
+            @test inp.REPO == "EpiAware/Wombat.jl"
+            @test inp.REVIEWER == "EpiAware"   # never a hardcoded person
+            inp2 = scaffold_inputs(dir; org = "Acme", reviewer = "")
+            @test inp2.REPO == "Acme/Wombat.jl"
+            @test inp2.REVIEWER == ""
+        end
+    end
+
+    @testset "no managed template hardcodes a person or owner" begin
+        # The templates are the source of truth; none may carry a literal
+        # person/owner name. (The kit's own name `EpiAwareTestUtils` and the
+        # `EpiAware` org appear only via the `{{ORG}}`/`using EpiAwareTestUtils`
+        # references, which are checked separately.)
+        forbidden = ("seabbs", "Sam Abbott")
+        tdir = _templates_dir()
+        for (root, _, files) in walkdir(tdir), f in files
+
+            path = joinpath(root, f)
+            content = read(path, String)
+            for bad in forbidden
+                @test !occursin(bad, content)
+            end
         end
     end
 

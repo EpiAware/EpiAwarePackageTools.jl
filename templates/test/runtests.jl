@@ -8,6 +8,7 @@
 # Filters:
 #   skip_quality  — skip the QA testset (fast local iteration)
 #   quality_only  — run only the QA testset
+#   readme_only   — run only `:readme`-tagged items (README/tutorial tests)
 
 using TestItemRunner
 
@@ -24,6 +25,9 @@ if "skip_quality" in ARGS
 elseif "quality_only" in ARGS
     @run_package_tests filter = ti -> in_this_package(ti) &&
                                       :quality in ti.tags
+elseif "readme_only" in ARGS
+    @run_package_tests filter = ti -> in_this_package(ti) &&
+                                      :readme in ti.tags
 else
     @run_package_tests filter = ti -> in_this_package(ti) &&
                                       !(:ad in ti.tags)

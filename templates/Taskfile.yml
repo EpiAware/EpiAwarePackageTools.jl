@@ -54,6 +54,24 @@ tasks:
       - julia --project=test/formatter test/formatter/runtests.jl
       - echo "✅ Formatting check completed"
 
+  test-ad:
+    desc: Run AD gradient tests directly (isolated environment)
+    cmds:
+      - echo "🔁 Running AD gradient tests..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/ad test/ad/runtests.jl
+      - echo "✅ AD gradient tests completed"
+
+  test-ad-backend:
+    desc: >-
+      Run AD gradient tests for a single backend tag, as the per-backend CI
+      does (e.g. TAG=enzyme_reverse task test-ad-backend)
+    cmds:
+      - echo "🔁 Running AD gradient tests for {{.TAG}}..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/ad test/ad/runtests.jl {{.TAG}}
+      - echo "✅ AD gradient tests for {{.TAG}} completed"
+
   format:
     desc: Format code with JuliaFormatter (fixes formatting issues)
     cmds:

@@ -96,31 +96,40 @@ overwritten). `{{PACKAGE}}` placeholders are filled from the target
 
 Managed (overwritten on `scaffold`/`update`):
 
-- Root dev config: `Taskfile.yml` (test, lint, format, docs, benchmark targets),
-  `.pre-commit-config.yaml` (JuliaFormatter + detect-secrets + file hygiene),
-  `.JuliaFormatter.toml` (SciML).
+- Root dev config: `Taskfile.yml` (test, lint, format, docs, benchmark, AD
+  targets), `.pre-commit-config.yaml` (JuliaFormatter + detect-secrets + file
+  hygiene), `.JuliaFormatter.toml` (SciML), `.secrets.baseline` (the
+  detect-secrets baseline the pre-commit config references), `codecov.yml` (the
+  `unit` + per-backend `ad-*` coverage flags), and `LICENSE`.
 - CI: `.github/workflows/*` thin callers that invoke the
   [EpiAware/.github](https://github.com/EpiAware/.github) reusables (tests,
-  downgrade-compat, docs, doc-preview-cleanup, format/pre-commit, coverage,
-  opt-in downstream/reverse-deps, TagBot) and `.github/dependabot.yml`.
+  downgrade-compat, the per-backend AD matrix, docs, doc-preview-cleanup,
+  format/pre-commit, coverage, opt-in downstream/reverse-deps, TagBot) and
+  `.github/dependabot.yml`.
 - Test infra: `test/package/quality.jl` (the QA testset that calls the helpers),
-  `test/jet/runtests.jl`, `test/formatter/runtests.jl`, `test/ad/setup.jl` and
-  `test/ad/runtests.jl` (the AD-harness wiring), and `benchmark/run.jl` /
-  `benchmark/compare.jl` (the benchmark wiring using `Benchmarks`).
+  `test/jet/runtests.jl` + `test/jet/Project.toml`, `test/formatter/runtests.jl`
+  + `test/formatter/Project.toml`, `test/ad/setup.jl` and `test/ad/runtests.jl`
+  (the AD-harness wiring), and `benchmark/run.jl` / `benchmark/compare.jl` (the
+  benchmark wiring using `Benchmarks`).
 
 Package-owned (written once, never overwritten — `force = true` overrides):
 
 - `test/runtests.jl` — the main test entry (pulls in the QA testset alongside
   the package's own unit tests).
+- `test/Project.toml` — the test environment (seeded with the QA/AD deps).
 - `test/package/qa_config.jl` — the QA config **values** the managed testset
   reads (the package's `ignore` lists, extension names, broken-quarantines).
-- `test/ad/scenarios.jl` — the per-backend AD test items.
+- `test/ad/scenarios.jl` + `test/ad/Project.toml`, and an `ADFixtures` registry
+  skeleton (`test/ADFixtures/`) implementing the `ADRegistry` contract.
 - `benchmark/benchmarks.jl` — the package's `SUITE`.
 
-A package's own unit tests, AD scenarios, and config values therefore stay
-package-owned; only the standard infra is managed. Both functions return a
-`(created, updated, preserved)` manifest making clear which files were newly
-written, rewritten, or left in place.
+A package's own unit tests, AD scenarios, registry, and config values therefore
+stay package-owned; only the standard infra is managed. Both functions resolve
+placeholders (`{{PACKAGE}}`, `{{AUTHORS}}`, `{{HOLDER}}`, `{{ORG}}`, `{{REPO}}`,
+`{{REVIEWER}}`, `{{YEAR}}`, `{{UUID}}`) from the target `Project.toml` and
+overridable keywords — no person, org, or repo name is hardcoded in any
+template. Both return a `(created, updated, preserved)` manifest making clear
+which files were newly written, rewritten, or left in place.
 
 The reusable-workflow pins follow CensoredDistributions (a SHA pin for the
 EpiAware/.github reusables, `@main` for the opt-in `downstream` workflow);

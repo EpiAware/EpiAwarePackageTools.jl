@@ -10,9 +10,9 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     reviewers:
-      - "seabbs"
+      - "{{REVIEWER}}"
     assignees:
-      - "seabbs"
+      - "{{REVIEWER}}"
     commit-message:
       prefix: "ci"
       include: "scope"
@@ -25,9 +25,9 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     reviewers:
-      - "seabbs"
+      - "{{REVIEWER}}"
     assignees:
-      - "seabbs"
+      - "{{REVIEWER}}"
     commit-message:
       prefix: "chore"
       include: "scope"
