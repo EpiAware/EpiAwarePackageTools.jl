@@ -1,5 +1,5 @@
 """
-    EpiAwareTestUtils
+    EpiAwarePackageTools
 
 Shared, package-agnostic test utilities for EpiAware Julia packages.
 
@@ -29,7 +29,7 @@ helpers — so a package adopts the whole kit at once. [`update`](@ref) re-appli
 the managed standard files (the scheduled template-sync entry point), leaving
 package-owned tests, AD scenarios, and QA config values untouched.
 
-A [`Benchmarks`](@ref EpiAwareTestUtils.Benchmarks) submodule supplies the
+A [`Benchmarks`](@ref EpiAwarePackageTools.Benchmarks) submodule supplies the
 generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools
 result data into a legible Markdown PR comment. A package keeps its own
 benchmark definitions and calls into this module to run and report them.
@@ -38,7 +38,7 @@ Package-specific fixtures (the actual distributions, models, or interface
 checklists a package wants to exercise) stay in that package. This module only
 supplies the reusable scaffolding.
 """
-module EpiAwareTestUtils
+module EpiAwarePackageTools
 
 include("quality.jl")
 include("qa.jl")
@@ -53,4 +53,4 @@ export on_surface_ambiguities, raw_ambiguity_count
 export scaffold, update, scaffold_inputs
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 
-end # module EpiAwareTestUtils
+end # module EpiAwarePackageTools

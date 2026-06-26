@@ -1,5 +1,5 @@
 #!/usr/bin/env julia
-# MANAGED by EpiAwareTestUtils.scaffold — do not edit by hand.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # JET static-analysis runner, run in this isolated environment so JET's
 # JuliaSyntax pin does not clash with the main test deps.

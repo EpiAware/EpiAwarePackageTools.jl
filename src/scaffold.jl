@@ -92,7 +92,7 @@ const SCAFFOLD_TEMPLATES = Template[
 const DEFAULT_ORG = "EpiAware"
 
 # Absolute path to the bundled `templates/` directory.
-_templates_dir() = joinpath(pkgdir(EpiAwareTestUtils), "templates")
+_templates_dir() = joinpath(pkgdir(EpiAwarePackageTools), "templates")
 
 # Read a scalar `key = "..."` from a Project.toml line; `nothing` if absent.
 function _project_string(proj::AbstractString, key::AbstractString)

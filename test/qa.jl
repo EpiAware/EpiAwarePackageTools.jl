@@ -1,5 +1,5 @@
 # Exercise the QA helpers. The docstring/format checks run over
-# EpiAwareTestUtils itself (a clean module); the ambiguity and doctest helpers
+# EpiAwarePackageTools itself (a clean module); the ambiguity and doctest helpers
 # are checked on their structure and a tiny synthetic case so the suite stays
 # light and package-agnostic.
 
@@ -98,7 +98,7 @@ end # module _NonConforming
 
     @testset "test_formatting over self" begin
         # Check the package src tree is JuliaFormatter-clean.
-        root = dirname(dirname(pathof(EpiAwareTestUtils)))
+        root = dirname(dirname(pathof(EpiAwarePackageTools)))
         test_formatting([joinpath(root, "src")])
     end
 
@@ -108,13 +108,13 @@ end # module _NonConforming
     end
 
     @testset "test_doctest runs over self" begin
-        # EpiAwareTestUtils has no `jldoctest` blocks, so `doctest` passes
+        # EpiAwarePackageTools has no `jldoctest` blocks, so `doctest` passes
         # trivially — this exercises the Documenter wiring end to end.
-        test_doctest(EpiAwareTestUtils)
+        test_doctest(EpiAwarePackageTools)
     end
 
     @testset "test_linting delegates to test_jet" begin
-        # `test_jet(EpiAwareTestUtils)` already runs in test/quality.jl; here
+        # `test_jet(EpiAwarePackageTools)` already runs in test/quality.jl; here
         # just assert the alias forwards to it (same method), without paying for
         # a second full JET pass.
         @test test_linting === test_jet ||
@@ -125,8 +125,8 @@ end # module _NonConforming
         # No extension named :NotAnExtension is loaded, so both query helpers
         # error rather than silently passing.
         @test_throws ErrorException raw_ambiguity_count(
-            EpiAwareTestUtils, :NotAnExtension)
+            EpiAwarePackageTools, :NotAnExtension)
         @test_throws ErrorException on_surface_ambiguities(
-            EpiAwareTestUtils, :NotAnExtension)
+            EpiAwarePackageTools, :NotAnExtension)
     end
 end

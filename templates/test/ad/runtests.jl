@@ -1,5 +1,5 @@
 #!/usr/bin/env julia
-# MANAGED by EpiAwareTestUtils.scaffold — do not edit by hand.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # AD gradient test entry, organised as `@testitem`s and run with
 # TestItemRunner. The AD items live in their own environment (Enzyme, Mooncake,

@@ -6,7 +6,7 @@ Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-EpiAwareTestUtils = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
@@ -32,4 +32,4 @@ JuliaFormatter = "2"
 ReverseDiff = "1"
 
 [sources]
-EpiAwareTestUtils = {path = ".."}
+EpiAwarePackageTools = {path = ".."}

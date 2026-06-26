@@ -1,13 +1,13 @@
 #!/usr/bin/env julia
-# MANAGED by EpiAwareTestUtils.scaffold — do not edit by hand.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # Run this checkout's benchmark suite and save the results to JSON, via the
-# shared EpiAwareTestUtils benchmark harness. The package owns `benchmarks.jl`
+# shared EpiAwarePackageTools benchmark harness. The package owns `benchmarks.jl`
 # (which defines `SUITE`); this runner is standard.
 #
 #   julia --project=benchmark benchmark/run.jl [out.json]
 
-using EpiAwareTestUtils.Benchmarks: run_suite
+using EpiAwarePackageTools.Benchmarks: run_suite
 
 out_file = get(ARGS, 1, "results.json")
 

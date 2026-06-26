@@ -1,9 +1,9 @@
-# EpiAwareTestUtils.jl
+# EpiAwarePackageTools.jl
 
 | | |
 |---|---|
-| Docs | [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawaretestutils.epiaware.org/dev/) |
-| CI | [![Test](https://github.com/EpiAware/EpiAwareTestUtils.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwareTestUtils.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwareTestUtils.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwareTestUtils.jl) |
+| Docs | [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawarepackagetools.epiaware.org/dev/) |
+| CI | [![Test](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl) |
 | Quality | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) [![ColPrac](https://img.shields.io/badge/ColPrac-Contributor%27s%20Guide-blueviolet)](https://github.com/SciML/ColPrac) |
 | License | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) |
 
@@ -24,10 +24,10 @@ The kit has four parts.
 |---|---|
 | Package-quality helpers | `test_aqua`, `test_explicit_imports`, `test_jet`, `test_docstring_format`, `test_ext_ambiguities`, `test_doctest`, `test_formatting`, `test_linting` |
 | AD-gradient harness | `ADRegistry`, `check_broken`, `test_working_backend`, `test_partial_backend` |
-| Benchmark reporting | `EpiAwareTestUtils.Benchmarks` submodule (`run_suite`, `asv_comment`, `compare_comment`, ...) |
+| Benchmark reporting | `EpiAwarePackageTools.Benchmarks` submodule (`run_suite`, `asv_comment`, `compare_comment`, ...) |
 | Scaffold + sync | `scaffold`, `update`, plus the `templates/` directory |
 
-A package adopts the kit by depending on EpiAwareTestUtils in its test
+A package adopts the kit by depending on EpiAwarePackageTools in its test
 environment and calling `scaffold(pkgdir(MyPackage))` once. That writes the
 whole shipped tooling: the root dev config, the CI caller workflows +
 dependabot, and the QA / AD / benchmark test infrastructure that calls the
@@ -41,7 +41,7 @@ a package in sync (the entry point a scheduled template-sync uses).
 Run the standard checks over a target module:
 
 ```julia
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 test_aqua(MyPackage)
 test_explicit_imports(MyPackage; ignore = (:SomeInternal,))
@@ -83,7 +83,7 @@ infrastructure — into a package so it adopts the standard in one call.
 `update` re-applies just the managed standard files later.
 
 ```julia
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 scaffold(pkgdir(MyPackage))   # adopt: write managed infra + owned skeletons
 update(pkgdir(MyPackage))     # sync: re-apply only managed files, report drift
@@ -143,7 +143,7 @@ package supplies an AD-fixture registry satisfying the `ADRegistry` contract
 harness runs the working scenarios and marks the rest broken:
 
 ```julia
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 test_working_backend(MyPackageADFixtures, "ReverseDiff")
 test_partial_backend(MyPackageADFixtures, "Enzyme forward")
@@ -158,7 +158,7 @@ on it from a test environment via a `[sources]` git pin:
 
 ```toml
 [sources]
-EpiAwareTestUtils = {url = "https://github.com/EpiAware/EpiAwareTestUtils.jl", rev = "main"}
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
 ```
 
 ## Contributing

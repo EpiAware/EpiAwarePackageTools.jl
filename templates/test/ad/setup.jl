@@ -1,6 +1,6 @@
-# MANAGED by EpiAwareTestUtils.scaffold — do not edit by hand.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
-# AD-harness driver. Wires the shared EpiAwareTestUtils AD harness to the
+# AD-harness driver. Wires the shared EpiAwarePackageTools AD harness to the
 # package's own AD-fixture registry (`ADFixtures` by convention), then exposes
 # `test_working_backend` / `test_partial_backend` / `check_broken` as thin
 # locals the scenario test items call. The registry — the actual scenarios,
@@ -12,7 +12,7 @@
     using ADTypes
     using DifferentiationInterface
     import DifferentiationInterfaceTest as DIT
-    using EpiAwareTestUtils
+    using EpiAwarePackageTools
     # The package's AD-fixture registry satisfying the `ADRegistry` contract.
     using ADFixtures
     # Backends the package tests; trim to those the package actually uses.
@@ -22,15 +22,15 @@
 
     # Drive a working backend over the registry's scenarios for a category.
     function test_working_backend(name; category::Symbol = :marginal)
-        EpiAwareTestUtils.test_working_backend(REG, name;
+        EpiAwarePackageTools.test_working_backend(REG, name;
             scenario_kwargs = (; category = category))
     end
 
     # Drive a partial backend (every scenario through `check_broken`).
     function test_partial_backend(name)
-        EpiAwareTestUtils.test_partial_backend(REG, name)
+        EpiAwarePackageTools.test_partial_backend(REG, name)
     end
 
     # Re-export the shared `check_broken` for any bespoke scenario item.
-    const check_broken = EpiAwareTestUtils.check_broken
+    const check_broken = EpiAwarePackageTools.check_broken
 end

@@ -2,12 +2,12 @@ using Pkg: Pkg
 Pkg.instantiate()
 
 using Documenter
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 makedocs(;
-    sitename = "EpiAwareTestUtils.jl",
+    sitename = "EpiAwarePackageTools.jl",
     authors = "EpiAware contributors",
-    modules = [EpiAwareTestUtils],
+    modules = [EpiAwarePackageTools],
     pages = [
         "Home" => "index.md",
         "API" => "api.md"
@@ -18,7 +18,7 @@ makedocs(;
 )
 
 deploydocs(;
-    repo = "github.com/EpiAware/EpiAwareTestUtils.jl",
+    repo = "github.com/EpiAware/EpiAwarePackageTools.jl",
     devbranch = "main",
     push_preview = true
 )

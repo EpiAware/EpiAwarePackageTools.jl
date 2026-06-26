@@ -1,6 +1,6 @@
 # PACKAGE-OWNED — scaffold writes this once and never overwrites it.
 # The test environment. Seeded with the deps the shared QA helpers and AD
-# harness need; add the package's own test-only deps here. EpiAwareTestUtils
+# harness need; add the package's own test-only deps here. EpiAwarePackageTools
 # supplies the helpers; until it is registered, pin it via `[sources]` below.
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
@@ -9,7 +9,7 @@ BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-EpiAwareTestUtils = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
@@ -22,5 +22,5 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [sources]
 {{PACKAGE}} = {path = ".."}
-# Until EpiAwareTestUtils is registered, pin it by git (or a local path):
-# EpiAwareTestUtils = {url = "https://github.com/{{ORG}}/EpiAwareTestUtils.jl", rev = "main"}
+# Until EpiAwarePackageTools is registered, pin it by git (or a local path):
+# EpiAwarePackageTools = {url = "https://github.com/{{ORG}}/EpiAwarePackageTools.jl", rev = "main"}

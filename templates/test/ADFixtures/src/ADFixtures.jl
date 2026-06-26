@@ -1,6 +1,6 @@
 # PACKAGE-OWNED — scaffold writes this once and never overwrites it.
 #
-# Minimal AD-fixture registry implementing the EpiAwareTestUtils `ADRegistry`
+# Minimal AD-fixture registry implementing the EpiAwarePackageTools `ADRegistry`
 # contract: scenarios (each with a ForwardDiff reference), a backend list, and
 # broken/skip bookkeeping. The shared harness (driven from `test/ad/setup.jl`)
 # consumes these. Replace the placeholder scenario with the package's own

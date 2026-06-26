@@ -2,7 +2,7 @@
 # the package-owned skeletons; `update` re-applies only the managed files and is
 # idempotent, never touching package-owned files.
 
-using EpiAwareTestUtils: SCAFFOLD_TEMPLATES, _templates_dir, scaffold_inputs
+using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir, scaffold_inputs
 using Dates: year, now
 
 # Build a minimal package root with a Project.toml so placeholder substitution
@@ -176,8 +176,8 @@ const OWNED_DESTS = [t.dest for t in SCAFFOLD_TEMPLATES if !t.managed]
 
     @testset "no managed template hardcodes a person or owner" begin
         # The templates are the source of truth; none may carry a literal
-        # person/owner name. (The kit's own name `EpiAwareTestUtils` and the
-        # `EpiAware` org appear only via the `{{ORG}}`/`using EpiAwareTestUtils`
+        # person/owner name. (The kit's own name `EpiAwarePackageTools` and the
+        # `EpiAware` org appear only via the `{{ORG}}`/`using EpiAwarePackageTools`
         # references, which are checked separately.)
         forbidden = ("seabbs", "Sam Abbott")
         tdir = _templates_dir()

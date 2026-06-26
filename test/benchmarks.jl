@@ -4,8 +4,8 @@
 # inputs are hand-built result dicts and a tiny BenchmarkGroup.
 
 @testset "Benchmarks" begin
-    using EpiAwareTestUtils.Benchmarks
-    using EpiAwareTestUtils.Benchmarks: flatten_asv, asv_comment,
+    using EpiAwarePackageTools.Benchmarks
+    using EpiAwarePackageTools.Benchmarks: flatten_asv, asv_comment,
                                         compare_comment, run_suite, fmt_time, fmt_ratio
     using BenchmarkTools
     import JSON3

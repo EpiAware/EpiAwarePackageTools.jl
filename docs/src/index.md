@@ -1,4 +1,4 @@
-# EpiAwareTestUtils.jl
+# EpiAwarePackageTools.jl
 
 Shared, package-agnostic test utilities for
 [EpiAware](https://github.com/EpiAware) Julia packages.
@@ -18,7 +18,7 @@ dev configuration into a package.
 Run the standard checks over a target module:
 
 ```julia
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 test_aqua(MyPackage)
 test_explicit_imports(MyPackage; ignore = (:SomeInternal,))
@@ -47,7 +47,7 @@ managed standard files later, leaving package-owned files (unit tests,
 `qa_config.jl`, AD scenarios, `benchmarks.jl`) untouched:
 
 ```julia
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 scaffold(pkgdir(MyPackage))   # adopt: managed infra + owned skeletons
 update(pkgdir(MyPackage))     # sync: re-apply only managed files
@@ -63,7 +63,7 @@ A package supplies an AD-fixture registry satisfying the [`ADRegistry`](@ref)
 contract; the harness runs the working scenarios and marks the rest broken:
 
 ```julia
-using EpiAwareTestUtils
+using EpiAwarePackageTools
 
 test_working_backend(MyPackageADFixtures, "ReverseDiff")
 test_partial_backend(MyPackageADFixtures, "Enzyme forward")

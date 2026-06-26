@@ -34,14 +34,14 @@ test_partial_backend
 
 ## Benchmarks
 
-The `EpiAwareTestUtils.Benchmarks` submodule turns benchmark result data into a
+The `EpiAwarePackageTools.Benchmarks` submodule turns benchmark result data into a
 Markdown PR comment.
 
 ```@docs
-EpiAwareTestUtils.Benchmarks.flatten_asv
-EpiAwareTestUtils.Benchmarks.asv_comment
-EpiAwareTestUtils.Benchmarks.compare_comment
-EpiAwareTestUtils.Benchmarks.run_suite
-EpiAwareTestUtils.Benchmarks.fmt_time
-EpiAwareTestUtils.Benchmarks.fmt_ratio
+EpiAwarePackageTools.Benchmarks.flatten_asv
+EpiAwarePackageTools.Benchmarks.asv_comment
+EpiAwarePackageTools.Benchmarks.compare_comment
+EpiAwarePackageTools.Benchmarks.run_suite
+EpiAwarePackageTools.Benchmarks.fmt_time
+EpiAwarePackageTools.Benchmarks.fmt_ratio
 ```

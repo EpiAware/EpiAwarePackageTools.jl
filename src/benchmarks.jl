@@ -26,7 +26,7 @@
 # caller only needs them in whichever environment runs the benchmark job.
 
 """
-    EpiAwareTestUtils.Benchmarks
+    EpiAwarePackageTools.Benchmarks
 
 Generic benchmark-reporting harness shared across EpiAware packages.
 
@@ -56,7 +56,7 @@ export fmt_time, fmt_ratio
 # ---- lazy dependency loading ----------------------------------------------
 
 # Resolve JSON3 / BenchmarkTools at call time so they are not hard
-# dependencies of EpiAwareTestUtils. Calls into them go through `invokelatest`
+# dependencies of EpiAwarePackageTools. Calls into them go through `invokelatest`
 # because the loaded methods live in a newer world age than these functions.
 function _json3()
     return Base.require(Base.PkgId(
@@ -323,7 +323,7 @@ function asv_comment(base::AbstractDict, head::AbstractDict;
     _full_section(io, base, head, ad_prefix)
     println(io,
         "\n<sub>Generated from AirspeedVelocity results by ",
-        "EpiAwareTestUtils.Benchmarks.</sub>")
+        "EpiAwarePackageTools.Benchmarks.</sub>")
     return String(take!(io))
 end
 

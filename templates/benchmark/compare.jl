@@ -1,13 +1,13 @@
 #!/usr/bin/env julia
-# MANAGED by EpiAwareTestUtils.scaffold — do not edit by hand.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # Compare two benchmark result files and write a Markdown PR comment, via the
-# shared EpiAwareTestUtils benchmark harness. Per-(scenario x backend) AD rows
+# shared EpiAwarePackageTools benchmark harness. Per-(scenario x backend) AD rows
 # are folded into a compact matrix using the `"AD gradients"` group convention.
 #
 #   julia --project=benchmark benchmark/compare.jl pr.json base.json out.md
 
-using EpiAwareTestUtils.Benchmarks: compare_comment
+using EpiAwarePackageTools.Benchmarks: compare_comment
 
 const BACKEND_ORDER = ["ForwardDiff", "ReverseDiff (tape)", "Mooncake reverse",
     "Mooncake forward", "Enzyme reverse", "Enzyme forward"]

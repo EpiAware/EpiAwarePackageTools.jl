@@ -1,5 +1,5 @@
 #!/usr/bin/env julia
-# MANAGED by EpiAwareTestUtils.scaffold — do not edit by hand.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # JuliaFormatter check, run in this isolated environment so its JuliaSyntax pin
 # does not clash with JET. Checks the standard source trees without modifying
