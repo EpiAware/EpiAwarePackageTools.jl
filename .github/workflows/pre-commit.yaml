@@ -8,5 +8,5 @@ on:
 
 jobs:
   pre-commit:
-    uses: EpiAware/.github/.github/workflows/format-check.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
+    uses: EpiAware/.github/.github/workflows/format-check.yml@0b92629d0e7663ba8708af5b4d2f8e03d05fea2c
     secrets: inherit  # pragma: allowlist secret
