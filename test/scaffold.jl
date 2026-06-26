@@ -431,5 +431,69 @@
                 @test occursin("<!-- badges:start -->", txt)
             end
         end
+
+        @testset "LICENSE is package-owned and write-once" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat",
+                    authors = "[\"Ada Lovelace\"]")
+                # scaffold writes the MIT licence by default with holder + year.
+                res = scaffold(dir)
+                @test res.license === :created
+                lic = joinpath(dir, "LICENSE")
+                @test isfile(lic)
+                txt = read(lic, String)
+                @test occursin("MIT License", txt)
+                @test occursin("Ada Lovelace", txt)
+                @test occursin(string(year(now())), txt)
+                @test !occursin("{{HOLDER}}", txt)
+                @test !occursin("{{YEAR}}", txt)
+
+                # A deliberate licence change must NOT be reverted by update.
+                custom = "Custom proprietary licence — all rights reserved.\n"
+                write(lic, custom)
+                ures = update(dir)
+                @test ures.license === :skipped
+                @test read(lic, String) == custom
+
+                # A second scaffold preserves the existing LICENSE too.
+                sres = scaffold(dir)
+                @test sres.license === :preserved
+                @test read(lic, String) == custom
+            end
+        end
+
+        @testset "scaffold license = Apache-2.0 writes Apache text" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat",
+                    authors = "[\"Ada Lovelace\"]")
+                res = scaffold(dir; license = "Apache-2.0")
+                @test res.license === :created
+                txt = read(joinpath(dir, "LICENSE"), String)
+                @test occursin("Apache License", txt)
+                @test occursin("Version 2.0", txt)
+                @test occursin("Ada Lovelace", txt)
+                @test !occursin("MIT License", txt)
+                @test !occursin("{{HOLDER}}", txt)
+                @test !occursin("{{YEAR}}", txt)
+            end
+        end
+
+        @testset "scaffold_inputs rejects an unsupported license" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                @test_throws ErrorException scaffold_inputs(dir; license = "GPL-3.0")
+            end
+        end
+
+        @testset "generate writes the license too" begin
+            mktempdir() do base
+                dir = joinpath(base, "GenPkg")
+                res = generate(dir, "GenPkg"; authors = ["Ada"],
+                    license = "Apache-2.0")
+                @test res.license === :created
+                @test occursin("Apache License",
+                    read(joinpath(dir, "LICENSE"), String))
+            end
+        end
     end # @testset "scaffold + update"
 end # @testitem "scaffold + update (logic)"

@@ -62,7 +62,10 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".secrets.baseline", ".secrets.baseline", true, false),
     Template("codecov.yml", "codecov.yml", true, false, :ad_only),
     Template("codecov.noad.yml", "codecov.yml", true, false, :noad_only),
-    Template("LICENSE", "LICENSE", true, true),
+    # NOTE: `LICENSE` is NOT a managed template. It is written once from the
+    # `license` input (see `_apply_license`) and never overwritten by `update`,
+    # so a package that deliberately changes its licence is not silently
+    # reverted on a sync. See the `license` field of `scaffold_inputs`.
 
     # --- CI caller workflows + dependabot (managed) ---
     Template(".github/dependabot.yml", ".github/dependabot.yml", true, true),
@@ -124,6 +127,11 @@ const SCAFFOLD_TEMPLATES = Template[
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
 
+# The SPDX licence identifiers a package may select, each backed by a bundled
+# `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.
+const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
+const DEFAULT_LICENSE = "MIT"
+
 # Absolute path to the bundled `templates/` directory.
 function _templates_dir()
     dir = pkgdir(EpiAwarePackageTools)
@@ -162,7 +170,8 @@ _author_name(a::AbstractString) = strip(replace(a, r"<[^>]*>" => ""))
 """
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
-        reviewer = nothing, year = <current year>) -> NamedTuple
+        reviewer = nothing, year = <current year>,
+        license = $(repr(DEFAULT_LICENSE))) -> NamedTuple
 
 Resolve the placeholder substitution values for [`scaffold`](@ref) /
 [`update`](@ref).
@@ -180,8 +189,15 @@ into a template:
   - `reviewer` — dependabot reviewer/assignee handle (`{{REVIEWER}}`); default
     `org` (so a person is never hardcoded; pass `""` to omit reviewers).
   - `year` — copyright year (`{{YEAR}}`); default the current year.
+  - `license` — the SPDX licence identifier (one of
+    `$(join(SUPPORTED_LICENSES, ", "))`) selecting which `LICENSE` text
+    [`scaffold`](@ref) writes; default `$(repr(DEFAULT_LICENSE))`. This is a
+    scaffold-time choice, not a substitution placeholder, and the `LICENSE` is
+    written once and never overwritten by [`update`](@ref) so a deliberate
+    licence is never reverted.
 
-Returns a `NamedTuple` of `placeholder => value` `String` pairs.
+Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
+resolved SPDX identifier).
 """
 function scaffold_inputs(target_dir::AbstractString;
         package::Union{Nothing, AbstractString} = nothing,
@@ -190,7 +206,11 @@ function scaffold_inputs(target_dir::AbstractString;
         org::AbstractString = DEFAULT_ORG,
         repo::Union{Nothing, AbstractString} = nothing,
         reviewer::Union{Nothing, AbstractString} = nothing,
-        year::Union{Nothing, Integer} = nothing)
+        year::Union{Nothing, Integer} = nothing,
+        license::AbstractString = DEFAULT_LICENSE)
+    license in SUPPORTED_LICENSES || error(
+        "unsupported license $(repr(license)); choose one of " *
+        join(repr.(SUPPORTED_LICENSES), ", "))
     proj = joinpath(target_dir, "Project.toml")
     pkg = package === nothing ? _project_string(proj, "name") : package
     auth_vec = _project_authors(proj)
@@ -208,7 +228,7 @@ function scaffold_inputs(target_dir::AbstractString;
     adfix_uuid = string(UUIDs.uuid4())
     return (PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
-        REVIEWER = rev, YEAR = string(yr))
+        REVIEWER = rev, YEAR = string(yr), LICENSE = license)
 end
 
 # Apply placeholder substitution to `content`. A template may use any subset of
@@ -228,7 +248,7 @@ end
 
 # Copy one template to `to`, substituting placeholders when requested.
 function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
-        inputs)
+        inputs::NamedTuple)
     mkpath(dirname(to))
     if substitute
         write(to, _substitute(read(from, String), inputs, from))
@@ -236,6 +256,27 @@ function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         cp(from, to; force = true)
     end
     return nothing
+end
+
+# --- package-owned LICENSE (write-once) -----------------------------------
+#
+# LICENSE is PACKAGE-OWNED: the `license` input selects a bundled
+# `templates/LICENSE.<spdx>`, which `scaffold`/`generate` write once with
+# `{{YEAR}}`/`{{HOLDER}}` filled. `update` never touches it, so a package that
+# deliberately switches licence is not silently reverted on a sync. This mirrors
+# the managed-vs-owned split used for unit tests and AD scenarios.
+
+# Write the selected LICENSE to `target_dir` if absent (write-once). `inputs`
+# supplies `LICENSE` (the SPDX id) plus the `{{YEAR}}`/`{{HOLDER}}` values.
+# Returns `:created`, `:preserved` (already present), or `:skipped`.
+function _apply_license(target_dir::AbstractString, inputs::NamedTuple)
+    dest = joinpath(target_dir, "LICENSE")
+    isfile(dest) && return :preserved
+    spdx::String = String(inputs.LICENSE)::String
+    from = joinpath(_templates_dir(), string("LICENSE.", spdx))
+    isfile(from) || error("missing bundled LICENSE template for $spdx at $from")
+    write(dest, _substitute(read(from, String), inputs, from))
+    return :created
 end
 
 # --- managed README badge block -------------------------------------------
@@ -370,7 +411,7 @@ end
 # standard. Returns a `(created, updated, preserved)` manifest of destination
 # paths.
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, inputs)
+        ad::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
     src_dir = _templates_dir()
     created = String[]
@@ -403,8 +444,14 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     if repo !== nothing && pkg !== nothing
         readme_action, _ = _apply_badges(readme, repo, pkg; ad = ad)
     end
+    # LICENSE is package-owned and write-once: only `scaffold`/`generate`
+    # (`managed_only = false`) may write it, and only when absent. `update`
+    # (`managed_only = true`) never touches it, so a deliberate licence stands.
+    # Reported separately (`license`) so the template manifest stays
+    # template-driven (the count-based scaffold tests track `SCAFFOLD_TEMPLATES`).
+    license_action = managed_only ? :skipped : _apply_license(target_dir, inputs)
     return (created = created, updated = updated, preserved = preserved,
-        readme = readme_action)
+        readme = readme_action, license = license_action)
 end
 
 """
@@ -418,7 +465,7 @@ adopts the whole kit in one call. Two kinds of file are written:
   - MANAGED standard infra — always written (overwriting any existing copy):
     root dev config (`Taskfile.yml`, `.pre-commit-config.yaml`,
     `.JuliaFormatter.toml`, `.gitattributes`, `.secrets.baseline`,
-    `codecov.yml`, `LICENSE`), CI
+    `codecov.yml`), CI
     caller workflows + `.github/dependabot.yml` (which invoke the org reusables,
     including the opt-in per-backend `ad.yaml` matrix), and the test-infra
     drivers and
@@ -428,7 +475,8 @@ adopts the whole kit in one call. Two kinds of file are written:
     `benchmark/run.jl`, `benchmark/compare.jl`).
   - PACKAGE-OWNED skeletons — written only when absent, never overwritten:
     `test/runtests.jl`, `test/Project.toml` (the test env), `test/package/
-    qa_config.jl` (the QA config values the managed testset reads),
+    qa_config.jl` (the QA config values the managed testset reads), `LICENSE`
+    (the `license`-selected licence text — see below),
     `test/ad/scenarios.jl` + `test/ad/Project.toml`, an `ADFixtures` registry
     skeleton implementing the `ADRegistry` contract
     (`test/ADFixtures/Project.toml` + `src/ADFixtures.jl`), and
@@ -440,6 +488,12 @@ Placeholders (`{{PACKAGE}}`, `{{AUTHORS}}`, `{{HOLDER}}`, `{{ORG}}`, `{{REPO}}`,
 defaults from the target `Project.toml` or a sensible org default and is
 overridable by keyword (e.g. `scaffold(dir; org = "MyOrg")`). No person, org, or
 repo name is hardcoded in any template.
+
+`LICENSE` is package-owned and write-once: the `license` keyword (an SPDX id,
+one of `$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
+selects the bundled licence text, written with `{{YEAR}}`/`{{HOLDER}}` filled
+only when no `LICENSE` exists. [`update`](@ref) never rewrites it, so a package
+that deliberately changes its licence is not reverted on a sync.
 
 `ad` controls whether the AD CI caller and AD test infrastructure are
 scaffolded, so a numerical package opts in and a tooling/non-numerical package
@@ -480,12 +534,14 @@ Re-apply only the MANAGED standard files to an already-adopted package and
 report the drift.
 
 This is the entry point the scheduled template-sync workflow calls: it rewrites
-every managed standard file (root config, `LICENSE`, CI caller workflows,
-dependabot, and the test-infra drivers) from the bundled templates, leaving all
-package-owned files (unit tests, `qa_config.jl`, AD scenarios, `benchmarks.jl`)
-untouched. The workflow opens a PR when the result differs from what is
-committed. Placeholder inputs are resolved exactly as in [`scaffold`](@ref);
-pass the same overrides to keep substitution stable across a sync.
+every managed standard file (root config, CI caller workflows, dependabot, and
+the test-infra drivers) from the bundled templates, leaving all package-owned
+files (unit tests, `qa_config.jl`, AD scenarios, `benchmarks.jl`, and `LICENSE`)
+untouched. In particular `LICENSE` is NEVER rewritten, so a package that
+deliberately switches licence is not silently reverted. The workflow opens a PR
+when the result differs from what is committed. Placeholder inputs are resolved
+exactly as in [`scaffold`](@ref); pass the same overrides to keep substitution
+stable across a sync.
 
 `ad` must match the value the package was scaffolded with (default `true`): with
 `ad = false` the managed AD files (`ad.yaml`, `test/ad/setup.jl`,
@@ -557,8 +613,9 @@ and source module, so it works from an empty (or non-existent) directory.
     infra, `false` opts out. See [`scaffold`](@ref) for the full AD-opt-in
     behaviour.
 
-Remaining keyword arguments (`org`, `repo`, `reviewer`, `year`, ...) are
-forwarded to [`scaffold_inputs`](@ref). Returns the `scaffold` manifest.
+Remaining keyword arguments (`org`, `repo`, `reviewer`, `year`, `license`, ...)
+are forwarded to [`scaffold_inputs`](@ref); e.g. `license = "Apache-2.0"` writes
+the Apache licence. Returns the `scaffold` manifest.
 """
 function generate(target_dir::AbstractString, package::AbstractString;
         authors::AbstractVector{<:AbstractString} = String[],

@@ -133,8 +133,8 @@ Managed (overwritten on `scaffold`/`update`):
   detect-secrets + file hygiene), `.JuliaFormatter.toml` (SciML),
   `.gitattributes` (normalise line endings to LF so the formatter check is
   stable on Windows runners), `.secrets.baseline` (the detect-secrets baseline
-  the pre-commit config references), `codecov.yml` (the `unit` flag, plus
-  per-backend `ad-*` flags when `ad = true`), and `LICENSE`.
+  the pre-commit config references), and `codecov.yml` (the `unit` flag, plus
+  per-backend `ad-*` flags when `ad = true`).
 - CI: `.github/workflows/*` thin callers that invoke the
   [EpiAware/.github](https://github.com/EpiAware/.github) reusables (tests,
   downgrade-compat, docs, doc-preview-cleanup, format/pre-commit, coverage,
@@ -154,6 +154,9 @@ Package-owned (written once, never overwritten — `force = true` overrides):
   AD harness deps when `ad = true`).
 - `test/package/qa_config.jl` — the QA config **values** the managed testset
   reads (the package's `ignore` lists, extension names, broken-quarantines).
+- `LICENSE` — the `license`-selected licence text (an SPDX id, one of `MIT`,
+  `Apache-2.0`; default `MIT`), written once with the holder/year filled.
+  `update` never rewrites it, so a deliberately changed licence is not reverted.
 - When `ad = true`: `test/ad/scenarios.jl` + `test/ad/Project.toml`, and an
   `ADFixtures` registry skeleton (`test/ADFixtures/`) implementing the
   `ADRegistry` contract.

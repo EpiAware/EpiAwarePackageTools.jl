@@ -33,8 +33,8 @@ jobs:
           res = update("."; ad = false);
           println("re-applied ", length(res.updated), " managed files");'
       - name: Fail on any drift from the bundled templates
-        # LICENSE is excluded: its `{{YEAR}}` substitutes to the current year, so
-        # it floats by design and is not a drift signal.
+        # `update` never rewrites LICENSE (it is package-owned, write-once), so
+        # it cannot drift here; the explicit exclude keeps that guarantee clear.
         run: |
           if ! git diff --quiet -- . ':!LICENSE'; then
             echo "::error::The kit has drifted from its own managed templates."
