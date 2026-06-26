@@ -12,11 +12,19 @@ Two groups are provided.
   - Package-quality wrappers ([`test_aqua`](@ref), [`test_jet`](@ref),
     [`test_explicit_imports`](@ref)) run Aqua, JET, and ExplicitImports over a
     target module. Aqua and ExplicitImports run in-process; JET runs in an
-    isolated environment to avoid version clashes.
+    isolated environment to avoid version clashes. Further QA helpers cover
+    docstring conventions ([`test_docstring_format`](@ref)), per-extension
+    method ambiguities ([`test_ext_ambiguities`](@ref)), doctests
+    ([`test_doctest`](@ref)), and formatting/linting ([`test_formatting`](@ref),
+    [`test_linting`](@ref)).
   - An AD-gradient harness ([`check_broken`](@ref),
     [`test_working_backend`](@ref), [`test_partial_backend`](@ref)) checks a
     package's reverse/forward AD backends against a ForwardDiff reference. It
     works on any registry satisfying the [`ADRegistry`](@ref) contract.
+
+A [`scaffold`](@ref) helper copies the standard dev-config templates
+(`Taskfile.yml`, `.pre-commit-config.yaml`, `.JuliaFormatter.toml`) into a
+package so it adopts the shared configuration in one call.
 
 A [`Benchmarks`](@ref EpiAwareTestUtils.Benchmarks) submodule supplies the
 generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools
@@ -30,10 +38,16 @@ supplies the reusable scaffolding.
 module EpiAwareTestUtils
 
 include("quality.jl")
+include("qa.jl")
+include("scaffold.jl")
 include("ad_harness.jl")
 include("benchmarks.jl")
 
 export test_aqua, test_jet, test_explicit_imports
+export test_docstring_format, test_ext_ambiguities, test_doctest,
+       test_formatting, test_linting
+export on_surface_ambiguities, raw_ambiguity_count
+export scaffold
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 
 end # module EpiAwareTestUtils
