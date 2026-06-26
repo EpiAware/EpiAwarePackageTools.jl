@@ -86,10 +86,11 @@ tasks:
       - echo "🛠️  Setting up development environment..."
       - julia --project=. -e 'using Pkg; Pkg.instantiate()'
       - julia --project=test -e 'using Pkg; Pkg.instantiate()'
-      - for: { var: ENVS, as: ENV }
-        cmd: '[ -f {{.ENV}}/Project.toml ] && julia --project={{.ENV}} -e ''using Pkg; Pkg.instantiate()'' || true'
-        vars:
-          ENVS: test/jet test/formatter docs benchmark
+      - >-
+        for d in test/jet test/formatter docs benchmark; do
+          [ -f "$d/Project.toml" ] &&
+            julia --project="$d" -e 'using Pkg; Pkg.instantiate()' || true;
+        done
       - echo "✅ Development environment ready"
 
   # === PACKAGE MANAGEMENT ===
@@ -149,7 +150,7 @@ tasks:
   info:
     desc: Show project information and environment status
     cmds:
-      - julia --project=. -e 'using Pkg; println("Julia version: ", VERSION); p = Pkg.project(); println("Package: ", p.name, " v", p.version)'
+      - 'julia --project=. -e ''using Pkg; println("Julia version: ", VERSION); p = Pkg.project(); println("Package: ", p.name, " v", p.version)'''
       - task: pkg-status
 
   help:

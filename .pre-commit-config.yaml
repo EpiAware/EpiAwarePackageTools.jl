@@ -21,6 +21,10 @@ repos:
   rev: v2.5.5
   hooks:
   - id: julia-formatter
+    # `templates/` holds scaffold templates, some carrying `{{PACKAGE}}`
+    # placeholders that are not parseable Julia until substituted. Their
+    # formatting is verified post-substitution by the scaffold test suite.
+    exclude: '^templates/'
 #####
 # Secrets
 -   repo: https://github.com/Yelp/detect-secrets

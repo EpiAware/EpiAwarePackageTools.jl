@@ -38,17 +38,24 @@ test_ext_ambiguities(MyPackage, :MyPackageSomeTriggerExt;
     prefixes = ("MyPackage", "SomeTrigger"))
 ```
 
-## Adopting the standard config
+## Adopting and syncing the standard tooling
 
-[`scaffold`](@ref) copies the standard `Taskfile.yml`,
-`.pre-commit-config.yaml`, and `.JuliaFormatter.toml` into a package:
+[`scaffold`](@ref) writes the whole shipped tooling into a package — root dev
+config, the CI caller workflows + dependabot, and the QA / AD / benchmark test
+infrastructure that calls these helpers. [`update`](@ref) re-applies only the
+managed standard files later, leaving package-owned files (unit tests,
+`qa_config.jl`, AD scenarios, `benchmarks.jl`) untouched:
 
 ```julia
 using EpiAwareTestUtils
 
-# writes the templates; pass force = true to overwrite existing files
-scaffold(pkgdir(MyPackage))
+scaffold(pkgdir(MyPackage))   # adopt: managed infra + owned skeletons
+update(pkgdir(MyPackage))     # sync: re-apply only managed files
 ```
+
+Both return a `(created, updated, preserved)` manifest distinguishing files
+newly written, managed files rewritten, and package-owned files left in place.
+See the README for the full managed / package-owned file list.
 
 ## AD-gradient harness
 

@@ -25,12 +25,16 @@ The kit has four parts.
 | Package-quality helpers | `test_aqua`, `test_explicit_imports`, `test_jet`, `test_docstring_format`, `test_ext_ambiguities`, `test_doctest`, `test_formatting`, `test_linting` |
 | AD-gradient harness | `ADRegistry`, `check_broken`, `test_working_backend`, `test_partial_backend` |
 | Benchmark reporting | `EpiAwareTestUtils.Benchmarks` submodule (`run_suite`, `asv_comment`, `compare_comment`, ...) |
-| Config scaffolding | `scaffold`, plus the `templates/` directory |
+| Scaffold + sync | `scaffold`, `update`, plus the `templates/` directory |
 
 A package adopts the kit by depending on EpiAwareTestUtils in its test
-environment, calling `scaffold(pkgdir(MyPackage))` once to install the standard
-dev config, then routing its `test/package`, doctest, and AD checks through the
-helpers below.
+environment and calling `scaffold(pkgdir(MyPackage))` once. That writes the
+whole shipped tooling: the root dev config, the CI caller workflows +
+dependabot, and the QA / AD / benchmark test infrastructure that calls the
+helpers below. The package then fills in the package-owned skeletons (its
+`qa_config.jl`, AD scenarios, and `benchmarks.jl`) and adds its own unit tests.
+`update(pkgdir(MyPackage))` re-applies only the managed standard files to keep
+a package in sync (the entry point a scheduled template-sync uses).
 
 ### Package-quality helpers
 
@@ -72,23 +76,55 @@ test_ext_ambiguities(MyPackage, :MyPackageSomeTriggerExt;
 test_ext_ambiguities(MyPackage, :MyPackageOtherExt; broken = true)
 ```
 
-### Config scaffolding
+### Scaffold + sync
 
-`scaffold` copies the standard development configuration into a package so it
-adopts the EpiAware standard in one call:
+`scaffold` writes the whole shipped tooling — config, CI, and test
+infrastructure — into a package so it adopts the standard in one call.
+`update` re-applies just the managed standard files later.
 
 ```julia
 using EpiAwareTestUtils
 
-# pass force = true to overwrite existing files
-scaffold(pkgdir(MyPackage))
+scaffold(pkgdir(MyPackage))   # adopt: write managed infra + owned skeletons
+update(pkgdir(MyPackage))     # sync: re-apply only managed files, report drift
 ```
 
-It writes `Taskfile.yml` (standard `task` targets: test, lint, format, docs,
-benchmark), `.pre-commit-config.yaml` (incl. JuliaFormatter and detect-secrets),
-and `.JuliaFormatter.toml` (the SciML style). The bundled `templates/` directory
-is the single source of truth for these. `scaffold` returns a `(written,
-skipped)` manifest of the paths it touched.
+Each template is **managed** (standard infra, overwritten on `update` to remove
+drift) or **package-owned** (a starting skeleton written once and never
+overwritten). `{{PACKAGE}}` placeholders are filled from the target
+`Project.toml` `name`.
+
+Managed (overwritten on `scaffold`/`update`):
+
+- Root dev config: `Taskfile.yml` (test, lint, format, docs, benchmark targets),
+  `.pre-commit-config.yaml` (JuliaFormatter + detect-secrets + file hygiene),
+  `.JuliaFormatter.toml` (SciML).
+- CI: `.github/workflows/*` thin callers that invoke the
+  [EpiAware/.github](https://github.com/EpiAware/.github) reusables (tests,
+  downgrade-compat, docs, doc-preview-cleanup, format/pre-commit, coverage,
+  opt-in downstream/reverse-deps, TagBot) and `.github/dependabot.yml`.
+- Test infra: `test/package/quality.jl` (the QA testset that calls the helpers),
+  `test/jet/runtests.jl`, `test/formatter/runtests.jl`, `test/ad/setup.jl` and
+  `test/ad/runtests.jl` (the AD-harness wiring), and `benchmark/run.jl` /
+  `benchmark/compare.jl` (the benchmark wiring using `Benchmarks`).
+
+Package-owned (written once, never overwritten — `force = true` overrides):
+
+- `test/runtests.jl` — the main test entry (pulls in the QA testset alongside
+  the package's own unit tests).
+- `test/package/qa_config.jl` — the QA config **values** the managed testset
+  reads (the package's `ignore` lists, extension names, broken-quarantines).
+- `test/ad/scenarios.jl` — the per-backend AD test items.
+- `benchmark/benchmarks.jl` — the package's `SUITE`.
+
+A package's own unit tests, AD scenarios, and config values therefore stay
+package-owned; only the standard infra is managed. Both functions return a
+`(created, updated, preserved)` manifest making clear which files were newly
+written, rewritten, or left in place.
+
+The reusable-workflow pins follow CensoredDistributions (a SHA pin for the
+EpiAware/.github reusables, `@main` for the opt-in `downstream` workflow);
+dependabot keeps each adopting repo's pins current.
 
 ### AD-gradient harness
 

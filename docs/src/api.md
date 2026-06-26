@@ -19,6 +19,7 @@ test_linting
 
 ```@docs
 scaffold
+update
 ```
 
 ## AD-gradient harness
