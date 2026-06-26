@@ -30,3 +30,17 @@ check_broken
 test_working_backend
 test_partial_backend
 ```
+
+## Benchmarks
+
+The `EpiAwareTestUtils.Benchmarks` submodule turns benchmark result data into a
+Markdown PR comment.
+
+```@docs
+EpiAwareTestUtils.Benchmarks.flatten_asv
+EpiAwareTestUtils.Benchmarks.asv_comment
+EpiAwareTestUtils.Benchmarks.compare_comment
+EpiAwareTestUtils.Benchmarks.run_suite
+EpiAwareTestUtils.Benchmarks.fmt_time
+EpiAwareTestUtils.Benchmarks.fmt_ratio
+```
