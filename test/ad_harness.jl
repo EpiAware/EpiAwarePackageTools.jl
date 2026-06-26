@@ -75,4 +75,22 @@
             (broken_scenario_names = () -> ["centred"],))
         test_working_backend(broken_reg, "ForwardDiff")
     end
+
+    @testset "optional bookkeeping accessors default to empty" begin
+        # A registry that owns no broken/skipped scenarios may omit all three
+        # bookkeeping accessors; the harness must treat them as empty rather
+        # than erroring on the missing property. This mirrors a package whose
+        # AD fixtures only define `scenarios` and `backends` (e.g. CD `main`).
+        minimal_reg = (
+            scenarios = reg.scenarios,
+            backends = reg.backends
+        )
+        @test EpiAwarePackageTools._global_broken(minimal_reg) == String[]
+        @test EpiAwarePackageTools._per_backend_broken(minimal_reg) ==
+              Dict{String, Set{String}}()
+        @test EpiAwarePackageTools._per_backend_skip(minimal_reg) ==
+              Dict{String, Set{String}}()
+        test_working_backend(minimal_reg, "ForwardDiff")
+        test_partial_backend(minimal_reg, "ReverseDiff")
+    end
 end

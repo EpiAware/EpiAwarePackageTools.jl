@@ -29,12 +29,19 @@ responding to:
     `scenario_kwargs`.
   - `backends(reg)` returning a vector of named-tuples `(; name, backend)`,
     where `backend` is an `ADTypes` backend.
-  - `broken_scenario_names(reg)` returning a collection of scenario names broken
-    on every backend.
-  - `backend_broken_scenarios(reg)` returning a `Dict{String, Set{String}}` of
-    per-backend broken scenario names.
-  - `backend_skip_scenarios(reg)` returning a `Dict{String, Set{String}}` of
-    per-backend scenario names too unstable to run at all.
+
+The remaining bookkeeping accessors are optional: a registry that owns no broken
+or skipped scenarios may omit them, and the harness treats the missing accessor
+as "none". Define them only when a package actually has such scenarios.
+
+  - `broken_scenario_names(reg)` (optional) returning a collection of scenario
+    names broken on every backend. Default: empty.
+  - `backend_broken_scenarios(reg)` (optional) returning a
+    `Dict{String, Set{String}}` of per-backend broken scenario names. Default:
+    empty.
+  - `backend_skip_scenarios(reg)` (optional) returning a
+    `Dict{String, Set{String}}` of per-backend scenario names too unstable to
+    run at all. Default: empty.
 
 A package may implement these as plain functions taking the registry, or (the
 common case) expose them as zero-argument functions on a module and pass the
@@ -52,9 +59,28 @@ function _scenarios(reg; with_reference = true, scenario_kwargs = (;))
     return reg.scenarios(; with_reference = with_reference, scenario_kwargs...)
 end
 _backends(reg) = reg.backends()
-_global_broken(reg) = reg.broken_scenario_names()
-_per_backend_broken(reg) = reg.backend_broken_scenarios()
-_per_backend_skip(reg) = reg.backend_skip_scenarios()
+
+# True when `reg` exposes a callable `name` accessor. A module registry exposes
+# its functions as properties; a struct registry would carry them as fields.
+function _has_accessor(reg, name::Symbol)
+    reg isa Module ? isdefined(reg, name) : hasproperty(reg, name)
+end
+
+# The broken/skip bookkeeping accessors are optional (see `ADRegistry`): a
+# registry that defines none of them is treated as having no broken or skipped
+# scenarios, so a package without such scenarios need not define empty stubs.
+function _global_broken(reg)
+    _has_accessor(reg, :broken_scenario_names) ?
+    reg.broken_scenario_names() : String[]
+end
+function _per_backend_broken(reg)
+    _has_accessor(reg, :backend_broken_scenarios) ?
+    reg.backend_broken_scenarios() : Dict{String, Set{String}}()
+end
+function _per_backend_skip(reg)
+    _has_accessor(reg, :backend_skip_scenarios) ?
+    reg.backend_skip_scenarios() : Dict{String, Set{String}}()
+end
 
 _entry(reg, name) = only(filter(e -> e.name == name, _backends(reg)))
 
