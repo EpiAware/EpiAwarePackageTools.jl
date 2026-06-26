@@ -107,6 +107,18 @@ end # module _NonConforming
         @test res isa Test.AbstractTestSet
     end
 
+    @testset "test_formatting env mode runs a subprocess runner" begin
+        # An isolated formatter env whose runner exits zero passes; a missing
+        # Project.toml / runtests.jl errors (cf. `test_jet`'s env path).
+        dir = mktempdir()
+        @test_throws ErrorException test_formatting([]; env = dir)
+        write(joinpath(dir, "Project.toml"), "")
+        @test_throws ErrorException test_formatting([]; env = dir)
+        write(joinpath(dir, "runtests.jl"), "exit(0)")
+        ts = test_formatting([]; env = dir)
+        @test ts isa Test.AbstractTestSet
+    end
+
     @testset "test_doctest runs over self" begin
         # EpiAwarePackageTools has no `jldoctest` blocks, so `doctest` passes
         # trivially — this exercises the Documenter wiring end to end.

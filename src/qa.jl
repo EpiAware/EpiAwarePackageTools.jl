@@ -40,9 +40,19 @@ The test passes when every directory is already formatted. JuliaFormatter must
 be a dependency of the calling environment; to keep its `JuliaSyntax` pin from
 clashing with JET, run this from an isolated formatter environment (see the
 `templates/Taskfile.yml` `test-formatting` target).
+
+Pass `env` (the path to an isolated formatter project directory holding
+JuliaFormatter) to run the check in a subprocess via that project's
+`runtests.jl`, exactly as [`test_jet`](@ref) isolates JET. The test then passes
+when the subprocess exits zero, and JuliaFormatter need not be a dependency of
+the calling environment — the recommended layout when the test items share an
+environment with JET. `style`/`verbose`/`dirs` are ignored in `env` mode (the
+isolated `runtests.jl` owns that configuration).
 """
 function test_formatting(dirs; style::AbstractString = "sciml",
-        verbose::Bool = true)
+        verbose::Bool = true,
+        env::Union{Nothing, AbstractString} = nothing)
+    env === nothing || return _test_formatting_env(env)
     # See `test_aqua` for why this goes through `invokelatest`.
     JF = Base.require(Base.PkgId(
         Base.UUID("98e50ef6-434e-11e9-1051-2b60c6c9e899"), "JuliaFormatter"))
@@ -58,6 +68,28 @@ function test_formatting(dirs; style::AbstractString = "sciml",
             end
             @test all_ok
         end
+    end
+end
+
+# Run the formatter check in an isolated subprocess (cf. `test_jet`'s `env`
+# path): instantiate `env`, then run its `runtests.jl` and assert a zero exit.
+function _test_formatting_env(env::AbstractString)
+    Pkg = Base.require(Base.PkgId(
+        Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg"))
+    isdir(env) && isfile(joinpath(env, "Project.toml")) ||
+        error("formatter env $env has no Project.toml")
+    runner = joinpath(env, "runtests.jl")
+    isfile(runner) || error("formatter env $env has no runtests.jl")
+    current = Base.active_project()
+    Pkg.activate(env)
+    Pkg.instantiate()
+    Pkg.activate(current)
+    return @testset "formatting" begin
+        result = run(
+            pipeline(`$(Base.julia_cmd()) --project=$env $runner`,
+                stdout = stdout, stderr = stderr);
+            wait = true)
+        @test result.exitcode == 0
     end
 end
 
