@@ -129,6 +129,116 @@
             @test occursin("after", joined)
         end
 
+        @testset "test_readme_sections" begin
+            badges = EpiAwarePackageTools.BADGES_START * "\n" *
+                     EpiAwarePackageTools.BADGES_END
+            # A README with the standard sections in standard order passes.
+            conforming = """
+            # MyPkg
+
+            $badges
+
+            *one-line description*
+
+            ## Overview
+            why.
+
+            ## Usage
+            how.
+
+            ## Documentation
+            links.
+
+            ## Contributing
+            help.
+
+            ## License
+            MIT.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), conforming)
+                test_readme_sections(dir)
+                # Accepts a direct file path too.
+                test_readme_sections(joinpath(dir, "README.md"))
+            end
+
+            # Missing a required section (no Documentation) is flagged.
+            missing_section = replace(conforming,
+                "## Documentation\nlinks.\n\n" => "")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), missing_section)
+                @test check_flags(() -> test_readme_sections(dir))
+            end
+
+            # Sections present but out of order is flagged when order = true,
+            # and accepted when order = false.
+            disordered = """
+            # MyPkg
+
+            $badges
+
+            ## Usage
+            how.
+
+            ## Overview
+            why.
+
+            ## Documentation
+            d.
+
+            ## Contributing
+            c.
+
+            ## License
+            l.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), disordered)
+                @test check_flags(() -> test_readme_sections(dir))
+                test_readme_sections(dir; order = false)
+            end
+
+            # A heading inside a fenced code block is not counted as a section.
+            fenced = """
+            # MyPkg
+
+            $badges
+
+            ## Overview
+            ```julia
+            ## not a heading
+            ```
+
+            ## Usage
+            u.
+
+            ## Documentation
+            d.
+
+            ## Contributing
+            c.
+
+            ## License
+            l.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), fenced)
+                test_readme_sections(dir)
+            end
+
+            # A custom required list can extend the standard set.
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), conforming)
+                @test check_flags(() -> test_readme_sections(dir;
+                    required = vcat(STANDARD_README_SECTIONS,
+                        [("Benchmarks",)])))
+            end
+
+            # The kit's own README conforms to the standard structure.
+            root = dirname(dirname(pathof(EpiAwarePackageTools)))
+            test_readme_sections(root)
+        end
+
         @testset "test_formatting over self" begin
             # Check the package src tree is JuliaFormatter-clean.
             root = dirname(dirname(pathof(EpiAwarePackageTools)))

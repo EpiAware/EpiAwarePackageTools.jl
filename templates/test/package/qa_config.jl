@@ -28,6 +28,13 @@ const QA_CONFIG = (
     # (; exported_only_examples = true, require_field_docs = true).
     docstring = (;),
 
+    # README section-structure check. `path` is the package root (its
+    # README.md). Override `required`/`order` to extend or relax the standard
+    # section set, e.g.
+    #   (; required = vcat(STANDARD_README_SECTIONS, [("Benchmarks",)]))
+    # Empty `(;)` uses the standard structure in standard order.
+    readme = (; path = joinpath(@__DIR__, "..", "..")),
+
     # Package extensions to ambiguity-check. Each entry:
     #   (; name = :MyPkgSomeTriggerExt,
     #      triggers = ("SomeTrigger",),       # packages to load first

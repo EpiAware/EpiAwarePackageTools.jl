@@ -83,6 +83,132 @@ function test_explicit_imports(mod::Module; ignore::Tuple = ())
     end
 end
 
+# --- README section structure ----------------------------------------------
+
+# The standard EpiAware README section structure, in order, distilled from the
+# CensoredDistributions gold standard. Each entry is the canonical `##` heading
+# the check looks for; the H1 title and the badge block (between the markers,
+# refreshed by `update`) precede these and are checked separately. A package may
+# title the equivalent section differently (e.g. "Getting started" vs "Usage"),
+# so each entry is a tuple of accepted heading texts (case-insensitive,
+# substring match) and the check passes if any variant is present.
+const STANDARD_README_SECTIONS = [
+    ("Why", "Overview", "Features", "About"),
+    ("Getting started", "Usage", "Quickstart", "Quick start"),
+    ("Documentation", "Where to learn more", "Learn more"),
+    ("Contributing",),
+    ("Citing", "Citation", "License", "Supporting")
+]
+
+# Render one section group as a human-readable label for failure messages.
+_section_label(group::Tuple) = join(group, " / ")
+
+# True when any heading line of `readme` matches `group` (a tuple of accepted
+# heading texts), case-insensitively as a substring. `headings` is the ordered
+# vector of heading texts already extracted from the README.
+function _has_section(headings::Vector{String}, group::Tuple)
+    return any(headings) do h
+        any(v -> occursin(lowercase(v), lowercase(h)), group)
+    end
+end
+
+# Index of the first heading matching `group`, or `nothing` when absent.
+function _section_index(headings::Vector{String}, group::Tuple)
+    for (i, h) in pairs(headings)
+        any(v -> occursin(lowercase(v), lowercase(h)), group) && return i
+    end
+    return nothing
+end
+
+# Extract the ordered `##`-level (or deeper) Markdown heading texts from a
+# README body, ignoring the H1 title and fenced code blocks (so a `#` inside a
+# ```code``` block is not mistaken for a heading).
+function _readme_headings(body::AbstractString)
+    headings = String[]
+    in_fence = false
+    for line in split(body, '\n')
+        s = strip(line)
+        if startswith(s, "```")
+            in_fence = !in_fence
+            continue
+        end
+        in_fence && continue
+        m = match(r"^(#{2,6})\s+(.+?)\s*$", s)
+        m === nothing || push!(headings, String(m.captures[2]))
+    end
+    return headings
+end
+
+"""
+    test_readme_sections(path; required = STANDARD_README_SECTIONS, order = true)
+
+Assert the README at `path` carries the standard EpiAware section structure.
+
+`path` is a README file or the directory containing a `README.md`. The check
+reads the `##`-level (and deeper) headings, skipping the H1 title and any
+heading inside a fenced code block, then asserts each entry of `required` is
+present and (when `order = true`) that the present sections appear in the given
+order.
+
+`required` is a vector of heading groups; each group is a tuple of accepted
+heading texts matched case-insensitively as a substring, so a package may title
+the section to taste (e.g. `("Getting started", "Usage")`). The default is the
+standard structure ([`STANDARD_README_SECTIONS`](@ref)): a Why/Overview section,
+a Getting started / Usage section, a Documentation section, a Contributing
+section, and a Citing / License section. A package overrides or extends the list
+via its `qa_config.jl` (pass its own `required`).
+
+The H1 title and the managed badge block are checked here too: the README must
+open with a single `#` title and contain the badge markers the scaffolder
+manages (see [`scaffold`](@ref)).
+
+# Keyword Arguments
+  - `required`: the ordered heading groups to require; default the standard set.
+  - `order`: when `true`, also assert the present sections are in order.
+
+```julia
+test_readme_sections(pkgdir(MyPackage))
+# extend the standard set with a package-specific section:
+test_readme_sections(pkgdir(MyPackage);
+    required = vcat(EpiAwarePackageTools.STANDARD_README_SECTIONS,
+        [("Benchmarks",)]))
+```
+"""
+function test_readme_sections(path::AbstractString;
+        required = STANDARD_README_SECTIONS, order::Bool = true)
+    file = isdir(path) ? joinpath(path, "README.md") : path
+    return @testset "README sections: $(basename(dirname(abspath(file))))" begin
+        if !isfile(file)
+            @test_skip "no README at $file"
+            return nothing
+        end
+        body = read(file, String)
+        # H1 title and the managed badge markers (`scaffold.jl` owns the marker
+        # constants; this file is included before it, so reference them at call
+        # time, not parse time).
+        @test occursin(r"(?m)^#\s+\S", body)
+        @test occursin(BADGES_START, body)
+        @test occursin(BADGES_END, body)
+
+        headings = _readme_headings(body)
+        for group in required
+            @testset "$(_section_label(group))" begin
+                @test _has_section(headings, group)
+            end
+        end
+        if order
+            @testset "section order" begin
+                idxs = Int[]
+                for group in required
+                    i = _section_index(headings, group)
+                    i === nothing || push!(idxs, i)
+                end
+                @test issorted(idxs)
+            end
+        end
+    end
+end
+
 """
     test_jet(mod; target_modules = (mod,), env = nothing,
         skip_experimental = true)

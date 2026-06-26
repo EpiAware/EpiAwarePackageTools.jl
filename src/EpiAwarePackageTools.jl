@@ -56,6 +56,7 @@ include("benchmarks.jl")
 export test_aqua, test_jet, test_explicit_imports
 export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
+export test_readme_sections, STANDARD_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
 export scaffold, update, generate, scaffold_inputs
 export ADRegistry, check_broken, test_working_backend, test_partial_backend

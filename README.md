@@ -21,7 +21,7 @@ reference. Package-specific fixtures (the actual distributions, models, or
 interface checklists) stay in each package; this package only supplies the
 reusable run logic.
 
-## What is here
+## Overview
 
 The kit has four parts.
 
@@ -40,6 +40,8 @@ helpers below. The package then fills in the package-owned skeletons (its
 `qa_config.jl`, AD scenarios, and `benchmarks.jl`) and adds its own unit tests.
 `update(pkgdir(MyPackage))` re-applies only the managed standard files to keep
 a package in sync (the entry point a scheduled template-sync uses).
+
+## Usage
 
 ### Package-quality helpers
 
@@ -190,6 +192,16 @@ test_partial_backend(MyPackageADFixtures, "Enzyme forward")
 
 See the `ADRegistry` docstring for the full contract.
 
+## Documentation
+
+- [Stable docs](https://epiawarepackagetools.epiaware.org/stable/) — the latest
+  release.
+- [Dev docs](https://epiawarepackagetools.epiaware.org/dev/) — the `main`
+  branch.
+
+The documentation landing page is generated from this README, so the two stay
+in sync.
+
 ## Installation
 
 The package is not yet registered in the General registry. Until it is, depend
@@ -204,3 +216,7 @@ EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.
 
 This package follows [ColPrac](https://github.com/SciML/ColPrac) and the
 [SciML style](https://github.com/SciML/SciMLStyle).
+
+## License
+
+Released under the [MIT License](LICENSE).

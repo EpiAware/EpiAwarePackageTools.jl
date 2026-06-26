@@ -28,6 +28,14 @@ end
         QA_CONFIG.docstring...)
 end
 
+@testitem "Quality: README sections" tags=[:quality] begin
+    using EpiAwarePackageTools
+    include(joinpath(@__DIR__, "qa_config.jl"))
+    cfg = QA_CONFIG.readme
+    test_readme_sections(cfg.path;
+        (k => v for (k, v) in pairs(cfg) if k !== :path)...)
+end
+
 @testitem "Quality: doctest" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
