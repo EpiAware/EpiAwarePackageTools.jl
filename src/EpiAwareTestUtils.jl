@@ -18,6 +18,11 @@ Two groups are provided.
     package's reverse/forward AD backends against a ForwardDiff reference. It
     works on any registry satisfying the [`ADRegistry`](@ref) contract.
 
+A [`Benchmarks`](@ref EpiAwareTestUtils.Benchmarks) submodule supplies the
+generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools
+result data into a legible Markdown PR comment. A package keeps its own
+benchmark definitions and calls into this module to run and report them.
+
 Package-specific fixtures (the actual distributions, models, or interface
 checklists a package wants to exercise) stay in that package. This module only
 supplies the reusable scaffolding.
@@ -26,6 +31,7 @@ module EpiAwareTestUtils
 
 include("quality.jl")
 include("ad_harness.jl")
+include("benchmarks.jl")
 
 export test_aqua, test_jet, test_explicit_imports
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
