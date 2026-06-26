@@ -5,6 +5,7 @@
 # allowed cross-references) are caller-supplied arguments, never baked in.
 
 using Test: @testset, @test, @test_skip, @test_broken, detect_ambiguities
+using Markdown: Markdown
 
 """
     test_doctest(mod)
@@ -126,6 +127,31 @@ test_linting(mod::Module; kwargs...) = test_jet(mod; kwargs...)
 
 # --- docstring format -------------------------------------------------------
 
+# Render one `DocStr`'s text vector to a string, keeping only the authored
+# prose. A `DocStr.text` is a vector of interpolated pieces; with
+# `DocStringExtensions.@template` registered, the package's `@template`
+# directive wraps each docstring as `[Template{:before}, "<prose>",
+# Template{:after}]`, so the prose is an interior `AbstractString`, not the
+# last element. Keep the `AbstractString` / `Markdown.MD` pieces and drop the
+# `Template` directives, so a templated package is read the same as a plain
+# one. (The previous `text[end]` returned the appended `Template` object.)
+function _docstr_text(docstr)
+    text = try
+        docstr.text
+    catch
+        return string(docstr)
+    end
+    pieces = String[]
+    for t in text
+        if t isa AbstractString || t isa Markdown.MD
+            push!(pieces, string(t))
+        end
+    end
+    # No authored prose survived the filter (e.g. a bare `@template`): fall
+    # back to stringifying the whole `DocStr` rather than dropping it.
+    return isempty(pieces) ? string(docstr) : join(pieces, "\n")
+end
+
 # Resolve a binding's docstring to a single string, collapsing the `MultiDoc`
 # case (one entry per documented signature) into one block. Returns an empty
 # string when nothing is documented, so callers test `isempty`.
@@ -138,11 +164,11 @@ function _docstring_content(mod::Module, name::Symbol)
         if doc_obj isa Base.Docs.MultiDoc
             blocks = String[]
             for (_, docstr) in doc_obj.docs
-                push!(blocks, string(docstr.text[end]))
+                push!(blocks, _docstr_text(docstr))
             end
             return join(blocks, "\n\n")
         else
-            return string(doc_obj)
+            return _docstr_text(doc_obj)
         end
     catch
         return ""
