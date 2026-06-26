@@ -7,6 +7,8 @@ using BenchmarkTools
 
 @testset "EpiAwareTestUtils" begin
     include("quality.jl")
+    include("qa.jl")
+    include("scaffold.jl")
     include("ad_harness.jl")
     include("benchmarks.jl")
 end

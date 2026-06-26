@@ -15,16 +15,13 @@ repos:
     -   id: trailing-whitespace
 #####
 # Julia
-# Due to lack of first-class Julia support, this needs Julia local install
-#  and JuliaFormatter.jl installed in the library
+# Due to lack of first-class Julia support, this needs a local Julia install
+#  with JuliaFormatter.jl available. Keep `rev` in step with the pinned
+#  JuliaFormatter in the formatter test environment and `.JuliaFormatter.toml`.
 - repo: https://github.com/domluna/JuliaFormatter.jl
   rev: v2.5.5
   hooks:
   - id: julia-formatter
-    # `templates/` holds scaffold templates, some carrying `{{PACKAGE}}`
-    # placeholders that are not parseable Julia until substituted. Their
-    # formatting is verified post-substitution by the scaffold test suite.
-    exclude: '^templates/'
 #####
 # Secrets
 -   repo: https://github.com/Yelp/detect-secrets
