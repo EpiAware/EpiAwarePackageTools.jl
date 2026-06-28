@@ -2,8 +2,8 @@
 # Isolated JET environment so JET's JuliaSyntax pin does not clash with the
 # main test deps. Add any extra packages JET needs to load the target here.
 [deps]
-JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+{{KIT_DEP_LINE}}JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 {{PACKAGE}} = "{{UUID}}"
 
 [sources]
-{{PACKAGE}} = {path = "../.."}
+{{PACKAGE}} = {path = "../.."}{{KIT_SOURCE_LINE}}

@@ -14,11 +14,25 @@ Run Documenter's `doctest` over `mod`.
 
 A thin wrapper that runs the package doctests in one `@testset`. Documenter must
 be a dependency of the calling test environment.
+
+`Documenter.doctest` evaluates each docs page's `@meta CurrentModule = <mod>`
+block against `Main`. Under `TestItemRunner` the `@testitem` body runs in a
+sandbox module, so `Main` has no binding for the package and every `@meta` block
+fails with `UndefVarError: <mod> not defined in Main`. To make the standard
+`@meta CurrentModule` idiom work under TestItemRunner, the module is bound into
+`Main` (under its own name) before doctesting, so the `@meta` blocks resolve.
 """
 function test_doctest(mod::Module)
     # See `test_aqua` for why this goes through `invokelatest`.
     Documenter = Base.require(Base.PkgId(
         Base.UUID("e30172f5-a6a5-5a46-863b-614d45cd2de4"), "Documenter"))
+    # Bind `mod` into `Main` under its own name so `@meta CurrentModule = <mod>`
+    # blocks in the docs pages resolve when doctest runs inside a TestItemRunner
+    # sandbox module (where `Main` would otherwise lack the binding). Set it
+    # when absent so a real `Main.<mod>` is never clobbered.
+    name = nameof(mod)
+    isdefined(Main, name) ||
+        Core.eval(Main, Expr(:(=), name, mod))
     return @testset "doctest: $(nameof(mod))" begin
         Base.invokelatest(Documenter.doctest, mod)
     end

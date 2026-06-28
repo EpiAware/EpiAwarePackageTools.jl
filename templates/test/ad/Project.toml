@@ -18,3 +18,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 [sources]
 ADFixtures = {path = "../ADFixtures"}
 {{PACKAGE}} = {path = "../.."}
+# Until EpiAwarePackageTools is registered, it is pinned by git so the env
+# resolves out of the box. Switch to a local path if you develop the kit
+# alongside this package.
+EpiAwarePackageTools = {url = "https://github.com/{{ORG}}/EpiAwarePackageTools.jl", rev = "main"}

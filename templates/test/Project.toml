@@ -22,5 +22,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [sources]
 {{PACKAGE}} = {path = ".."}
-# Until EpiAwarePackageTools is registered, pin it by git (or a local path):
-# EpiAwarePackageTools = {url = "https://github.com/{{ORG}}/EpiAwarePackageTools.jl", rev = "main"}
+# Until EpiAwarePackageTools is registered, it is pinned by git so the env
+# resolves out of the box. Switch to a local path if you develop the kit
+# alongside this package, e.g. EpiAwarePackageTools = {path = "../../EpiAwarePackageTools.jl"}.
+EpiAwarePackageTools = {url = "https://github.com/{{ORG}}/EpiAwarePackageTools.jl", rev = "main"}

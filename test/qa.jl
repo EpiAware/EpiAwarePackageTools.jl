@@ -276,6 +276,22 @@
                   first(methods(test_linting)).name === :test_linting
         end
 
+        @testset "test_explicit_imports forwards implicit_ignore" begin
+            # `implicit_ignore` is a separate kwarg defaulting to `ignore`, so a
+            # reexporting package can allow its bare module name in
+            # `check_no_implicit_imports`. The kit has no implicit imports, so the
+            # check passes; assert the kwarg is accepted and the testset returns.
+            ts = test_explicit_imports(EpiAwarePackageTools;
+                implicit_ignore = (:Nonexistent,))
+            @test ts isa Test.AbstractTestSet
+        end
+
+        @testset "dynamicppl_model_filter classifies reports" begin
+            # A report whose innermost frame cannot be inspected is KEPT (fail
+            # closed): the filter returns `true` for a non-report object.
+            @test dynamicppl_model_filter((; nope = 1)) == true
+        end
+
         @testset "ambiguity helpers error on unloaded extension" begin
             # No extension named :NotAnExtension is loaded, so both query helpers
             # error rather than silently passing.

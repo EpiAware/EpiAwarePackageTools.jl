@@ -55,18 +55,27 @@ function test_aqua(mod::Module; ambiguities = true, unbound_args = true,
 end
 
 """
-    test_explicit_imports(mod; ignore = ())
+    test_explicit_imports(mod; ignore = (), implicit_ignore = ignore)
 
 Run the ExplicitImports.jl conformance checks over `mod`.
 
 Asserts there are no stale explicit imports, no implicit imports, that every
-explicit import is public in its source module (with an `ignore` tuple of
-`Symbol`s for unavoidable non-public imports, e.g. an upstream internal used by
-an extension), and that imports come from their owning module.
+explicit import is public in its source module, and that imports come from their
+owning module.
+
+  - `ignore` — a tuple of `Symbol`s for unavoidable non-public explicit
+    imports (e.g. an upstream internal used by an extension); forwarded to
+    `check_all_explicit_imports_are_public`.
+  - `implicit_ignore` — a tuple of names that are legitimately implicit and
+    must not fail `check_no_implicit_imports`; defaults to `ignore`. The common
+    case is a `@reexport using SomePkg`, which makes the bare module name
+    `SomePkg` an implicit import that no amount of explicit listing removes —
+    pass `implicit_ignore = (:SomePkg,)` so a reexporting package conforms.
 
 ExplicitImports must be a dependency of the calling test environment.
 """
-function test_explicit_imports(mod::Module; ignore::Tuple = ())
+function test_explicit_imports(mod::Module; ignore::Tuple = (),
+        implicit_ignore::Tuple = ignore)
     # See `test_aqua` for why the checks go through `invokelatest`.
     EI = Base.require(Base.PkgId(
         Base.UUID("7d51a73a-1435-4ff3-83d9-f097790105c7"), "ExplicitImports"))
@@ -74,7 +83,8 @@ function test_explicit_imports(mod::Module; ignore::Tuple = ())
         @test Base.invokelatest(
             EI.check_no_stale_explicit_imports, mod) === nothing
         @test Base.invokelatest(
-            EI.check_no_implicit_imports, mod) === nothing
+            EI.check_no_implicit_imports, mod;
+            ignore = implicit_ignore) === nothing
         @test Base.invokelatest(
             EI.check_all_explicit_imports_are_public, mod;
             ignore = ignore) === nothing
@@ -85,13 +95,21 @@ end
 
 # --- README section structure ----------------------------------------------
 
-# The standard EpiAware README section structure, in order, distilled from the
-# CensoredDistributions gold standard. Each entry is the canonical `##` heading
-# the check looks for; the H1 title and the badge block (between the markers,
-# refreshed by `update`) precede these and are checked separately. A package may
-# title the equivalent section differently (e.g. "Getting started" vs "Usage"),
-# so each entry is a tuple of accepted heading texts (case-insensitive,
-# substring match) and the check passes if any variant is present.
+"""
+    STANDARD_README_SECTIONS
+
+The standard EpiAware README section structure, in order, distilled from the
+CensoredDistributions gold standard and used as the default `required` set by
+[`test_readme_sections`](@ref).
+
+Each entry is a tuple of accepted `##`-heading texts (case-insensitive,
+substring match), and the check passes if any variant is present; the H1 title
+and the badge block (between the markers, refreshed by `update`) precede these
+and are checked separately. A package may title the equivalent section
+differently (e.g. "Getting started" vs "Usage"), so a tuple lists the accepted
+alternatives. Extend or relax it per package via the `required` keyword of
+[`test_readme_sections`](@ref).
+"""
 const STANDARD_README_SECTIONS = [
     ("Why", "Overview", "Features", "About"),
     ("Getting started", "Usage", "Quickstart", "Quick start"),
@@ -134,7 +152,12 @@ function _readme_headings(body::AbstractString)
         end
         in_fence && continue
         m = match(r"^(#{2,6})\s+(.+?)\s*$", s)
-        m === nothing || push!(headings, String(m.captures[2]))
+        m === nothing && continue
+        # `(.+?)` always matches when `m !== nothing`, but its capture is typed
+        # `Union{Nothing, SubString}`; the explicit guard keeps that from being
+        # a `String(::Nothing)` call (which JET flags).
+        text = m.captures[2]
+        text === nothing || push!(headings, String(text))
     end
     return headings
 end
@@ -209,11 +232,65 @@ function test_readme_sections(path::AbstractString;
     end
 end
 
+# A report is "in a DynamicPPL `@model`-generated method" when its innermost
+# frame's `MethodInstance` takes the DynamicPPL model-evaluator signature
+# `(::Model, ::AbstractVarInfo, ...)`. `@model` lowers each `~`/`:=` line into
+# this evaluator, hiding the assignment from JET's static analysis, so JET emits
+# spurious `UndefVarErrorReport`s for every `~`-assigned local and
+# `MethodErrorReport`s through the `:=` tracking machinery. Matching on the
+# evaluator signature (by type name, so DynamicPPL need not be loaded here)
+# drops exactly those artefacts while keeping every genuine report.
+"""
+    dynamicppl_model_filter(report) -> Bool
+
+A `report_filter` for [`test_jet`](@ref) that DROPS reports arising inside a
+DynamicPPL `@model`-generated method (matched on the model-evaluator signature
+`(::Model, ::AbstractVarInfo, ...)`), and keeps every other report.
+
+Use this for a Turing/DynamicPPL package whose public surface is `@model`
+functions: `test_jet(MyPkg; report_filter = dynamicppl_model_filter)`. Without
+it, JET reports a false `UndefVarErrorReport` for every `~`-assigned variable
+(and `MethodErrorReport`s through the `:=` tracker), none of which is a real
+defect.
+"""
+function dynamicppl_model_filter(report)
+    sig = try
+        mi = report.vst[end].linfo
+        mi.specTypes
+    catch
+        return true  # cannot classify: keep the report (fail closed)
+    end
+    params = try
+        Base.unwrap_unionall(sig).parameters
+    catch
+        return true
+    end
+    length(params) >= 3 || return true
+    is_model = _typename_is(params[2], "Model")
+    is_vi = _typename_is(params[3], "AbstractVarInfo") ||
+            _typename_is(params[3], "VarInfo") ||
+            _occurs_varinfo(params[3])
+    # Drop (return false) only when both the model and varinfo positions match.
+    return !(is_model && is_vi)
+end
+
+# True when the type `t`'s name is exactly `name` (ignoring its defining
+# module), tolerant of UnionAll/abstract wrappers.
+function _typename_is(t, name::AbstractString)
+    return try
+        string(Base.unwrap_unionall(t).name.name) == name
+    catch
+        false
+    end
+end
+
+_occurs_varinfo(t) = occursin("VarInfo", string(t))
+
 """
     test_jet(mod; target_modules = (mod,), env = nothing,
-        skip_experimental = true)
+        skip_experimental = true, report_filter = nothing)
 
-Run JET.test_package over `mod`.
+Run JET over `mod`.
 
 JET is run in an isolated environment to keep its `JuliaSyntax` / dependency
 pins from clashing with the rest of the test environment. Pass `env` as the path
@@ -222,12 +299,23 @@ to a project directory holding JET plus the package; that project's
 `env` is `nothing` JET is loaded into the current environment and run directly
 (simpler, but only safe when JET coexists with the test deps).
 
+`report_filter` is an optional predicate `report -> Bool`: when supplied, JET is
+run via `report_package` and the test asserts that no report for which the
+predicate returns `true` survives (a report is KEPT when the predicate returns
+`true`). This lets a package suppress known false positives without silencing
+the whole check. For a DynamicPPL `@model` package, pass
+[`dynamicppl_model_filter`](@ref), which drops the macro's spurious
+`~`/`:=` reports. When `report_filter` is `nothing` (default), JET runs via
+`test_package` and fails on any report. `report_filter` is ignored in `env` mode
+(the isolated `runtests.jl` owns that configuration).
+
 By default JET is skipped on experimental / pre-release Julia (and when
 `JULIA_CI_EXPERIMENTAL=true`), where JET often lags the compiler.
 """
 function test_jet(mod::Module; target_modules = (mod,),
         env::Union{Nothing, AbstractString} = nothing,
-        skip_experimental::Bool = true)
+        skip_experimental::Bool = true,
+        report_filter::Union{Nothing, Function} = nothing)
     return @testset "JET: $(nameof(mod))" begin
         if skip_experimental && (VERSION >= v"1.13-" ||
             get(ENV, "JULIA_CI_EXPERIMENTAL", "false") == "true")
@@ -238,8 +326,22 @@ function test_jet(mod::Module; target_modules = (mod,),
             # See `test_aqua` for why this goes through `invokelatest`.
             JET = Base.require(Base.PkgId(
                 Base.UUID("c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"), "JET"))
-            Base.invokelatest(JET.test_package, mod;
-                target_modules = target_modules)
+            if report_filter === nothing
+                Base.invokelatest(JET.test_package, mod;
+                    target_modules = target_modules)
+            else
+                result = Base.invokelatest(JET.report_package, mod;
+                    target_modules = target_modules)
+                reports = Base.invokelatest(JET.get_reports, result)
+                kept = filter(report_filter, reports)
+                if !isempty(kept)
+                    for r in kept
+                        @info "JET report (not filtered)" report = sprint(
+                            show, r)
+                    end
+                end
+                @test isempty(kept)
+            end
         else
             Pkg = Base.require(Base.PkgId(
                 Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg"))
