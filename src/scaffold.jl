@@ -59,6 +59,7 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, false),
     Template(".JuliaFormatter.toml", ".JuliaFormatter.toml", true, false),
     Template(".gitattributes", ".gitattributes", true, false),
+    Template(".gitignore", ".gitignore", true, false),
     Template(".secrets.baseline", ".secrets.baseline", true, false),
     Template("codecov.yml", "codecov.yml", true, false, :ad_only),
     Template("codecov.noad.yml", "codecov.yml", true, false, :noad_only),
@@ -103,7 +104,26 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("benchmark/run.jl", "benchmark/run.jl", true, false),
     Template("benchmark/compare.jl", "benchmark/compare.jl", true, false),
 
+    # --- documentation: Documenter + DocumenterVitepress (managed) ---
+    # The standard org docs build (mirrors CensoredDistributions.jl). `make.jl`
+    # (the build logic), the VitePress site config/theme/components, the node
+    # deps, and the version stub are managed; `Project.toml` (doc deps) and
+    # `pages.jl` (the nav tree) are package-owned so a package extends them.
+    Template("docs/make.jl", "docs/make.jl", true, true),
+    Template("docs/package.json", "docs/package.json", true, false),
+    Template("docs/versions.js", "docs/versions.js", true, false),
+    Template("docs/src/.vitepress/config.mts",
+        "docs/src/.vitepress/config.mts", true, true),
+    Template("docs/src/.vitepress/theme/index.ts",
+        "docs/src/.vitepress/theme/index.ts", true, false),
+    Template("docs/src/.vitepress/theme/style.css",
+        "docs/src/.vitepress/theme/style.css", true, false),
+    Template("docs/src/components/VersionPicker.vue",
+        "docs/src/components/VersionPicker.vue", true, false),
+
     # --- package-owned skeletons (written once, never overwritten) ---
+    Template("docs/Project.toml", "docs/Project.toml", false, true),
+    Template("docs/pages.jl", "docs/pages.jl", false, false),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
     Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
@@ -111,6 +131,10 @@ const SCAFFOLD_TEMPLATES = Template[
         :noad_only),
     Template("test/package/qa_config.jl",
         "test/package/qa_config.jl", false, true),
+    # The optional JET report filter (e.g. for a DynamicPPL @model package).
+    Template("test/jet/jet_config.jl", "test/jet/jet_config.jl", false, false),
+    # The benchmark environment, so `--project=benchmark` resolves.
+    Template("benchmark/Project.toml", "benchmark/Project.toml", false, true),
     # The AD scenarios + registry skeleton are opt-in (only when `ad = true`).
     Template("test/ad/scenarios.jl", "test/ad/scenarios.jl", false, false,
         :ad_only),
@@ -126,6 +150,12 @@ const SCAFFOLD_TEMPLATES = Template[
 # The default org used to derive `{{ORG}}`/`{{REPO}}` when a caller does not
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
+
+# The kit's own name + UUID, used to source it into the managed JET env for an
+# adopting package. When the adopting package IS the kit (it dogfoods itself),
+# these are omitted so the env does not depend on / source itself twice.
+const KIT_NAME = "EpiAwarePackageTools"
+const KIT_UUID = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 
 # The SPDX licence identifiers a package may select, each backed by a bundled
 # `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.
@@ -226,9 +256,30 @@ function scaffold_inputs(target_dir::AbstractString;
     # A fresh UUID for the seeded ADFixtures registry skeleton (a new path
     # package). Generated once per call; the author keeps it thereafter.
     adfix_uuid = string(UUIDs.uuid4())
+    # The docs site host, e.g. `MyPkg` -> `mypkg.epiaware.org` (the
+    # DocumenterVitepress `deploy_url`). Derived from the package name;
+    # `nothing` when the name is unknown so a docs template errors clearly.
+    docs_host = pkg === nothing ? nothing : _docs_host(pkg)
+    # The managed JET env depends on EpiAwarePackageTools (for its report
+    # filter). The kit dogfoods itself, so when the ADOPTING package IS the kit
+    # the `{{PACKAGE}}` dep/source already cover it — adding a second
+    # EpiAwarePackageTools dep (and a git source clashing with the path source)
+    # would make a duplicate/invalid env. These placeholders emit the kit dep +
+    # git source for every OTHER package, and nothing for the kit itself.
+    is_kit = pkg == KIT_NAME
+    kit_dep = is_kit ? "" : string(KIT_NAME, " = \"", KIT_UUID, "\"\n")
+    kit_source = is_kit ? "" :
+                 string(
+        "\n# Until EpiAwarePackageTools is registered, it is pinned by git so\n",
+        "# the env resolves out of the box. Switch to a local path to\n",
+        "# develop the kit alongside this package.\n",
+        KIT_NAME, " = {url = \"https://github.com/", org, "/",
+        KIT_NAME, ".jl\", rev = \"main\"}")
     return (PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
-        REVIEWER = rev, YEAR = string(yr), LICENSE = license)
+        REVIEWER = rev, YEAR = string(yr), LICENSE = license,
+        DOCS_HOST = docs_host, KIT_DEP_LINE = kit_dep,
+        KIT_SOURCE_LINE = kit_source)
 end
 
 # Apply placeholder substitution to `content`. A template may use any subset of
@@ -303,11 +354,28 @@ const _AD_BACKENDS = [
 # The docs site host for a package, e.g. `MyPkg` -> `mypkg.epiaware.org`.
 _docs_host(pkg::AbstractString) = lowercase(pkg) * ".epiaware.org"
 
+# A license-badge cell for an SPDX identifier (label, shields colour, and the
+# opensource.org URL). Falls back to a plain SPDX label for an id without a
+# dedicated entry, so the badge always matches the package's actual licence.
+function _license_badge(spdx::AbstractString)
+    label = replace(spdx, "-" => "--")  # shields escapes a literal dash as `--`
+    url, colour = if spdx == "MIT"
+        "https://opensource.org/licenses/MIT", "yellow"
+    elseif spdx == "Apache-2.0"
+        "https://opensource.org/licenses/Apache-2.0", "blue"
+    else
+        "https://spdx.org/licenses/$spdx.html", "green"
+    end
+    return "[![License: $spdx](https://img.shields.io/badge/License-" *
+           "$label-$colour.svg)]($url)"
+end
+
 # Render the standard badge block (without the markers) from resolved inputs.
 # `repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds the
-# per-backend AD CI + coverage badge rows. No owner/repo is hardcoded — every
-# URL is built from `repo`/`pkg`.
-function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool)
+# per-backend AD CI + coverage badge rows; `license` is the SPDX id whose badge
+# is shown. No owner/repo is hardcoded — every URL is built from `repo`/`pkg`.
+function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
+        license::AbstractString = DEFAULT_LICENSE)
     gh = "https://github.com/" * repo
     cov = "https://codecov.io/gh/" * repo
     host = _docs_host(pkg)
@@ -327,15 +395,14 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool)
               "[![JET](https://img.shields.io/badge/" *
               "%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)]" *
               "(https://github.com/aviatesk/JET.jl)"
-    license = "[![License: MIT](https://img.shields.io/badge/License-MIT-" *
-              "yellow.svg)](https://opensource.org/licenses/MIT)"
+    license_cell = _license_badge(license)
     lines = String[
         "| | |",
         "|---|---|",
         "| Docs | " * docs * " |",
         "| CI | " * ci * " |",
         "| Quality | " * quality * " |",
-        "| License | " * license * " |"
+        "| License | " * license_cell * " |"
     ]
     if ad
         ci_badges = join(
@@ -367,8 +434,9 @@ end
 # Content outside the markers is never touched. Returns `(action, changed)`
 # where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
 # the file content changed.
-function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool)
-    badges = _render_badges(repo, pkg; ad = ad)
+function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
+        license::AbstractString = DEFAULT_LICENSE)
+    badges = _render_badges(repo, pkg; ad = ad, license = license)
     block = BADGES_START * "\n" * badges * "\n" * BADGES_END
     if !isfile(readme)
         write(readme, "# " * pkg * "\n\n" * block * "\n")
@@ -442,7 +510,9 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     pkg = inputs.PACKAGE
     readme_action = :skipped
     if repo !== nothing && pkg !== nothing
-        readme_action, _ = _apply_badges(readme, repo, pkg; ad = ad)
+        lic = String(inputs.LICENSE)
+        readme_action = first(
+            _apply_badges(readme, repo, pkg; ad = ad, license = lic))
     end
     # LICENSE is package-owned and write-once: only `scaffold`/`generate`
     # (`managed_only = false`) may write it, and only when absent. `update`

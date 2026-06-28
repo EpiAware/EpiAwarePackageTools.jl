@@ -17,7 +17,7 @@ Pkg.instantiate()
 
 using DocumenterVitepress
 using Documenter
-using EpiAwarePackageTools
+using {{PACKAGE}}
 
 include("pages.jl")
 
@@ -31,7 +31,7 @@ let readme = joinpath(dirname(@__DIR__), "README.md"),
     open(index, "w") do io
         println(io, "```@meta")
         println(io,
-            "EditURL = \"https://github.com/EpiAware/EpiAwarePackageTools.jl/blob/main/README.md\"")
+            "EditURL = \"https://github.com/{{REPO}}/blob/main/README.md\"")
         println(io, "```")
         println(io)
         in_badges = false
@@ -117,47 +117,47 @@ function write_api_page(path, title, anchor, page, intro, api_heading, mod, name
     end
 end
 
-let (public, private) = api_bindings(EpiAwarePackageTools)
+let (public, private) = api_bindings({{PACKAGE}})
     lib_dir = joinpath(@__DIR__, "src", "lib")
     write_api_page(
         joinpath(lib_dir, "public.md"),
         "Public Documentation", "public-api", "public.md",
-        "Documentation for `EpiAwarePackageTools`'s public interface.",
-        "Public API", EpiAwarePackageTools, public
+        "Documentation for `{{PACKAGE}}`'s public interface.",
+        "Public API", {{PACKAGE}}, public
     )
     write_api_page(
         joinpath(lib_dir, "internals.md"),
         "Internal Documentation", nothing, "internals.md",
-        "Documentation for `EpiAwarePackageTools`'s internal interface.",
-        "Internal API", EpiAwarePackageTools, private
+        "Documentation for `{{PACKAGE}}`'s internal interface.",
+        "Internal API", {{PACKAGE}}, private
     )
     println(
         "Generated API pages: $(length(public)) public, " *
         "$(length(private)) internal bindings")
 end
 
-DocMeta.setdocmeta!(EpiAwarePackageTools, :DocTestSetup,
-    :(using EpiAwarePackageTools); recursive = true)
+DocMeta.setdocmeta!({{PACKAGE}}, :DocTestSetup,
+    :(using {{PACKAGE}}); recursive = true)
 
-makedocs(; sitename = "EpiAwarePackageTools.jl",
-    authors = "Sam Abbott, EpiAware contributors",
+makedocs(; sitename = "{{PACKAGE}}.jl",
+    authors = "{{AUTHORS}}",
     clean = true, doctest = false,
     warnonly = [
         :docs_block, :missing_docs, :autodocs_block, :cross_references
     ],
-    modules = [EpiAwarePackageTools],
+    modules = [{{PACKAGE}}],
     pages = pages,
     format = DocumenterVitepress.MarkdownVitepress(
-        repo = "github.com/EpiAware/EpiAwarePackageTools.jl",
+        repo = "github.com/{{REPO}}",
         devbranch = "main",
         devurl = "dev",
-        deploy_url = "epiawarepackagetools.epiaware.org",
+        deploy_url = "{{DOCS_HOST}}",
         keep = :patch
     )
 )
 
 DocumenterVitepress.deploydocs(
-    repo = "github.com/EpiAware/EpiAwarePackageTools.jl",
+    repo = "github.com/{{REPO}}",
     target = "build",
     branch = "gh-pages",
     devbranch = "main",

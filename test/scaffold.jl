@@ -110,6 +110,104 @@
             end
         end
 
+        @testset "DocumenterVitepress docs setup present + parameterised" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # The standard org docs build (Documenter + DocumenterVitepress).
+                for f in ("docs/make.jl", "docs/Project.toml", "docs/pages.jl",
+                    "docs/package.json", "docs/versions.js",
+                    "docs/src/.vitepress/config.mts",
+                    "docs/src/.vitepress/theme/index.ts",
+                    "docs/src/.vitepress/theme/style.css",
+                    "docs/src/components/VersionPicker.vue")
+                    @test isfile(joinpath(dir, f))
+                end
+                # make.jl uses DocumenterVitepress, not a plain Documenter.HTML
+                # format, and is fully substituted.
+                mk = read(joinpath(dir, "docs/make.jl"), String)
+                @test occursin("using DocumenterVitepress", mk)
+                @test occursin("DocumenterVitepress.MarkdownVitepress", mk)
+                @test occursin("DocumenterVitepress.deploydocs", mk)
+                @test occursin("using Wombat", mk)
+                @test occursin("github.com/EpiAware/Wombat.jl", mk)
+                @test occursin("wombat.epiaware.org", mk)
+                @test !occursin("Documenter.HTML", mk)
+                @test !occursin("{{", mk)
+                # The docs env depends on DocumenterVitepress with compat.
+                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                @test occursin("DocumenterVitepress", dp)
+                @test occursin("Wombat = \"00000000", dp)
+                @test !occursin("{{", dp)
+                # The VitePress config keeps the DocumenterVitepress markers and
+                # points social links at the package repo.
+                cfg = read(joinpath(dir, "docs/src/.vitepress/config.mts"),
+                    String)
+                @test occursin("REPLACE_ME_DOCUMENTER_VITEPRESS", cfg)
+                @test occursin("github.com/EpiAware/Wombat.jl", cfg)
+                @test !occursin("{{", cfg)
+                # The node deps pin vitepress + DocumenterVitepress plugins.
+                pj = read(joinpath(dir, "docs/package.json"), String)
+                @test occursin("vitepress", pj)
+            end
+        end
+
+        @testset ".gitignore present and ignores Manifest + docs build" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                gi = joinpath(dir, ".gitignore")
+                @test isfile(gi)
+                txt = read(gi, String)
+                @test occursin("Manifest.toml", txt)
+                @test occursin("docs/build", txt)
+                @test occursin("docs/node_modules", txt)
+            end
+        end
+
+        @testset "benchmark env present so --project=benchmark resolves" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                bp = joinpath(dir, "benchmark/Project.toml")
+                @test isfile(bp)
+                txt = read(bp, String)
+                @test occursin("BenchmarkTools", txt)
+                @test occursin("EpiAwarePackageTools", txt)
+                @test occursin("Wombat = \"00000000", txt)
+                @test !occursin("{{", txt)
+            end
+        end
+
+        @testset "test envs pin EpiAwarePackageTools via [sources]" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # Every env that depends on the kit must resolve it: an active
+                # (not commented-out) [sources] git pin, since it is unregistered.
+                for f in ("test/Project.toml", "test/ad/Project.toml",
+                    "test/jet/Project.toml", "benchmark/Project.toml")
+                    txt = read(joinpath(dir, f), String)
+                    @test occursin(
+                        r"(?m)^EpiAwarePackageTools = \{url = ", txt)
+                end
+                # The jet runner depends on the kit (for the report filter).
+                jp = read(joinpath(dir, "test/jet/Project.toml"), String)
+                @test occursin("EpiAwarePackageTools =", jp)
+            end
+        end
+
+        @testset "license badge reflects the selected licence" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "README.md"), "# Wombat\n\nbody\n")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: Apache-2.0", txt)
+                @test !occursin("License: MIT", txt)
+            end
+        end
+
         @testset "package-owned skeletons present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
@@ -147,9 +245,12 @@
                 @test !occursin("{{HOLDER}}", lic)
                 @test !occursin("{{YEAR}}", lic)
 
-                # Dependabot reviewer defaults to the org (no person hardcoded).
+                # Dependabot sets NO reviewers/assignees: GitHub cannot assign an
+                # org (or any bare placeholder) as a reviewer, so the template
+                # omits them entirely (and never hardcodes a person).
                 dep = read(joinpath(dir, ".github/dependabot.yml"), String)
-                @test occursin("- \"EpiAware\"", dep)
+                @test !occursin("reviewers:", dep)
+                @test !occursin("assignees:", dep)
                 @test !occursin("{{REVIEWER}}", dep)
                 @test !occursin("seabbs", dep)
             end
@@ -166,8 +267,6 @@
                     String)
                 @test occursin("MyOrg/.github/.github/workflows/tests.yml",
                     test_yaml)
-                dep = read(joinpath(dir, ".github/dependabot.yml"), String)
-                @test occursin("- \"octocat\"", dep)
             end
         end
 

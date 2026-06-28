@@ -53,7 +53,7 @@ include("scaffold.jl")
 include("ad_harness.jl")
 include("benchmarks.jl")
 
-export test_aqua, test_jet, test_explicit_imports
+export test_aqua, test_jet, test_explicit_imports, dynamicppl_model_filter
 export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS

@@ -7,26 +7,49 @@
     using Test
     using EpiAwarePackageTools
 
-    # True when running `f` (a check that internally builds a `@testset`) records at
-    # least one Fail/Error. `f` runs on a fresh `Task`, which starts with an empty
-    # task-local testset stack, so the check's `@testset` is top-level there and
-    # throws a `TestSetException` on finish when it recorded a Fail/Error — which we
-    # read as "the check flagged a problem". Running on a separate task (rather than
-    # popping the stack by hand) avoids the internal stack functions, whose names
-    # differ across Julia releases (e.g. `pop_testset` is absent on 1.13-pre), so it
-    # keeps the surrounding suite's testset stack untouched.
-    function check_flags(f)
-        t = Task() do
-            try
-                f()
-                false
-            catch err
-                err isa Test.TestSetException ? (err.fail + err.error > 0) :
-                rethrow()
-            end
+    # A testset that TALLIES Fail/Error and never throws. The helpers under test
+    # build their own nested `@testset`s; with `CountingTestSet` as the outer set
+    # of `@testset`, every nested set is also a `CountingTestSet`. Each records a
+    # direct `@test` Fail/Error into its own `fails`; on `finish` a nested set
+    # folds its `fails` into its parent (so leaf counts bubble up), and the
+    # OUTERMOST set (no enclosing testset) simply returns itself WITHOUT throwing.
+    # Reading `fails` off the returned outermost set is therefore version-stable:
+    # it does not depend on the `TestSetException` thrown on a top-level finish
+    # (whose behaviour varies, e.g. 1.13-pre) nor leak failures into the
+    # surrounding suite. `description`/`fails` field names match what
+    # `Test.@testset` constructs and passes.
+    mutable struct CountingTestSet <: Test.AbstractTestSet
+        description::String
+        fails::Int
+    end
+    CountingTestSet(desc::String; kwargs...) = CountingTestSet(desc, 0)
+    function Test.record(ts::CountingTestSet, child::CountingTestSet)
+        ts.fails += child.fails
+        return child
+    end
+    function Test.record(ts::CountingTestSet, res::Test.Result)
+        (res isa Test.Fail || res isa Test.Error) && (ts.fails += 1)
+        return res
+    end
+    # Fold this set's tally into the enclosing testset (so leaf counts bubble up
+    # the nesting), or return self when this is the outermost set. Never throws.
+    function Test.finish(ts::CountingTestSet)
+        if Test.get_testset_depth() > 0
+            Test.record(Test.get_testset(), ts)
         end
-        schedule(t)
-        return fetch(t)
+        return ts
+    end
+
+    # True when running `f` (a check that internally builds a `@testset`) records
+    # at least one Fail/Error. `f` runs under a `CountingTestSet`, which tallies
+    # the check's Fail/Errors and swallows them (never re-recording into the
+    # surrounding suite or throwing). See the type's docstring for why this is
+    # version-stable across Julia releases.
+    function check_flags(f)
+        ts = @testset CountingTestSet "check_flags" begin
+            f()
+        end
+        return ts.fails > 0
     end
 
     # A synthetic conforming module: its exported symbols follow the docstring
@@ -274,6 +297,22 @@
             # a second full JET pass.
             @test test_linting === test_jet ||
                   first(methods(test_linting)).name === :test_linting
+        end
+
+        @testset "test_explicit_imports forwards implicit_ignore" begin
+            # `implicit_ignore` is a separate kwarg defaulting to `ignore`, so a
+            # reexporting package can allow its bare module name in
+            # `check_no_implicit_imports`. The kit has no implicit imports, so the
+            # check passes; assert the kwarg is accepted and the testset returns.
+            ts = test_explicit_imports(EpiAwarePackageTools;
+                implicit_ignore = (:Nonexistent,))
+            @test ts isa Test.AbstractTestSet
+        end
+
+        @testset "dynamicppl_model_filter classifies reports" begin
+            # A report whose innermost frame cannot be inspected is KEPT (fail
+            # closed): the filter returns `true` for a non-report object.
+            @test dynamicppl_model_filter((; nope = 1)) == true
         end
 
         @testset "ambiguity helpers error on unloaded extension" begin
