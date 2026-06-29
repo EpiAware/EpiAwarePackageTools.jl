@@ -131,7 +131,11 @@
                 @test occursin("DocumenterVitepress.deploydocs", mk)
                 @test occursin("using Wombat", mk)
                 @test occursin("github.com/EpiAware/Wombat.jl", mk)
-                @test occursin("wombat.epiaware.org", mk)
+                # Default docs hosting is project-pages: deploy_url = nothing
+                # (no custom subdomain), so DocumenterVitepress derives the base
+                # from the repo name and the site needs no DNS.
+                @test occursin("deploy_url = nothing", mk)
+                @test !occursin("wombat.epiaware.org", mk)
                 @test !occursin("Documenter.HTML", mk)
                 @test !occursin("{{", mk)
                 # The docs env depends on DocumenterVitepress with compat.
@@ -149,6 +153,33 @@
                 # The node deps pin vitepress + DocumenterVitepress plugins.
                 pj = read(joinpath(dir, "docs/package.json"), String)
                 @test occursin("vitepress", pj)
+            end
+        end
+
+        @testset "docs_subdomain opts into a custom subdomain deploy" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                # `true` selects the conventional <pkg>.epiaware.org host.
+                scaffold(dir; docs_subdomain = true)
+                mk = read(joinpath(dir, "docs/make.jl"), String)
+                @test occursin("deploy_url = \"wombat.epiaware.org\"", mk)
+                @test !occursin("deploy_url = nothing", mk)
+                @test !occursin("{{", mk)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("wombat.epiaware.org/stable/", txt)
+                @test occursin("wombat.epiaware.org/dev/", txt)
+                @test !occursin("epiaware.org/Wombat.jl/stable/", txt)
+            end
+        end
+
+        @testset "docs_subdomain accepts a bespoke host string" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; docs_subdomain = "docs.example.org")
+                mk = read(joinpath(dir, "docs/make.jl"), String)
+                @test occursin("deploy_url = \"docs.example.org\"", mk)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("docs.example.org/stable/", txt)
             end
         end
 
@@ -484,7 +515,11 @@
                 @test occursin("## Usage", txt)
                 # Parameterised from REPO/PACKAGE — no hardcoded owner/repo.
                 @test occursin("EpiAware/Wombat.jl", txt)
-                @test occursin("wombat.epiaware.org", txt)
+                # Default docs badges point at the project-pages URL, not a
+                # custom subdomain.
+                @test occursin("epiaware.org/Wombat.jl/stable/", txt)
+                @test occursin("epiaware.org/Wombat.jl/dev/", txt)
+                @test !occursin("wombat.epiaware.org", txt)
                 # ad = false: no per-backend AD badge rows.
                 @test !occursin("AD CI", txt)
                 @test !occursin("ad-forwarddiff", txt)

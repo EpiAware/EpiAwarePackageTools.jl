@@ -265,7 +265,8 @@ function scaffold_inputs(target_dir::AbstractString;
         repo::Union{Nothing, AbstractString} = nothing,
         reviewer::Union{Nothing, AbstractString} = nothing,
         year::Union{Nothing, Integer} = nothing,
-        license::AbstractString = DEFAULT_LICENSE)
+        license::AbstractString = DEFAULT_LICENSE,
+        docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing)
     license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
         join(repr.(SUPPORTED_LICENSES), ", "))
@@ -284,10 +285,19 @@ function scaffold_inputs(target_dir::AbstractString;
     # A fresh UUID for the seeded ADFixtures registry skeleton (a new path
     # package). Generated once per call; the author keeps it thereafter.
     adfix_uuid = string(UUIDs.uuid4())
-    # The docs site host, e.g. `MyPkg` -> `mypkg.epiaware.org` (the
-    # DocumenterVitepress `deploy_url`). Derived from the package name;
-    # `nothing` when the name is unknown so a docs template errors clearly.
-    docs_host = pkg === nothing ? nothing : _docs_host(pkg)
+    # How the docs site is hosted. The DEFAULT (`docs_subdomain = nothing`) is
+    # a GitHub project-pages deploy: `deploy_url = nothing`, so
+    # DocumenterVitepress derives the VitePress base from the repo name and the
+    # site renders at `epiaware.org/<Repo>.jl/` with NO DNS to wire. Opting into
+    # a custom subdomain (`docs_subdomain = true` for the conventional
+    # `<pkg>.epiaware.org`, or a string for a bespoke host) sets `deploy_url` to
+    # that host, which then needs a DNS record and the repo's GitHub Pages
+    # custom domain (see the `docs_subdomain` note in `scaffold`).
+    # `DOCS_DEPLOY_URL` is the `deploy_url` Julia literal substituted into
+    # `docs/make.jl`; `DOCS_URL` is the bare host(+path) for the README badges.
+    docs_sub = _resolve_docs_subdomain(docs_subdomain, pkg)
+    docs_deploy_url = _docs_deploy_url(docs_sub)
+    docs_url = _docs_url(rp, docs_sub)
     # The managed JET env depends on EpiAwarePackageTools (for its report
     # filter). The kit dogfoods itself, so when the ADOPTING package IS the kit
     # the `{{PACKAGE}}` dep/source already cover it — adding a second
@@ -317,7 +327,8 @@ function scaffold_inputs(target_dir::AbstractString;
     return (PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
-        DOCS_HOST = docs_host, KIT_DEP_LINE = kit_dep,
+        DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
+        KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install)
 end
 
@@ -431,8 +442,41 @@ const _AD_BACKENDS = [
     ("Mooncake forward", "ad-mooncake-forward")
 ]
 
-# The docs site host for a package, e.g. `MyPkg` -> `mypkg.epiaware.org`.
+# The conventional custom-subdomain docs host for a package, e.g.
+# `MyPkg` -> `mypkg.epiaware.org`. Only used on the opt-in subdomain path
+# (`docs_subdomain = true`); the default project-pages path needs no host.
 _docs_host(pkg::AbstractString) = lowercase(pkg) * ".epiaware.org"
+
+# The GitHub Pages domain the org serves project-pages from. A repo without a
+# custom domain is reachable at `<this>/<Repo>.jl/`.
+const DOCS_PAGES_APEX = "epiaware.org"
+
+# Resolve the `docs_subdomain` input to either `nothing` (project-pages, the
+# default) or a concrete host string. `true` selects the conventional
+# `<pkg>.epiaware.org`; a string is taken verbatim; `nothing`/`false` opt out.
+function _resolve_docs_subdomain(spec, pkg)
+    spec === nothing && return nothing
+    spec === false && return nothing
+    spec === true && return pkg === nothing ? nothing : _docs_host(pkg)
+    s = String(spec)
+    return isempty(s) ? nothing : s
+end
+
+# The `deploy_url` Julia literal for `docs/make.jl`. On the default
+# project-pages path this is the bare `nothing` (DocumenterVitepress then
+# derives the base from the repo name); on the subdomain path it is the quoted
+# host. Returned as source text so the template substitutes a real literal.
+_docs_deploy_url(sub::Nothing) = "nothing"
+_docs_deploy_url(sub::AbstractString) = repr(String(sub))
+
+# The bare host(+path) the docs badges link to. Project-pages packages live at
+# `epiaware.org/<Repo>.jl`; a subdomain package at its own host. `nothing` when
+# the repo slug is unknown (badges are then skipped upstream).
+_docs_url(repo::Nothing, sub) = sub === nothing ? nothing : String(sub)
+function _docs_url(repo::AbstractString, sub)
+    sub === nothing || return String(sub)
+    return DOCS_PAGES_APEX * "/" * last(split(repo, '/'))
+end
 
 # A license-badge cell for an SPDX identifier (label, shields colour, and the
 # opensource.org URL). Falls back to a plain SPDX label for an id without a
@@ -455,10 +499,13 @@ end
 # per-backend AD CI + coverage badge rows; `license` is the SPDX id whose badge
 # is shown. No owner/repo is hardcoded — every URL is built from `repo`/`pkg`.
 function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
-        license::AbstractString = DEFAULT_LICENSE)
+        license::AbstractString = DEFAULT_LICENSE,
+        docs_url::Union{Nothing, AbstractString} = nothing)
     gh = "https://github.com/" * repo
     cov = "https://codecov.io/gh/" * repo
-    host = _docs_host(pkg)
+    # Default to the project-pages URL (`epiaware.org/<Repo>.jl`); a subdomain
+    # package passes its host explicitly.
+    host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
     docs = "[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)]" *
            "(https://" * host * "/stable/) " *
            "[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)]" *
@@ -515,8 +562,10 @@ end
 # where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
 # the file content changed.
 function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
-        license::AbstractString = DEFAULT_LICENSE)
-    badges = _render_badges(repo, pkg; ad = ad, license = license)
+        license::AbstractString = DEFAULT_LICENSE,
+        docs_url::Union{Nothing, AbstractString} = nothing)
+    badges = _render_badges(repo, pkg; ad = ad, license = license,
+        docs_url = docs_url)
     block = BADGES_START * "\n" * badges * "\n" * BADGES_END
     if !isfile(readme)
         write(readme, "# " * pkg * "\n\n" * block * "\n")
@@ -595,7 +644,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     if repo !== nothing && pkg !== nothing
         lic = String(inputs.LICENSE)
         readme_action = first(
-            _apply_badges(readme, repo, pkg; ad = ad, license = lic))
+            _apply_badges(readme, repo, pkg; ad = ad, license = lic,
+            docs_url = inputs.DOCS_URL))
     end
     # LICENSE is package-owned and write-once: only `scaffold`/`generate`
     # (`managed_only = false`) may write it, and only when absent. `update`
@@ -665,6 +715,18 @@ quality/license badges (plus per-backend AD CI + coverage badges when
 hardcoded). The block is injected after the README's `# ` title when the markers
 are absent and refreshed in place when present; nothing outside the markers is
 touched. A missing README is created with a title and the block.
+
+`docs_subdomain` selects how the docs site is hosted. The DEFAULT (`nothing`) is
+a GitHub project-pages deploy: `docs/make.jl` gets `deploy_url = nothing`, so
+DocumenterVitepress derives the VitePress base from the repo name and the site
+renders at `epiaware.org/<Repo>.jl/` with no DNS to wire — the docs work out of
+the box. Pass `docs_subdomain = true` for the conventional `<pkg>.epiaware.org`,
+or a host string for a bespoke domain, to deploy at a custom subdomain instead;
+this sets `deploy_url` to that host and points the README docs badges at it. A
+custom subdomain ALSO needs a DNS record for the host and the repo's GitHub
+Pages custom domain set (which writes the gh-pages `CNAME`); until both exist
+the site will not resolve, so the project-pages default is preferred unless
+that wiring is in place.
 
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`update`](@ref) to re-apply only the managed files later.

@@ -151,7 +151,16 @@ makedocs(; sitename = "{{PACKAGE}}.jl",
         repo = "github.com/{{REPO}}",
         devbranch = "main",
         devurl = "dev",
-        deploy_url = "{{DOCS_HOST}}",
+        # `deploy_url` controls the VitePress base path. The DEFAULT is
+        # `nothing`: DocumenterVitepress then derives the base from the repo
+        # name, so the site renders at the GitHub project-pages URL
+        # (`epiaware.org/<Repo>.jl/`) with NO DNS to wire. A bare-domain
+        # `deploy_url` would set base `/`, which only renders correctly when the
+        # site is served at that domain's root (a wired custom subdomain). To
+        # opt into `<pkg>.epiaware.org`, scaffold/update with
+        # `docs_subdomain = true` (or a host string) AND set the repo's GitHub
+        # Pages custom domain + a DNS record for that host.
+        deploy_url = {{DOCS_DEPLOY_URL}},
         keep = :patch
     )
 )
