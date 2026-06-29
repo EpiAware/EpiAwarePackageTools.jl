@@ -94,6 +94,28 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".github/workflows/template-sync.yaml",
         ".github/workflows/template-sync.yaml", true, true),
 
+    # --- benchmark CI (managed) ---
+    # The PR base-vs-head comparison comment (`benchmark.yaml`) and the
+    # persistent history timeline (`benchmark-history.yaml`), reproducing the
+    # CensoredDistributions.jl benchmark CI. Both call AirspeedVelocity and build
+    # the comment via the shared `Benchmarks` harness (see `benchmark/comment`).
+    Template(".github/workflows/benchmark.yaml",
+        ".github/workflows/benchmark.yaml", true, true),
+    Template(".github/workflows/benchmark-history.yaml",
+        ".github/workflows/benchmark-history.yaml", true, true),
+
+    # --- version automation (managed) ---
+    # Auto-increment the patch version on a merge to main when it was not bumped
+    # (`auto-version-increment.yaml`), and an on-demand `/version major|minor|
+    # patch` PR comment command (`version-on-demand.yaml`), both driven by the
+    # bundled `increment-version` composite action.
+    Template(".github/workflows/auto-version-increment.yaml",
+        ".github/workflows/auto-version-increment.yaml", true, false),
+    Template(".github/workflows/version-on-demand.yaml",
+        ".github/workflows/version-on-demand.yaml", true, false),
+    Template(".github/actions/increment-version/action.yaml",
+        ".github/actions/increment-version/action.yaml", true, true),
+
     # --- org issue + PR templates (managed) ---
     # The shared EpiAware/.github issue forms, contact links, and PR checklist,
     # so every adopting repo offers the same reporting experience.
@@ -123,6 +145,12 @@ const SCAFFOLD_TEMPLATES = Template[
         :ad_only),
     Template("benchmark/run.jl", "benchmark/run.jl", true, false),
     Template("benchmark/compare.jl", "benchmark/compare.jl", true, false),
+    # The benchmark-comment job's thin script + isolated env (it calls
+    # `Benchmarks.asv_comment`); used by `benchmark.yaml`.
+    Template("benchmark/comment/comment.jl",
+        "benchmark/comment/comment.jl", true, false),
+    Template("benchmark/comment/Project.toml",
+        "benchmark/comment/Project.toml", true, true),
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
     # The standard org docs build (mirrors CensoredDistributions.jl). `make.jl`
@@ -130,6 +158,9 @@ const SCAFFOLD_TEMPLATES = Template[
     # deps, and the version stub are managed; `Project.toml` (doc deps) and
     # `pages.jl` (the nav tree) are package-owned so a package extends them.
     Template("docs/make.jl", "docs/make.jl", true, true),
+    # The per-subprocess heavy-tutorial runner `make.jl` shells out to.
+    Template("docs/run_literate_tutorial.jl",
+        "docs/run_literate_tutorial.jl", true, false),
     Template("docs/package.json", "docs/package.json", true, false),
     Template("docs/versions.js", "docs/versions.js", true, false),
     Template("docs/src/.vitepress/config.mts",
@@ -152,6 +183,13 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("src/docstrings.jl", "src/docstrings.jl", false, false),
     Template("docs/Project.toml", "docs/Project.toml", false, true),
     Template("docs/pages.jl", "docs/pages.jl", false, false),
+    # The optional Literate/tutorial + README-rewrite config `make.jl` reads
+    # (empty by default), and the release-notes page header (NEWS.md prepend).
+    Template("docs/docs_config.jl", "docs/docs_config.jl", false, false),
+    Template("docs/release_notes_header.jl",
+        "docs/release_notes_header.jl", false, true),
+    # The package-owned prose hook spliced into the generated benchmark page.
+    Template("docs/benchmarks.md", "docs/benchmarks.md", false, true),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
     Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
@@ -253,6 +291,9 @@ into a template:
     scaffold-time choice, not a substitution placeholder, and the `LICENSE` is
     written once and never overwritten by [`update`](@ref) so a deliberate
     licence is never reverted.
+  - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
+    given a DOI badge is added to the README "License & DOI" cell (mirroring
+    CensoredDistributions.jl). Default `nothing` (no DOI badge).
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -266,7 +307,9 @@ function scaffold_inputs(target_dir::AbstractString;
         reviewer::Union{Nothing, AbstractString} = nothing,
         year::Union{Nothing, Integer} = nothing,
         license::AbstractString = DEFAULT_LICENSE,
-        docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing)
+        docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
+        doi::Union{Nothing, AbstractString} = nothing,
+        zenodo_badge::Union{Nothing, AbstractString} = nothing)
     license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
         join(repr.(SUPPORTED_LICENSES), ", "))
@@ -335,6 +378,7 @@ function scaffold_inputs(target_dir::AbstractString;
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
+        DOI = doi, ZENODO_BADGE = zenodo_badge,
         KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install)
 end
@@ -438,15 +482,18 @@ end
 const BADGES_START = "<!-- badges:start -->"
 const BADGES_END = "<!-- badges:end -->"
 
-# The per-backend AD jobs, as (label, workflow/flag slug) pairs. Matches the
-# `ad-*` codecov flags and the org `ad.yml` backend matrix.
+# The per-backend AD jobs, as (badge label, column header, workflow/flag slug)
+# triples. The badge label is the `AD <label>` / `cov <label>` alt text; the
+# column header is the table heading (matching CensoredDistributions.jl, which
+# labels the tape-based ReverseDiff column explicitly). Both match the `ad-*`
+# codecov flags and the org `ad.yml` backend matrix.
 const _AD_BACKENDS = [
-    ("ForwardDiff", "ad-forwarddiff"),
-    ("ReverseDiff", "ad-reversediff"),
-    ("Enzyme forward", "ad-enzyme-forward"),
-    ("Enzyme reverse", "ad-enzyme-reverse"),
-    ("Mooncake reverse", "ad-mooncake-reverse"),
-    ("Mooncake forward", "ad-mooncake-forward")
+    ("ForwardDiff", "ForwardDiff", "ad-forwarddiff"),
+    ("ReverseDiff", "ReverseDiff (tape)", "ad-reversediff"),
+    ("Enzyme forward", "Enzyme forward", "ad-enzyme-forward"),
+    ("Enzyme reverse", "Enzyme reverse", "ad-enzyme-reverse"),
+    ("Mooncake reverse", "Mooncake reverse", "ad-mooncake-reverse"),
+    ("Mooncake forward", "Mooncake forward", "ad-mooncake-forward")
 ]
 
 # The conventional custom-subdomain docs host for a package, e.g.
@@ -501,13 +548,34 @@ function _license_badge(spdx::AbstractString)
            "$label-$colour.svg)]($url)"
 end
 
+# The two juliapkgstats download badges for a package (total + monthly), keyed
+# only on the package name. They render once the package is in the General
+# registry and are harmless before then. Mirrors CensoredDistributions.jl.
+function _downloads_badges(pkg::AbstractString)
+    base = "https://img.shields.io/badge/dynamic/json?url=" *
+           "http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2F"
+    page = "https://juliapkgstats.com/pkg/" * pkg
+    total = "[![Downloads](" * base * "total_downloads%2F" * pkg *
+            "&query=total_requests&label=Downloads)](" * page * ")"
+    monthly = "[![Downloads](" * base * "monthly_downloads%2F" * pkg *
+              "&query=total_requests&suffix=%2Fmonth&label=Downloads)](" *
+              page * ")"
+    return total * " " * monthly
+end
+
 # Render the standard badge block (without the markers) from resolved inputs.
 # `repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds the
-# per-backend AD CI + coverage badge rows; `license` is the SPDX id whose badge
-# is shown. No owner/repo is hardcoded — every URL is built from `repo`/`pkg`.
+# per-backend AD CI + coverage badge table; `license` is the SPDX id whose badge
+# is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when both are given. The
+# layout matches CensoredDistributions.jl: a five-column header table
+# (Documentation, Build Status, Code Quality, License & DOI, Downloads) plus the
+# per-backend AD table. No owner/repo is hardcoded — every URL is built from
+# `repo`/`pkg`.
 function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
-        docs_url::Union{Nothing, AbstractString} = nothing)
+        docs_url::Union{Nothing, AbstractString} = nothing,
+        doi::Union{Nothing, AbstractString} = nothing,
+        zenodo_badge::Union{Nothing, AbstractString} = nothing)
     gh = "https://github.com/" * repo
     cov = "https://codecov.io/gh/" * repo
     # Default to the project-pages URL (`epiaware.org/<Repo>.jl`); a subdomain
@@ -529,36 +597,36 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
               "[![JET](https://img.shields.io/badge/" *
               "%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)]" *
               "(https://github.com/aviatesk/JET.jl)"
-    license_cell = _license_badge(license)
+    license_doi = _license_badge(license)
+    if doi !== nothing && zenodo_badge !== nothing
+        license_doi *= " [![DOI](https://zenodo.org/badge/" * zenodo_badge *
+                       ".svg)](https://doi.org/" * doi * ")"
+    end
+    downloads = _downloads_badges(pkg)
     lines = String[
-        "| | |",
-        "|---|---|",
-        "| Docs | " * docs * " |",
-        "| CI | " * ci * " |",
-        "| Quality | " * quality * " |",
-        "| License | " * license_cell * " |"
+        "| **Documentation** | **Build Status** | **Code Quality** | " * "**License & DOI** | **Downloads** |",
+        "|:-----------------:|:----------------:|:----------------:|" * ":-----------------:|:-------------:|",
+        "| " * docs * " | " * ci * " | " * quality * " | " * license_doi * " | " * downloads * " |"
     ]
     if ad
+        headers = join((h for (_, h, _) in _AD_BACKENDS), " | ")
+        sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
         ci_badges = join(
-            ["[![AD $label]($gh/actions/workflows/$slug.yaml/" *
+            ["[![AD $alt]($gh/actions/workflows/$slug.yaml/" *
              "badge.svg?branch=main)]($gh/actions/workflows/" *
-             "$slug.yaml)" for (label, slug) in _AD_BACKENDS],
-            " ")
+             "$slug.yaml)" for (alt, _, slug) in _AD_BACKENDS],
+            " | ")
         cov_badges = join(
-            ["[![cov $label]($cov/graph/badge.svg?flag=$slug)]" *
+            ["[![cov $alt]($cov/graph/badge.svg?flag=$slug)]" *
              "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
-             "$slug)" for (label, slug) in _AD_BACKENDS],
-            " ")
-        push!(lines, "| AD CI | " * ci_badges * " |")
-        push!(lines, "| AD coverage | " * cov_badges * " |")
+             "$slug)" for (alt, _, slug) in _AD_BACKENDS],
+            " | ")
+        push!(lines, "")
+        push!(lines, "| " * headers * " |")
+        push!(lines, sep)
+        push!(lines, "| " * ci_badges * " |")
+        push!(lines, "| " * cov_badges * " |")
     end
-    # Registration badges (added once the package is in the General registry):
-    push!(lines, "")
-    push!(lines,
-        "<!-- Once registered, add a version badge, e.g.:")
-    push!(lines,
-        "[![$(pkg)](https://juliahub.com/docs/General/$pkg/stable/" *
-        "version.svg)](https://juliahub.com/ui/Packages/General/$pkg) -->")
     return join(lines, "\n")
 end
 
@@ -568,14 +636,56 @@ end
 # Content outside the markers is never touched. Returns `(action, changed)`
 # where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
 # the file content changed.
+# A starter README body for a package that has none yet, following the section
+# structure of CensoredDistributions.jl (Why / Getting started / Where to learn
+# more / Supporting and citing / Contributing / Code of conduct), parameterised
+# from the repo slug, package name, and docs host. Only seeded when no README
+# exists; thereafter the body is package-owned and only the badge block is
+# managed.
+function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
+        docs_url::Union{Nothing, AbstractString})
+    host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
+    org = first(split(repo, '/'))
+    stable = host === nothing ? nothing : "https://" * host * "/stable/"
+    docs_link = stable === nothing ? "the documentation" :
+                "[documentation](" * stable * ")"
+    coc = "https://github.com/" * org *
+          "/.github/blob/main/CODE_OF_CONDUCT.md"
+    return string(
+        "_One-line description of $pkg._\n\n",
+        "## Why $pkg?\n\n",
+        "- _List the package's key features here._\n\n",
+        "## Getting started\n\n",
+        "See $docs_link for a full walkthrough.\n\n",
+        "```julia\nusing $pkg\n```\n\n",
+        "## Where to learn more\n\n",
+        "- [GitHub Discussions](https://github.com/$repo/discussions)\n",
+        "- [GitHub Repository](https://github.com/$repo)\n\n",
+        "## Supporting and citing\n\n",
+        "If you would like to support $pkg, please star the repository — ",
+        "such metrics help secure future funding. If you use $pkg in your ",
+        "work, please cite it.\n\n",
+        "## Contributing\n\n",
+        "We welcome contributions and new contributors! This package ",
+        "follows [ColPrac](https://github.com/SciML/ColPrac) and the ",
+        "[SciML style](https://github.com/SciML/SciMLStyle).\n\n",
+        "## Code of conduct\n\n",
+        "Please note that the $pkg project is released with a ",
+        "[Contributor Code of Conduct]($coc). By contributing, you agree ",
+        "to abide by its terms.\n")
+end
+
 function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
-        docs_url::Union{Nothing, AbstractString} = nothing)
+        docs_url::Union{Nothing, AbstractString} = nothing,
+        doi::Union{Nothing, AbstractString} = nothing,
+        zenodo_badge::Union{Nothing, AbstractString} = nothing)
     badges = _render_badges(repo, pkg; ad = ad, license = license,
-        docs_url = docs_url)
+        docs_url = docs_url, doi = doi, zenodo_badge = zenodo_badge)
     block = BADGES_START * "\n" * badges * "\n" * BADGES_END
     if !isfile(readme)
-        write(readme, "# " * pkg * "\n\n" * block * "\n")
+        body = _seed_readme_body(repo, pkg, docs_url)
+        write(readme, "# " * pkg * "\n\n" * block * "\n\n" * body)
         return (:created, true)
     end
     text = read(readme, String)
@@ -598,6 +708,31 @@ function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
     end
     write(readme, new)
     return (:injected, true)
+end
+
+# --- managed [workspace] stanza in the root Project.toml -------------------
+#
+# The root Project.toml is package-owned (the kit never rewrites its deps), but
+# the Julia `[workspace]` table that makes the `test` and `docs` sub-projects
+# share the root manifest is part of the standard (as in CensoredDistributions.jl
+# with `projects = ["test", "docs"]`). It is injected once when absent and left
+# alone thereafter, so a package may extend `projects` without it being reverted.
+
+const WORKSPACE_PROJECTS = ["test", "docs"]
+
+# Ensure the root Project.toml declares a `[workspace]` table. Returns
+# `:injected` when one was appended, `:preserved` when already present, or
+# `:skipped` when there is no Project.toml to amend.
+function _apply_workspace(target_dir::AbstractString)
+    proj = joinpath(target_dir, "Project.toml")
+    isfile(proj) || return :skipped
+    text = read(proj, String)
+    occursin(r"(?m)^\[workspace\]", text) && return :preserved
+    projects = join(("\"" * p * "\"" for p in WORKSPACE_PROJECTS), ", ")
+    stanza = "\n[workspace]\nprojects = [" * projects * "]\n"
+    endswith(text, "\n") || (text *= "\n")
+    write(proj, text * stanza)
+    return :injected
 end
 
 # Whether a template is emitted for the requested `ad` value: `:always` always,
@@ -652,7 +787,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         lic = String(inputs.LICENSE)
         readme_action = first(
             _apply_badges(readme, repo, pkg; ad = ad, license = lic,
-            docs_url = inputs.DOCS_URL))
+            docs_url = inputs.DOCS_URL, doi = inputs.DOI,
+            zenodo_badge = inputs.ZENODO_BADGE))
     end
     # LICENSE is package-owned and write-once: only `scaffold`/`generate`
     # (`managed_only = false`) may write it, and only when absent. `update`
@@ -660,8 +796,14 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # Reported separately (`license`) so the template manifest stays
     # template-driven (the count-based scaffold tests track `SCAFFOLD_TEMPLATES`).
     license_action = managed_only ? :skipped : _apply_license(target_dir, inputs)
+    # The standard `[workspace]` stanza is injected into the (package-owned) root
+    # Project.toml when absent, on both scaffold and update, and preserved
+    # thereafter. Reported separately so the template manifest stays
+    # template-driven.
+    workspace_action = _apply_workspace(target_dir)
     return (created = created, updated = updated, preserved = preserved,
-        readme = readme_action, license = license_action)
+        readme = readme_action, license = license_action,
+        workspace = workspace_action)
 end
 
 """
@@ -740,9 +882,11 @@ explicit choice it defaults to its own DNS-wired subdomain
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`update`](@ref) to re-apply only the managed files later.
 
-Returns a `(created, updated, preserved, readme)` named tuple: destination paths
-newly written, managed files overwritten, package-owned files left in place, and
-the README badge action (`:created`, `:injected`, `:refreshed`, or `:skipped`).
+Returns a `(created, updated, preserved, readme, license, workspace)` named
+tuple: destination paths newly written, managed files overwritten, package-owned
+files left in place, the README badge action (`:created`, `:injected`,
+`:refreshed`, or `:skipped`), the `LICENSE` action, and the root `[workspace]`
+stanza action (`:injected`, `:preserved`, or `:skipped`).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, kwargs...)
@@ -777,9 +921,10 @@ The README's managed badge block is also refreshed: `update` injects it when the
 current placeholders when present, so a package gets and keeps the standard
 badges automatically without its README body being touched.
 
-Returns a `(created, updated, preserved, readme)` named tuple: managed files
-newly added, managed files rewritten, (always empty here) preserved, and the
-README badge action.
+Returns a `(created, updated, preserved, readme, license, workspace)` named
+tuple: managed files newly added, managed files rewritten, (always empty here)
+preserved, the README badge action, the `LICENSE` action (`:skipped` on update),
+and the root `[workspace]` stanza action.
 """
 function update(target_dir::AbstractString; ad::Bool = true, kwargs...)
     inputs = scaffold_inputs(target_dir; kwargs...)

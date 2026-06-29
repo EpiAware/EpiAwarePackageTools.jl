@@ -531,13 +531,17 @@
                 @test occursin("## Usage", txt)
                 # Parameterised from REPO/PACKAGE — no hardcoded owner/repo.
                 @test occursin("EpiAware/Wombat.jl", txt)
+                # CD's five-column badge table shape with the Downloads column.
+                @test occursin("**Documentation**", txt)
+                @test occursin("**Downloads**", txt)
+                @test occursin("juliapkgstats.com/pkg/Wombat", txt)
                 # Default docs badges point at the project-pages URL, not a
                 # custom subdomain.
                 @test occursin("epiaware.org/Wombat.jl/stable/", txt)
                 @test occursin("epiaware.org/Wombat.jl/dev/", txt)
                 @test !occursin("wombat.epiaware.org", txt)
                 # ad = false: no per-backend AD badge rows.
-                @test !occursin("AD CI", txt)
+                @test !occursin("AD ForwardDiff", txt)
                 @test !occursin("ad-forwarddiff", txt)
 
                 # A second update is idempotent (refresh, no content change).
@@ -565,9 +569,9 @@
                 write(joinpath(dir, "README.md"), "# Numeric\n\nbody\n")
                 update(dir; ad = true)
                 txt = read(joinpath(dir, "README.md"), String)
-                @test occursin("AD CI", txt)
+                @test occursin("AD ForwardDiff", txt)
                 @test occursin("ad-forwarddiff", txt)
-                @test occursin("AD coverage", txt)
+                @test occursin("cov ForwardDiff", txt)
             end
         end
 
@@ -579,6 +583,11 @@
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("# Fresh", txt)
                 @test occursin("<!-- badges:start -->", txt)
+                # The seeded body follows CD's section structure.
+                @test occursin("## Why Fresh?", txt)
+                @test occursin("## Contributing", txt)
+                @test occursin("## Code of conduct", txt)
+                @test occursin("CODE_OF_CONDUCT.md", txt)
             end
         end
 
@@ -700,6 +709,135 @@
                 res = update(dir; ad = false)
                 @test joinpath(dir, ".github/workflows/template-sync.yaml") in
                       res.updated
+            end
+        end
+
+        @testset "root [workspace] stanza injected + preserved" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir; ad = false)
+                @test res.workspace === :injected
+                proj = read(joinpath(dir, "Project.toml"), String)
+                @test occursin("[workspace]", proj)
+                @test occursin("projects = [\"test\", \"docs\"]", proj)
+                # Injected once; a later update preserves it (a package may
+                # extend `projects`, so it is never reverted).
+                res2 = update(dir; ad = false)
+                @test res2.workspace === :preserved
+                @test read(joinpath(dir, "Project.toml"), String) == proj
+            end
+        end
+
+        @testset "benchmark CI workflows + comment env present" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                for f in (".github/workflows/benchmark.yaml",
+                    ".github/workflows/benchmark-history.yaml",
+                    "benchmark/comment/comment.jl",
+                    "benchmark/comment/Project.toml")
+                    @test isfile(joinpath(dir, f))
+                end
+                bench = read(joinpath(dir, ".github/workflows/benchmark.yaml"),
+                    String)
+                @test occursin("AirspeedVelocity", bench)
+                # The package name is substituted into the comment step.
+                @test occursin("results Wombat", bench)
+                # No kit placeholder remains (GitHub `${{ }}` expressions stay).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", bench)
+                # The comment script uses the shared kit harness.
+                cj = read(joinpath(dir, "benchmark/comment/comment.jl"), String)
+                @test occursin("EpiAwarePackageTools.Benchmarks", cj)
+                cp = read(joinpath(dir, "benchmark/comment/Project.toml"),
+                    String)
+                @test occursin("JSON3", cp)
+                @test occursin("EpiAwarePackageTools", cp)
+                @test occursin("Wombat = \"00000000", cp)
+                @test !occursin("{{", cp)
+            end
+        end
+
+        @testset "version automation workflows + action present" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                for f in (".github/workflows/auto-version-increment.yaml",
+                    ".github/workflows/version-on-demand.yaml",
+                    ".github/actions/increment-version/action.yaml")
+                    @test isfile(joinpath(dir, f))
+                end
+                act = read(
+                    joinpath(dir, ".github/actions/increment-version/action.yaml"),
+                    String)
+                # The hardcoded `seabbs` assignee is replaced by {{REVIEWER}}.
+                @test occursin("octocat", act)
+                @test !occursin("seabbs", act)
+                # No kit placeholder remains (GitHub `${{ }}` expressions stay).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", act)
+            end
+        end
+
+        @testset "docs build reproduces CD (Literate + citations + helpers)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                for f in ("docs/run_literate_tutorial.jl", "docs/docs_config.jl",
+                    "docs/release_notes_header.jl")
+                    @test isfile(joinpath(dir, f))
+                end
+                mk = read(joinpath(dir, "docs/make.jl"), String)
+                @test occursin("DocumenterCitations", mk)
+                @test occursin("Literate", mk)
+                @test occursin("run_literate_tutorial", mk)
+                @test occursin("docs_config.jl", mk)
+                @test !occursin("{{", mk)
+                # The docs env now carries the citation + Literate deps.
+                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                @test occursin("DocumenterCitations", dp)
+                @test occursin("Literate", dp)
+                # The release-notes header is parameterised on the repo.
+                rh = read(joinpath(dir, "docs/release_notes_header.jl"), String)
+                @test occursin("EpiAware/Wombat.jl", rh)
+                @test !occursin("{{", rh)
+                # The benchmark-history page: a package-owned prose hook, a nav
+                # entry, and the managed make.jl generation + config flag.
+                @test isfile(joinpath(dir, "docs/benchmarks.md"))
+                bh = read(joinpath(dir, "docs/benchmarks.md"), String)
+                @test occursin("Wombat", bh)
+                @test !occursin("{{", bh)
+                @test occursin("benchmarks.md", read(
+                    joinpath(dir, "docs/pages.jl"), String))
+                @test occursin("BENCHMARK_PAGE",
+                    read(joinpath(dir, "docs/docs_config.jl"), String))
+                @test occursin("benchmarks.md", mk)
+                @test occursin("github.io", mk)
+            end
+        end
+
+        @testset "test env carries bounded [compat]" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                tp = read(joinpath(dir, "test/Project.toml"), String)
+                @test occursin("[compat]", tp)
+                @test occursin("Aqua = \"0.8\"", tp)
+                @test occursin("ForwardDiff =", tp)
+                # The path/source-pinned packages carry no compat bound: the
+                # package + kit are absent from the [compat] section.
+                compat = tp[first(findfirst("[compat]", tp)):end]
+                compat = split(compat, "[sources]")[1]
+                @test !occursin("Wombat", compat)
+                @test !occursin("EpiAwarePackageTools", compat)
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Tooly")
+                scaffold(dir; ad = false)
+                tp = read(joinpath(dir, "test/Project.toml"), String)
+                @test occursin("[compat]", tp)
+                @test occursin("Aqua = \"0.8\"", tp)
+                # No AD deps in the no-AD compat block.
+                @test !occursin("ForwardDiff", tp)
+                @test !occursin("DifferentiationInterface", tp)
             end
         end
 

@@ -6,10 +6,10 @@
 # until it is registered (mirror the test env's pin if you switch to a path).
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-{{KIT_DEP_LINE}}{{PACKAGE}} = "{{UUID}}"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 
 [sources]
-{{PACKAGE}} = {path = ".."}{{KIT_SOURCE_LINE}}
+EpiAwarePackageTools = {path = ".."}
 
 [compat]
 BenchmarkTools = "1"

@@ -1,15 +1,9 @@
 # EpiAwarePackageTools.jl
 
 <!-- badges:start -->
-| | |
-|---|---|
-| Docs | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://epiawarepackagetools.epiaware.org/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawarepackagetools.epiaware.org/dev/) |
-| CI | [![Test](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl) |
-| Quality | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) |
-| License | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) |
-
-<!-- Once registered, add a version badge, e.g.:
-[![EpiAwarePackageTools](https://juliahub.com/docs/General/EpiAwarePackageTools/stable/version.svg)](https://juliahub.com/ui/Packages/General/EpiAwarePackageTools) -->
+| **Documentation** | **Build Status** | **Code Quality** | **License & DOI** | **Downloads** |
+|:-----------------:|:----------------:|:----------------:|:-----------------:|:-------------:|
+| [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://epiawarepackagetools.epiaware.org/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawarepackagetools.epiaware.org/dev/) | [![Test](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl) | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) | [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Ftotal_downloads%2FEpiAwarePackageTools&query=total_requests&label=Downloads)](https://juliapkgstats.com/pkg/EpiAwarePackageTools) [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Fmonthly_downloads%2FEpiAwarePackageTools&query=total_requests&suffix=%2Fmonth&label=Downloads)](https://juliapkgstats.com/pkg/EpiAwarePackageTools) |
 <!-- badges:end -->
 
 Shared, package-agnostic test utilities for [EpiAware](https://github.com/EpiAware) Julia packages.

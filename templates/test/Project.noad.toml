@@ -17,6 +17,22 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 {{PACKAGE}} = "{{UUID}}"
 
+# Bounded compat for the seeded QA deps (mirrors CensoredDistributions.jl).
+# The package under test and EpiAwarePackageTools are pinned by `[sources]`, so
+# they carry no compat entry. Add a bound for each test-only dep you add.
+# This is the no-AD variant, so no AD-harness deps appear.
+[compat]
+Aqua = "0.8"
+BenchmarkTools = "1"
+Documenter = "1"
+ExplicitImports = "1"
+JET = "0.9, 0.10"
+JuliaFormatter = "2"
+Pkg = "1"
+Test = "1"
+TestItemRunner = "1"
+TestItems = "1"
+
 [sources]
 {{PACKAGE}} = {path = ".."}
 # Until EpiAwarePackageTools is registered, it is pinned by git so the env

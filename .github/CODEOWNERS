@@ -1,0 +1,8 @@
+# Code owners for automatic review requests.
+#
+# PACKAGE-OWNED: scaffold writes this once and never overwrites it. Replace the
+# example below with real GitHub handles or an `EpiAware/team` slug. A bare org
+# CANNOT be a code owner, so this ships commented out — uncomment and edit it.
+# See https://docs.github.com/articles/about-code-owners
+#
+# * @EpiAware/maintainers
