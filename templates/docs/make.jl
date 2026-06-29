@@ -11,6 +11,8 @@
 #     badge table stripped, ```julia blocks turned into `@example readme`),
 #   - generates `src/release-notes.md` from a project-root `NEWS.md` when one
 #     exists, prefixed with the package-owned release-notes header,
+#   - generates `src/benchmarks.md` (a managed structure linking the published
+#     performance history) splicing in the package-owned `benchmarks.md` prose,
 #   - generates the API reference pages (`lib/public.md`, `lib/internals.md`)
 #     from the module's documented bindings (one `@docs` entry per binding so
 #     the index has one entry per function, not one per method signature), and
@@ -127,15 +129,23 @@ else
 end
 
 # --- README -> index.md ----------------------------------------------------
-# Strip the managed badge block (the markers and everything between them) and
-# any raw markdown badge table rows / a leading `**Websites**` line, turn
-# ```julia blocks into runnable `@example readme` blocks, drop an inline logo
-# from the title, and apply package-specific link rewrites from `INDEX_REWRITES`
-# (e.g. absolute doc URLs to in-site `@ref`s) so links stay within the built
-# version.
+# Strip the managed badge block (the markers and everything between them), drop
+# an inline logo from the title, and apply package-specific link rewrites from
+# `INDEX_REWRITES` (e.g. absolute doc URLs to in-site `@ref`s) so links stay
+# within the built version. Two behaviours are config-gated:
+#
+#   - `README_EXECUTE` (default `true`): turn ```julia blocks into runnable
+#     `@example readme` blocks. Set `false` when the README's code is
+#     illustrative (placeholder names) and must not execute on the home page.
+#   - `README_STRIP_TABLES` (default `false`): drop raw markdown table rows and
+#     a leading `**Websites**` line. Needed only for a README whose badges are a
+#     raw table NOT wrapped in the managed markers; leave `false` to keep
+#     content tables (the marker strip already removes the badges).
 let readme = joinpath(dirname(@__DIR__), "README.md"),
     index = joinpath(@__DIR__, "src", "index.md")
 
+    execute_readme = @isdefined(README_EXECUTE) ? README_EXECUTE : true
+    strip_tables = @isdefined(README_STRIP_TABLES) ? README_STRIP_TABLES : false
     mkpath(dirname(index))
     open(index, "w") do io
         println(io, "```@meta")
@@ -153,14 +163,14 @@ let readme = joinpath(dirname(@__DIR__), "README.md"),
                 continue
             end
             in_badges && continue
-            if startswith(line, "```julia")
+            if execute_readme && startswith(line, "```julia")
                 println(io, "```@example readme")
             elseif occursin("docs/src/assets/logo.svg", line)
                 println(io, replace(line,
                     r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
-            elseif startswith(line, "|")  # raw badge / info table rows
+            elseif strip_tables && startswith(line, "|")
                 continue
-            elseif startswith(line, "**Websites**")
+            elseif strip_tables && startswith(line, "**Websites**")
                 continue
             else
                 for (from, to) in INDEX_REWRITES
@@ -191,6 +201,52 @@ if isfile(news_src) && isfile(header_src)
     println("Generated release-notes.md from header + NEWS.md")
 else
     println("No NEWS.md / release-notes header found; skipping release notes")
+end
+
+# --- benchmark history page ------------------------------------------------
+# A managed docs page wiring the package's benchmark suite + published
+# performance timeline into the nav. The kit manages the page STRUCTURE (how to
+# run the suite, and a link to the published history); the package supplies its
+# own narrative via a package-owned `docs/benchmarks.md` prose hook, spliced in
+# verbatim when present. Generation is gated on a `BENCHMARK_PAGE` config flag
+# (default `true`) so a package can opt out. The history itself is published to
+# the repo's `benchmarks` branch by `benchmark-history.yaml` and served at the
+# GitHub Pages default host; that URL only resolves once Pages is enabled for
+# that branch, so it is added to the linkcheck ignore list.
+benchmark_linkcheck = Regex[]
+if (@isdefined(BENCHMARK_PAGE) ? BENCHMARK_PAGE : true)
+    repo_parts = split("{{REPO}}", "/")
+    history_url = length(repo_parts) == 2 ?
+                  "$(repo_parts[1]).github.io/$(repo_parts[2])/history" : ""
+    intro_src = joinpath(@__DIR__, "benchmarks.md")
+    prose = isfile(intro_src) ? read(intro_src, String) :
+            "Performance benchmarks for `{{PACKAGE}}`."
+    open(joinpath(@__DIR__, "src", "benchmarks.md"), "w") do io
+        println(io, "# [Benchmarks](@id benchmarks)")
+        println(io)
+        println(io, prose)
+        println(io)
+        println(io, "## Running benchmarks")
+        println(io)
+        println(io, "Run the suite locally with `task benchmark`, and compare")
+        println(io, "against `main` with `task benchmark-compare`. The suite")
+        println(io, "is defined in `benchmark/benchmarks.jl`.")
+        println(io)
+        println(io, "## Performance history")
+        println(io)
+        if isempty(history_url)
+            println(io, "A performance timeline is published on each release.")
+        else
+            println(io,
+                "A continuously updated performance timeline (per-benchmark " *
+                "plots and a ratio table) is published at")
+            println(io, "[the benchmark history](https://$history_url).")
+            push!(benchmark_linkcheck, Regex(replace(history_url, "." => "\\.")))
+        end
+    end
+    println("Generated benchmarks.md (benchmark history page)")
+else
+    println("BENCHMARK_PAGE = false; skipping benchmark history page")
 end
 
 # --- API reference pages ---------------------------------------------------
@@ -303,7 +359,7 @@ makedocs(; sitename = "{{PACKAGE}}.jl",
     # A fast build skips the network linkcheck (rate-limited, irrelevant to a
     # local content build); a full build keeps it strict.
     clean = true, doctest = false, linkcheck = !skip_notebooks,
-    linkcheck_ignore = LINKCHECK_IGNORE,
+    linkcheck_ignore = vcat(LINKCHECK_IGNORE, benchmark_linkcheck),
     warnonly = [
         :docs_block, :missing_docs, :autodocs_block, :cross_references
     ],

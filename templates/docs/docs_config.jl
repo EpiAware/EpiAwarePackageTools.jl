@@ -35,3 +35,21 @@ const LINKCHECK_IGNORE = Regex[]
 # e.g. rewriting an absolute docs URL to an in-site `@ref` so links stay within
 # the built version.
 const INDEX_REWRITES = Pair{String, String}[]
+
+# Whether README ```julia blocks become runnable `@example readme` blocks on the
+# generated home page. Keep `true` when the README's examples are real, runnable
+# code; set `false` when they are illustrative (placeholder names) and must not
+# execute.
+const README_EXECUTE = true
+
+# Whether to drop raw markdown table rows (and a leading `**Websites**` line)
+# when generating the home page. Needed only for a README whose badges are a raw
+# table NOT wrapped in the managed `<!-- badges:start/end -->` markers; leave
+# `false` to preserve content tables (the marker strip already removes badges).
+const README_STRIP_TABLES = false
+
+# Whether `make.jl` generates the benchmark history page (`src/benchmarks.md`).
+# The page links the published performance timeline and splices in the
+# package-owned `docs/benchmarks.md` prose. Set `false` to drop the page (and
+# remove its `pages.jl` nav entry).
+const BENCHMARK_PAGE = true

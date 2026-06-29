@@ -35,3 +35,14 @@ const LINKCHECK_IGNORE = Regex[]
 # e.g. rewriting an absolute docs URL to an in-site `@ref` so links stay within
 # the built version.
 const INDEX_REWRITES = Pair{String, String}[]
+
+# The kit's README uses illustrative code (placeholder package names like
+# `MyPackage`), so its ```julia blocks must NOT execute on the home page.
+const README_EXECUTE = false
+const README_STRIP_TABLES = false
+
+# Whether `make.jl` generates the benchmark history page (`src/benchmarks.md`).
+# The page links the published performance timeline and splices in the
+# package-owned `docs/benchmarks.md` prose. Set `false` to drop the page (and
+# remove its `pages.jl` nav entry).
+const BENCHMARK_PAGE = true

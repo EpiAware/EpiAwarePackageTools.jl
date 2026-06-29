@@ -799,6 +799,18 @@
                 rh = read(joinpath(dir, "docs/release_notes_header.jl"), String)
                 @test occursin("EpiAware/Wombat.jl", rh)
                 @test !occursin("{{", rh)
+                # The benchmark-history page: a package-owned prose hook, a nav
+                # entry, and the managed make.jl generation + config flag.
+                @test isfile(joinpath(dir, "docs/benchmarks.md"))
+                bh = read(joinpath(dir, "docs/benchmarks.md"), String)
+                @test occursin("Wombat", bh)
+                @test !occursin("{{", bh)
+                @test occursin("benchmarks.md", read(
+                    joinpath(dir, "docs/pages.jl"), String))
+                @test occursin("BENCHMARK_PAGE",
+                    read(joinpath(dir, "docs/docs_config.jl"), String))
+                @test occursin("benchmarks.md", mk)
+                @test occursin("github.io", mk)
             end
         end
 

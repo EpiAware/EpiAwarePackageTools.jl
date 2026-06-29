@@ -188,6 +188,8 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("docs/docs_config.jl", "docs/docs_config.jl", false, false),
     Template("docs/release_notes_header.jl",
         "docs/release_notes_header.jl", false, true),
+    # The package-owned prose hook spliced into the generated benchmark page.
+    Template("docs/benchmarks.md", "docs/benchmarks.md", false, true),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
     Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
