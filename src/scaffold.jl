@@ -59,9 +59,9 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, false),
     Template(".JuliaFormatter.toml", ".JuliaFormatter.toml", true, false),
     Template(".gitattributes", ".gitattributes", true, false),
-    Template(".gitignore", ".gitignore", true, false),
+    Template(".gitignore", ".gitignore", true, true),
     Template(".secrets.baseline", ".secrets.baseline", true, false),
-    Template("codecov.yml", "codecov.yml", true, false, :ad_only),
+    Template("codecov.yml", "codecov.yml", true, true, :ad_only),
     Template("codecov.noad.yml", "codecov.yml", true, false, :noad_only),
     # NOTE: `LICENSE` is NOT a managed template. It is written once from the
     # `license` input (see `_apply_license`) and never overwritten by `update`,
@@ -263,6 +263,30 @@ end
 # Strip a trailing `<email>` from an author entry, leaving the display name.
 _author_name(a::AbstractString) = strip(replace(a, r"<[^>]*>" => ""))
 
+# The template default for the tutorial subdir (see `templates/docs/
+# docs_config.jl`), used when a target has no `docs_config.jl` yet.
+const _DEFAULT_TUTORIALS_SUBDIR = "getting-started/tutorials"
+
+# Read `TUTORIALS_SUBDIR` from the package-owned `docs/docs_config.jl`: the
+# subdir (relative to `docs/src`) holding the Literate tutorial sources and
+# their rendered `.md` pages. The managed `.gitignore` ignores those rendered
+# pages, so the ignore must track whatever path the package configures rather
+# than hardcode one. The const is written as a quoted string or a
+# `joinpath("a", "b")` of quoted segments; join every quoted segment with `/`
+# (the gitignore separator). Falls back to the template default when the config
+# is absent (e.g. at first scaffold, before it is written) or omits the const.
+function _tutorials_subdir(target_dir::AbstractString)
+    cfg = joinpath(target_dir, "docs", "docs_config.jl")
+    isfile(cfg) || return _DEFAULT_TUTORIALS_SUBDIR
+    m = match(r"const\s+TUTORIALS_SUBDIR\s*=\s*([^\n]+)", read(cfg, String))
+    m === nothing && return _DEFAULT_TUTORIALS_SUBDIR
+    rhs = String(something(m.captures[1]))
+    segs = [String(something(x.captures[1], ""))
+            for x in eachmatch(r"\"([^\"]*)\"", rhs)]
+    isempty(segs) && return _DEFAULT_TUTORIALS_SUBDIR
+    return join(segs, "/")
+end
+
 """
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
@@ -374,11 +398,17 @@ function scaffold_inputs(target_dir::AbstractString;
                    string("Pkg.activate(; temp = true); Pkg.add(url = ",
         "\"https://github.com/", org, "/", KIT_NAME,
         ".jl\", rev = \"main\")")
+    # The managed `.gitignore` tracks the package's tutorial subdir, and the
+    # ad=true `codecov.yml` gate holds the status notification until all flag
+    # uploads (unit + one per AD backend) are in.
+    tutorials_subdir = _tutorials_subdir(target_dir)
+    ad_build_count = string(length(_AD_BACKENDS) + 1)
     return (PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
         DOI = doi, ZENODO_BADGE = zenodo_badge,
+        TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install)
 end

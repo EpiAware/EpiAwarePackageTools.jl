@@ -93,6 +93,12 @@
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("ad-forwarddiff", cov)
                 @test occursin("carryforward", cov)
+                # The ad=true codecov gates status until every flag upload lands
+                # (unit + six AD backends = seven), parameterised by backend count.
+                @test occursin("after_n_builds: 7", cov)
+                @test occursin("wait_for_ci: true", cov)
+                @test occursin("target: auto", cov)
+                @test !occursin("{{", cov)
                 adyaml = read(joinpath(dir, ".github/workflows/ad.yaml"), String)
                 @test occursin("EpiAware/.github/.github/workflows/ad.yml", adyaml)
 
@@ -209,6 +215,32 @@
                 @test occursin("Manifest.toml", txt)
                 @test occursin("docs/build", txt)
                 @test occursin("docs/node_modules", txt)
+                # Generated docs pages: the release-notes page is generic; the
+                # tutorial markdown path tracks docs_config.jl's TUTORIALS_SUBDIR
+                # (the template default until the package customises it).
+                @test occursin("docs/src/release-notes.md", txt)
+                @test occursin(
+                    "docs/src/getting-started/tutorials/*.md", txt)
+                @test !occursin("{{", txt)
+            end
+        end
+
+        @testset ".gitignore tutorial ignore tracks TUTORIALS_SUBDIR" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # docs_config.jl is package-owned; rewrite TUTORIALS_SUBDIR and
+                # re-run update — the managed .gitignore must follow the new path.
+                cfg = joinpath(dir, "docs", "docs_config.jl")
+                write(cfg,
+                    replace(read(cfg, String),
+                        "const TUTORIALS_SUBDIR = " *
+                        "joinpath(\"getting-started\", \"tutorials\")" => "const TUTORIALS_SUBDIR = \"how-to/walkthroughs\""))
+                update(dir)
+                txt = read(joinpath(dir, ".gitignore"), String)
+                @test occursin("docs/src/how-to/walkthroughs/*.md", txt)
+                @test !occursin(
+                    "docs/src/getting-started/tutorials/*.md", txt)
             end
         end
 
@@ -447,6 +479,8 @@
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("unit:", cov)
                 @test !occursin("ad-forwarddiff", cov)
+                # Single upload, so no multi-build status gate (ad=true only).
+                @test !occursin("after_n_builds", cov)
                 tf = read(joinpath(dir, "Taskfile.yml"), String)
                 @test !occursin("test-ad:", tf)
                 @test !occursin("test/ad", tf)
