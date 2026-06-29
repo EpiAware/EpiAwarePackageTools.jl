@@ -295,7 +295,14 @@ function scaffold_inputs(target_dir::AbstractString;
     # custom domain (see the `docs_subdomain` note in `scaffold`).
     # `DOCS_DEPLOY_URL` is the `deploy_url` Julia literal substituted into
     # `docs/make.jl`; `DOCS_URL` is the bare host(+path) for the README badges.
-    docs_sub = _resolve_docs_subdomain(docs_subdomain, pkg)
+    #
+    # The KIT ITSELF dogfoods the opt-in path: its custom subdomain
+    # (`epiawarepackagetools.epiaware.org`) is DNS-wired, so when no explicit
+    # choice is passed and the adopting package is the kit, default to the
+    # subdomain. This keeps the kit's own deploy on base `/` (correct at the
+    # subdomain root) while every other package still defaults to project-pages.
+    ds = docs_subdomain === nothing && pkg == KIT_NAME ? true : docs_subdomain
+    docs_sub = _resolve_docs_subdomain(ds, pkg)
     docs_deploy_url = _docs_deploy_url(docs_sub)
     docs_url = _docs_url(rp, docs_sub)
     # The managed JET env depends on EpiAwarePackageTools (for its report
@@ -726,7 +733,9 @@ this sets `deploy_url` to that host and points the README docs badges at it. A
 custom subdomain ALSO needs a DNS record for the host and the repo's GitHub
 Pages custom domain set (which writes the gh-pages `CNAME`); until both exist
 the site will not resolve, so the project-pages default is preferred unless
-that wiring is in place.
+that wiring is in place. The kit itself dogfoods the opt-in path: with no
+explicit choice it defaults to its own DNS-wired subdomain
+(`epiawarepackagetools.epiaware.org`), so its dogfood `update` stays stable.
 
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`update`](@ref) to re-apply only the managed files later.

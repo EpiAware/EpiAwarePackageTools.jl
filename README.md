@@ -3,7 +3,7 @@
 <!-- badges:start -->
 | | |
 |---|---|
-| Docs | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://epiaware.org/EpiAwarePackageTools.jl/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiaware.org/EpiAwarePackageTools.jl/dev/) |
+| Docs | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://epiawarepackagetools.epiaware.org/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawarepackagetools.epiaware.org/dev/) |
 | CI | [![Test](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl) |
 | Quality | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) |
 | License | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) |
@@ -194,9 +194,9 @@ See the `ADRegistry` docstring for the full contract.
 
 ## Documentation
 
-- [Stable docs](https://epiaware.org/EpiAwarePackageTools.jl/stable/) — the
-  latest release.
-- [Dev docs](https://epiaware.org/EpiAwarePackageTools.jl/dev/) — the `main`
+- [Stable docs](https://epiawarepackagetools.epiaware.org/stable/) — the latest
+  release.
+- [Dev docs](https://epiawarepackagetools.epiaware.org/dev/) — the `main`
   branch.
 
 The documentation landing page is generated from this README, so the two stay

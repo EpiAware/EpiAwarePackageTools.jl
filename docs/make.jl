@@ -160,7 +160,7 @@ makedocs(; sitename = "EpiAwarePackageTools.jl",
         # opt into `<pkg>.epiaware.org`, scaffold/update with
         # `docs_subdomain = true` (or a host string) AND set the repo's GitHub
         # Pages custom domain + a DNS record for that host.
-        deploy_url = nothing,
+        deploy_url = "epiawarepackagetools.epiaware.org",
         keep = :patch
     )
 )

@@ -183,6 +183,22 @@
             end
         end
 
+        @testset "kit dogfoods its own subdomain by default" begin
+            mktempdir() do dir
+                # The kit's own subdomain is DNS-wired, so with no explicit
+                # choice the kit (and only the kit) defaults to it.
+                _fake_pkg(dir; name = "EpiAwarePackageTools")
+                inp = scaffold_inputs(dir)
+                @test inp.DOCS_DEPLOY_URL ==
+                      "\"epiawarepackagetools.epiaware.org\""
+                @test inp.DOCS_URL == "epiawarepackagetools.epiaware.org"
+                # An explicit opt-out still wins, even for the kit.
+                inp2 = scaffold_inputs(dir; docs_subdomain = false)
+                @test inp2.DOCS_DEPLOY_URL == "nothing"
+                @test inp2.DOCS_URL == "epiaware.org/EpiAwarePackageTools.jl"
+            end
+        end
+
         @testset ".gitignore present and ignores Manifest + docs build" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
