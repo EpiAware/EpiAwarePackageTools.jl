@@ -356,13 +356,20 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
     existing = Dict{String, String}()
     for line in eachline(dest)
         m = match(_REUSABLE_USES, line)
-        m === nothing || (existing[m.captures[2]] = m.captures[3])
+        m === nothing && continue
+        # `something` strips the `Union{Nothing, SubString}` the capture API
+        # returns; the three groups always match when `m` is non-nothing.
+        existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
     end
     isempty(existing) && return content
     return replace(content,
         _REUSABLE_USES => function (s)
             m = match(_REUSABLE_USES, s)
-            return m.captures[1] * get(existing, m.captures[2], m.captures[3])
+            m === nothing && return String(s)
+            prefix = String(something(m.captures[1]))
+            workflow = String(something(m.captures[2]))
+            seed = String(something(m.captures[3]))
+            return prefix * get(existing, workflow, seed)
         end)
 end
 

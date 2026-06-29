@@ -47,6 +47,11 @@ supplies the reusable scaffolding.
 """
 module EpiAwarePackageTools
 
+# Register the standard EpiAware docstring conventions before any docstrings are
+# defined, so the kit applies its own `@template` standard to itself (see
+# src/docstrings.jl). Dogfoods the docstrings template the kit ships.
+include("docstrings.jl")
+
 include("quality.jl")
 include("qa.jl")
 include("scaffold.jl")
