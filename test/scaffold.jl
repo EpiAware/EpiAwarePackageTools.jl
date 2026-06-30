@@ -461,6 +461,41 @@
             end
         end
 
+        @testset "reviewer handle persists across update resyncs (#72)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                # Configure the handle ONCE at scaffold; the scheduled
+                # template-sync / Dependabot resync paths never re-pass it.
+                scaffold(dir; reviewer = "octocat")
+                co = joinpath(dir, ".github/CODEOWNERS")
+                dep = joinpath(dir, ".github/dependabot.yml")
+                act = joinpath(dir,
+                    ".github/actions/increment-version/action.yaml")
+                # Two consecutive bare `update`s (no kwarg) must keep the handle
+                # in all three places: CODEOWNERS, Dependabot reviewers, and the
+                # increment-version assignee default.
+                for _ in 1:2
+                    update(dir)   # NO reviewer kwarg re-passed
+                    @test occursin("* @octocat", read(co, String))
+                    @test occursin("- \"octocat\"", read(dep, String))
+                    @test occursin("default: 'octocat'", read(act, String))
+                    # The org placeholder must never leak back in.
+                    @test !occursin("@EpiAware/maintainers", read(co, String))
+                    @test !occursin("default: 'EpiAware'", read(act, String))
+                end
+
+                # A package that never set a handle stays on the placeholder
+                # across a bare update (the org default is not a real owner).
+                _fake_pkg(dir; name = "Wombat")
+                rm(joinpath(dir, ".github"); recursive = true, force = true)
+                scaffold(dir)   # no reviewer
+                update(dir)
+                @test occursin(r"(?m)^# \* @", read(co, String))
+                @test !occursin(r"(?m)^\* @", read(co, String))
+                @test !occursin("reviewers:", read(dep, String))
+            end
+        end
+
         @testset "input overrides win over Project.toml + defaults" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

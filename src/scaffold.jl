@@ -300,6 +300,28 @@ function _tutorials_subdir(target_dir::AbstractString)
     return join(segs, "/")
 end
 
+# The committed `.github/CODEOWNERS` active rule (`* @handle`) is the persisted
+# record of the package's code-owner handle. When `scaffold`/`update` is called
+# with NO explicit `reviewer`, read it back so a resync keeps the handle the
+# package was configured with, rather than reverting CODEOWNERS, the Dependabot
+# `reviewers`, and the version-bump assignee to the generic org placeholder
+# (#72). Mirrors `_preserve_reusable_refs`: the destination wins when the caller
+# does not override. The handle is returned WITHOUT the leading `@` (the form
+# Dependabot/the assignee use); CODEOWNERS re-adds it. A commented placeholder
+# (`# * @org/maintainers`) does not match, so an unconfigured package still
+# resolves to `nothing`. An `org/team` slug is preserved verbatim. An explicit
+# `reviewer = ""` opts out and never reaches this read-back.
+function _existing_reviewer(target_dir::AbstractString)
+    dest = joinpath(target_dir, ".github", "CODEOWNERS")
+    isfile(dest) || return nothing
+    for line in eachline(dest)
+        m = match(r"^\s*\*\s+@(\S+)", line)
+        m === nothing && continue
+        return String(something(m.captures[1]))
+    end
+    return nothing
+end
+
 """
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
@@ -323,9 +345,13 @@ into a template:
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
     (`* @{{REVIEWER}}`), the Dependabot `reviewers`, the version-bump assignee,
     and the Claude bot's actor gate. A username or `org/team` slug — GitHub
-    cannot assign a bare org. When omitted (`nothing`), no owner is written
-    (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
-    so a bare org is never hardcoded.
+    cannot assign a bare org. When omitted (`nothing`), the handle PERSISTS: it
+    is read back from the committed `.github/CODEOWNERS`, so a resync (the
+    scheduled template-sync / Dependabot path never re-passes it) keeps the
+    configured handle instead of reverting to the placeholder (#72). When no
+    handle was ever set, no owner is written (CODEOWNERS ships a commented
+    placeholder, Dependabot gets no `reviewers`) so a bare org is never
+    hardcoded. Pass `reviewer = ""` to explicitly opt out.
   - `year` — copyright year (`{{YEAR}}`); default the current year.
   - `license` — the SPDX licence identifier (one of
     `$(join(SUPPORTED_LICENSES, ", "))`) selecting which `LICENSE` text
@@ -370,19 +396,28 @@ function scaffold_inputs(target_dir::AbstractString;
     # `org/team` slug) is required — GitHub cannot assign a BARE org, so when no
     # handle is given those owners are left empty (with a note) rather than
     # producing PRs that error with "can't assign <org> as a reviewer".
-    has_reviewer = reviewer !== nothing && !isempty(reviewer)
-    rev = reviewer === nothing ? org : reviewer
+    #
+    # The handle PERSISTS across resyncs: when no `reviewer` is passed (the
+    # scheduled template-sync / Dependabot path never re-passes it), read it back
+    # from the committed CODEOWNERS so `update` keeps the configured handle
+    # instead of reverting to the org placeholder (#72). An explicit
+    # `reviewer = ""` still opts out (it is `!== nothing`, so the read-back is
+    # skipped and the owners are cleared).
+    effective_reviewer = reviewer === nothing ?
+                         _existing_reviewer(target_dir) : reviewer
+    has_reviewer = effective_reviewer !== nothing && !isempty(effective_reviewer)
+    rev = effective_reviewer === nothing ? org : effective_reviewer
     # The CODEOWNERS rule (active when a handle is given; otherwise a commented
     # placeholder so a bare org is never written as a code owner).
-    codeowners_line = has_reviewer ? string("* @", reviewer) :
+    codeowners_line = has_reviewer ? string("* @", effective_reviewer) :
                       string("# * @", org, "/maintainers  # set the `reviewer` ",
         "input to a GitHub handle to enable")
     # The per-entry Dependabot `reviewers:` block (empty when no handle). The
     # template carries the 4-space indent before the following `commit-message:`
     # key, so this fragment only supplies the reviewers lines themselves.
     dependabot_reviewers = has_reviewer ?
-                           string("    reviewers:\n      - \"", reviewer,
-        "\"\n") : ""
+                           string("    reviewers:\n      - \"",
+        effective_reviewer, "\"\n") : ""
     yr = year === nothing ? Dates.year(Dates.now()) : year
     uuid = _project_string(proj, "uuid")
     # A fresh UUID for the seeded ADFixtures registry skeleton (a new path
