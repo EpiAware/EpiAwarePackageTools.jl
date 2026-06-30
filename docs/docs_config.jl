@@ -39,10 +39,12 @@ const INDEX_REWRITES = Pair{String, String}[]
 # The kit's README uses illustrative code (placeholder package names like
 # `MyPackage`), so its ```julia blocks must NOT execute on the home page.
 const README_EXECUTE = false
-const README_STRIP_TABLES = false
 
-# Whether `make.jl` generates the benchmark history page (`src/benchmarks.md`).
-# The page links the published performance timeline and splices in the
-# package-owned `docs/benchmarks.md` prose. Set `false` to drop the page (and
-# remove its `pages.jl` nav entry).
+# No README section is dropped from the kit's home page.
+const INDEX_STRIP_SECTIONS = String[]
+
+# Whether the build generates the benchmark page (`src/benchmarks.md`): the
+# package-owned `docs/benchmarks.md` prose hook plus the rendered performance
+# history (the timeline published to the repo's `benchmarks` branch). Set
+# `false` to drop the page (and remove its `pages.jl` nav entry).
 const BENCHMARK_PAGE = true

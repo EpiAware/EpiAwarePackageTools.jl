@@ -129,14 +129,15 @@
                     "docs/src/components/VersionPicker.vue")
                     @test isfile(joinpath(dir, f))
                 end
-                # make.jl uses DocumenterVitepress, not a plain Documenter.HTML
-                # format, and is fully substituted.
+                # make.jl is a thin caller into the kit's DocsBuild machinery
+                # (DocumenterVitepress/Literate/makedocs all live in the kit
+                # now), and is fully substituted.
                 mk = read(joinpath(dir, "docs/make.jl"), String)
-                @test occursin("using DocumenterVitepress", mk)
-                @test occursin("DocumenterVitepress.MarkdownVitepress", mk)
-                @test occursin("DocumenterVitepress.deploydocs", mk)
+                @test occursin("using EpiAwarePackageTools", mk)
+                @test occursin("build_docs(", mk)
                 @test occursin("using Wombat", mk)
-                @test occursin("github.com/EpiAware/Wombat.jl", mk)
+                @test occursin("EpiAware/Wombat.jl", mk)
+                @test !occursin("makedocs", mk)
                 # Default docs hosting is project-pages: deploy_url = nothing
                 # (no custom subdomain), so DocumenterVitepress derives the base
                 # from the repo name and the site needs no DNS.
@@ -819,13 +820,17 @@
                     "docs/release_notes_header.jl")
                     @test isfile(joinpath(dir, f))
                 end
+                # The thin make.jl forwards the package-owned config into
+                # build_docs; the Literate / citations / benchmark machinery
+                # lives in the kit (tested in the DocsBuild testitem).
                 mk = read(joinpath(dir, "docs/make.jl"), String)
-                @test occursin("DocumenterCitations", mk)
-                @test occursin("Literate", mk)
-                @test occursin("run_literate_tutorial", mk)
-                @test occursin("docs_config.jl", mk)
+                @test occursin("build_docs(", mk)
+                @test occursin("include(\"pages.jl\")", mk)
+                @test occursin("include(\"docs_config.jl\")", mk)
+                @test occursin("benchmark_page", mk)
                 @test !occursin("{{", mk)
-                # The docs env now carries the citation + Literate deps.
+                # The docs env still carries the citation + Literate deps (the
+                # kit lazy-loads them from the package's docs environment).
                 dp = read(joinpath(dir, "docs/Project.toml"), String)
                 @test occursin("DocumenterCitations", dp)
                 @test occursin("Literate", dp)
@@ -841,10 +846,13 @@
                 @test !occursin("{{", bh)
                 @test occursin("benchmarks.md", read(
                     joinpath(dir, "docs/pages.jl"), String))
-                @test occursin("BENCHMARK_PAGE",
-                    read(joinpath(dir, "docs/docs_config.jl"), String))
-                @test occursin("benchmarks.md", mk)
-                @test occursin("github.io", mk)
+                # The home page strip is package-config driven (no hardcoded
+                # named strip in the managed build), and the benchmark page is
+                # config-gated.
+                dc = read(joinpath(dir, "docs/docs_config.jl"), String)
+                @test occursin("BENCHMARK_PAGE", dc)
+                @test occursin("INDEX_STRIP_SECTIONS", dc)
+                @test !occursin("README_STRIP_TABLES", dc)
             end
         end
 
