@@ -116,19 +116,12 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".github/actions/increment-version/action.yaml",
         ".github/actions/increment-version/action.yaml", true, true),
 
-    # --- org issue + PR templates (managed) ---
-    # The shared EpiAware/.github issue forms, contact links, and PR checklist,
-    # so every adopting repo offers the same reporting experience.
-    Template(".github/ISSUE_TEMPLATE/bug_report.md",
-        ".github/ISSUE_TEMPLATE/bug_report.md", true, false),
-    Template(".github/ISSUE_TEMPLATE/feature_request.md",
-        ".github/ISSUE_TEMPLATE/feature_request.md", true, false),
-    Template(".github/ISSUE_TEMPLATE/scientific_improvement.md",
-        ".github/ISSUE_TEMPLATE/scientific_improvement.md", true, false),
-    Template(".github/ISSUE_TEMPLATE/config.yml",
-        ".github/ISSUE_TEMPLATE/config.yml", true, true),
-    Template(".github/PULL_REQUEST_TEMPLATE.md",
-        ".github/PULL_REQUEST_TEMPLATE.md", true, false),
+    # NOTE: the org-level community health files (ISSUE_TEMPLATE/, the
+    # PULL_REQUEST_TEMPLATE, CONTRIBUTING/CODE_OF_CONDUCT/SUPPORT) are NOT
+    # scaffolded. GitHub serves them org-wide from EpiAware/.github to any repo
+    # that lacks its own copy, so shipping them here would only shadow the org
+    # defaults and cause drift. Only the repo-specific CODEOWNERS is seeded
+    # below (GitHub has no org-default CODEOWNERS).
 
     # --- shipped test infrastructure (managed) ---
     Template("test/package/quality.jl",

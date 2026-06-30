@@ -157,6 +157,17 @@ Package-owned (written once, never overwritten — `force = true` overrides):
   `ADFixtures` registry skeleton (`test/ADFixtures/`) implementing the
   `ADRegistry` contract.
 - `benchmark/benchmarks.jl` — the package's `SUITE`.
+- `.github/CODEOWNERS` — a commented placeholder naming reviewers. Seeded once
+  because it is repo-specific (real people/teams) and GitHub serves no
+  org-default CODEOWNERS.
+
+The org-level community health files — `.github/ISSUE_TEMPLATE/`,
+`.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+and `SUPPORT.md` — are deliberately NOT scaffolded. GitHub serves them
+org-wide from [EpiAware/.github](https://github.com/EpiAware/.github) to any
+org repo that does not ship its own copy, so a scaffolded copy would only
+shadow the org default and drift. To change them, edit EpiAware/.github once
+and every repo inherits it. Only `.github/CODEOWNERS` is repo-specific.
 
 A package's own unit tests, AD scenarios, registry, and config values therefore
 stay package-owned; only the standard infra is managed. Both functions resolve

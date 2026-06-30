@@ -712,17 +712,22 @@
             end
         end
 
-        @testset "org issue/PR templates + scheduled sync are managed" begin
+        @testset "scheduled sync is managed; community health not shipped" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
-                for f in (".github/workflows/template-sync.yaml",
-                    ".github/ISSUE_TEMPLATE/bug_report.md",
+                @test isfile(
+                    joinpath(dir, ".github/workflows/template-sync.yaml"))
+                # The org-level community health files come from
+                # EpiAware/.github org-wide, so the kit must NOT ship them
+                # (shipping them would shadow the org defaults and drift).
+                for f in (".github/ISSUE_TEMPLATE/bug_report.md",
                     ".github/ISSUE_TEMPLATE/feature_request.md",
                     ".github/ISSUE_TEMPLATE/scientific_improvement.md",
                     ".github/ISSUE_TEMPLATE/config.yml",
-                    ".github/PULL_REQUEST_TEMPLATE.md")
-                    @test isfile(joinpath(dir, f))
+                    ".github/PULL_REQUEST_TEMPLATE.md",
+                    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SUPPORT.md")
+                    @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
                 # own `ad` value and is fully substituted.
@@ -734,12 +739,7 @@
                 # expressions legitimately remain).
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{SYNC_INSTALL}}", sync)
-                # config.yml points its security link at the package repo.
-                cfg = read(joinpath(dir, ".github/ISSUE_TEMPLATE/config.yml"),
-                    String)
-                @test occursin("EpiAware/Wombat.jl", cfg)
-                @test !occursin("{{", cfg)
-                # They are managed: an update re-applies them.
+                # It is managed: an update re-applies it.
                 res = update(dir; ad = false)
                 @test joinpath(dir, ".github/workflows/template-sync.yaml") in
                       res.updated
