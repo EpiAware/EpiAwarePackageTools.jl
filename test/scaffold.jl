@@ -624,8 +624,15 @@
                 res = update(dir; ad = false)
                 @test res.readme === :injected
                 txt = read(readme, String)
-                @test occursin("<!-- badges:start -->", txt)
+                # Markers carry the managed-by flag; the title H1 is wrapped in
+                # its own managed markers (no logo here — none on disk).
+                @test occursin("<!-- badges:start", txt)
+                @test occursin("managed by EpiAwarePackageTools", txt)
                 @test occursin("<!-- badges:end -->", txt)
+                @test occursin("<!-- title:start", txt)
+                @test occursin("# Wombat.jl", txt)
+                @test occursin("<!-- title:end -->", txt)
+                @test !occursin("<img", txt)
                 @test occursin("Intro paragraph.", txt)
                 @test occursin("## Usage", txt)
                 # Parameterised from REPO/PACKAGE — no hardcoded owner/repo.
@@ -658,7 +665,27 @@
                 final = read(readme, String)
                 @test occursin("Edited intro.", final)
                 @test occursin("New trailing section.", final)
-                @test count("<!-- badges:start -->", final) == 1
+                @test count("<!-- badges:start", final) == 1
+                @test count("<!-- title:start", final) == 1
+            end
+        end
+
+        @testset "managed title injects a logo when present" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                mkpath(joinpath(dir, "docs/src/assets"))
+                write(joinpath(dir, "docs/src/assets/logo.svg"), "<svg/>")
+                write(joinpath(dir, "README.md"),
+                    "# Wombat.jl\n\nbody\n")
+                update(dir; ad = false)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin(
+                    "# Wombat.jl <img src=\"docs/src/assets/logo.svg\" " *
+                    "width=\"150\" alt=\"Wombat.jl logo\" align=\"right\">", txt)
+                # Idempotent: a second update does not change the title.
+                before = read(joinpath(dir, "README.md"), String)
+                update(dir; ad = false)
+                @test read(joinpath(dir, "README.md"), String) == before
             end
         end
 
@@ -680,8 +707,9 @@
                 res = scaffold(dir; ad = false)
                 @test res.readme === :created
                 txt = read(joinpath(dir, "README.md"), String)
-                @test occursin("# Fresh", txt)
-                @test occursin("<!-- badges:start -->", txt)
+                @test occursin("# Fresh.jl", txt)
+                @test occursin("<!-- title:start", txt)
+                @test occursin("<!-- badges:start", txt)
                 # The seeded body follows CD's section structure.
                 @test occursin("## Why Fresh?", txt)
                 @test occursin("## Contributing", txt)

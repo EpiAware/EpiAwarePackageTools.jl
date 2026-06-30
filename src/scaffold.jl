@@ -56,6 +56,10 @@ const SCAFFOLD_TEMPLATES = Template[
     # AD/no-AD pair writing to the same destination.
     Template("Taskfile.yml", "Taskfile.yml", true, false, :ad_only),
     Template("Taskfile.noad.yml", "Taskfile.yml", true, false, :noad_only),
+    # The package-owned custom-task hook the managed Taskfile `includes:`. A
+    # write-once skeleton so a package adds bespoke `custom:` tasks without
+    # editing (and so drifting) the managed Taskfile.
+    Template("Taskfile.custom.yml", "Taskfile.custom.yml", false, false),
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, false),
     Template(".JuliaFormatter.toml", ".JuliaFormatter.toml", true, false),
     Template(".gitattributes", ".gitattributes", true, false),
@@ -544,8 +548,18 @@ end
 # inputs on every scaffold/update, so an adopting package gets and keeps the
 # standard badges automatically. Nothing outside the markers is touched.
 
-const BADGES_START = "<!-- badges:start -->"
+# The managed-by note carried inside the start markers so anyone editing the
+# README knows the block is kit-managed and re-applied by `update`.
+const _README_MANAGED_NOTE = " — managed by EpiAwarePackageTools; edit via `update`, not by hand"
+const BADGES_START = "<!-- badges:start" * _README_MANAGED_NOTE * " -->"
 const BADGES_END = "<!-- badges:end -->"
+# The managed title+logo block markers (the `# <Package>.jl` H1 plus an
+# optional right-aligned logo).
+const TITLE_START = "<!-- title:start" * _README_MANAGED_NOTE * " -->"
+const TITLE_END = "<!-- title:end -->"
+# Older unflagged start markers recognised so an existing README migrates to the
+# flagged form in place rather than gaining a duplicate block.
+const _LEGACY_BADGES_START = "<!-- badges:start -->"
 
 # The per-backend AD jobs, as (badge label, column header, workflow/flag slug)
 # triples. The badge label is the `AD <label>` / `cov <label>` alt text; the
@@ -740,6 +754,32 @@ function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         "to abide by its terms.\n")
 end
 
+# Find the `(start, stop)` byte range of the first marker region whose start is
+# one of `starts` and which is closed by `endm` after it. Returns `nothing` when
+# no start marker is present (or none is closed).
+function _marker_region(text::AbstractString, starts, endm::AbstractString)
+    for s in starts
+        si = findfirst(s, text)
+        si === nothing && continue
+        ei = findfirst(endm, text)
+        (ei !== nothing && first(ei) > last(si)) &&
+            return (first(si), last(ei))
+    end
+    return nothing
+end
+
+# The managed README title block: the `# <Package>.jl` H1, plus a right-aligned
+# logo `<img>` only when `docs/src/assets/logo.svg` exists in the package.
+const _README_LOGO_REL = "docs/src/assets/logo.svg"
+function _managed_title_block(target_dir::AbstractString, pkg::AbstractString)
+    title = "# " * pkg * ".jl"
+    if isfile(joinpath(target_dir, _README_LOGO_REL))
+        title *= " <img src=\"" * _README_LOGO_REL * "\" width=\"150\" alt=\"" *
+                 pkg * ".jl logo\" align=\"right\">"
+    end
+    return TITLE_START * "\n" * title * "\n" * TITLE_END
+end
+
 function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
         docs_url::Union{Nothing, AbstractString} = nothing,
@@ -747,32 +787,48 @@ function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
         zenodo_badge::Union{Nothing, AbstractString} = nothing)
     badges = _render_badges(repo, pkg; ad = ad, license = license,
         docs_url = docs_url, doi = doi, zenodo_badge = zenodo_badge)
-    block = BADGES_START * "\n" * badges * "\n" * BADGES_END
+    badge_block = BADGES_START * "\n" * badges * "\n" * BADGES_END
+    td = isempty(dirname(readme)) ? "." : dirname(readme)
+    title_block = _managed_title_block(td, pkg)
     if !isfile(readme)
         body = _seed_readme_body(repo, pkg, docs_url)
-        write(readme, "# " * pkg * "\n\n" * block * "\n\n" * body)
+        write(readme,
+            title_block * "\n\n" * badge_block * "\n\n" * body)
         return (:created, true)
     end
     text = read(readme, String)
-    si = findfirst(BADGES_START, text)
-    ei = findfirst(BADGES_END, text)
-    if si !== nothing && ei !== nothing && first(ei) > last(si)
-        # Refresh: replace everything between (and including) the markers.
-        new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
-        new == text && return (:refreshed, false)
-        write(readme, new)
-        return (:refreshed, true)
-    end
-    # Inject after the first H1 title, else at the very top.
-    m = match(r"^(#[^\n]*\n)"m, text)
-    if m !== nothing && m.offset == 1
-        new = text[1:(m.offset + lastindex(m.match) - 1)] *
-              "\n" * block * "\n" * text[(m.offset + lastindex(m.match)):end]
+    orig = text
+    # Whether the managed badge block already existed (flagged or unflagged):
+    # drives whether this counts as a refresh or a first-time injection.
+    had_badges = _marker_region(text,
+        (BADGES_START, _LEGACY_BADGES_START), BADGES_END) !== nothing
+    # 1. Title: replace within the title markers; else wrap the first H1 line in
+    # them (migration); else prepend the block.
+    tr = _marker_region(text, (TITLE_START,), TITLE_END)
+    if tr !== nothing
+        text = text[1:(tr[1] - 1)] * title_block * text[(tr[2] + 1):end]
     else
-        new = block * "\n\n" * text
+        m = match(r"^#[^\n]*", text)
+        if m !== nothing && m.offset == 1
+            text = title_block * text[(m.offset + lastindex(m.match)):end]
+        else
+            text = title_block * "\n\n" * text
+        end
     end
-    write(readme, new)
-    return (:injected, true)
+    # 2. Badges: replace within the badge markers (flagged OR the older unflagged
+    # start, so an existing README migrates in place); else inject after title.
+    br = _marker_region(text, (BADGES_START, _LEGACY_BADGES_START), BADGES_END)
+    if br !== nothing
+        text = text[1:(br[1] - 1)] * badge_block * text[(br[2] + 1):end]
+    else
+        te = findfirst(TITLE_END, text)
+        text = te !== nothing ?
+               text[1:last(te)] * "\n\n" * badge_block * text[(last(te) + 1):end] :
+               badge_block * "\n\n" * text
+    end
+    text == orig && return (:refreshed, false)
+    write(readme, text)
+    return (had_badges ? :refreshed : :injected, true)
 end
 
 # --- managed [workspace] stanza in the root Project.toml -------------------

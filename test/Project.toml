@@ -10,13 +10,16 @@ EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
-JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
+
+[sources]
+EpiAwarePackageTools = {path = "/home/seabbs/code/EpiAware/EpiAwarePackageTools.jl/worktrees/dot-github-defaults"}
 
 [compat]
 ADTypes = "1"
@@ -34,6 +37,3 @@ JuliaFormatter = "2"
 ReverseDiff = "1"
 TestItemRunner = "1"
 TestItems = "1"
-
-[sources]
-EpiAwarePackageTools = {path = ".."}

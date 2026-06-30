@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 version: '3'
 
 # Standard EpiAware package development tasks. Generalised from
@@ -8,6 +9,16 @@ version: '3'
 # This is the no-AD variant (the package opted out of the AD harness, so the
 # AD test tasks and the AD env setup step are absent). See the AD-enabled
 # Taskfile.yml template for the variant with AD tasks.
+#
+# Add PACKAGE-SPECIFIC tasks in `Taskfile.custom.yml` (package-owned, optional)
+# — they appear under the `custom:` namespace (e.g. `task custom:mytask`). That
+# keeps this managed file free of per-package edits, so a template-sync never
+# clobbers your tasks and never reports drift.
+
+includes:
+  custom:
+    taskfile: ./Taskfile.custom.yml
+    optional: true
 
 vars:
   PACKAGE:

@@ -1,6 +1,8 @@
+<!-- title:start — managed by EpiAwarePackageTools; edit via `update`, not by hand -->
 # EpiAwarePackageTools.jl
+<!-- title:end -->
 
-<!-- badges:start -->
+<!-- badges:start — managed by EpiAwarePackageTools; edit via `update`, not by hand -->
 | **Documentation** | **Build Status** | **Code Quality** | **License & DOI** | **Downloads** |
 |:-----------------:|:----------------:|:----------------:|:-----------------:|:-------------:|
 | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://epiawarepackagetools.epiaware.org/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawarepackagetools.epiaware.org/dev/) | [![Test](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl) | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) | [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Ftotal_downloads%2FEpiAwarePackageTools&query=total_requests&label=Downloads)](https://juliapkgstats.com/pkg/EpiAwarePackageTools) [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Fmonthly_downloads%2FEpiAwarePackageTools&query=total_requests&suffix=%2Fmonth&label=Downloads)](https://juliapkgstats.com/pkg/EpiAwarePackageTools) |
@@ -107,15 +109,23 @@ itself is a tooling package, so it manages its OWN repo with `ad = false` and a
 scaffold(pkgdir(MyTooling); ad = false)   # no AD CI/harness/flags
 ```
 
-**Standard README badges** are managed too. The README body stays package-owned,
-but a block between `<!-- badges:start -->` / `<!-- badges:end -->` markers holds
-the standard badge set (docs stable + dev, Test CI, codecov, SciML style, Aqua,
-JET, License — plus per-backend AD CI and coverage badges when `ad = true`),
-parameterised from `{{REPO}}` / `{{PACKAGE}}` so no owner or repo is hardcoded.
-`scaffold`/`generate` write the markers and initial badges; `update` injects the
-block when the markers are absent and re-renders it from the current placeholders
-when present. Nothing outside the markers is touched, so a package gets and keeps
-the standard badges automatically.
+**The README title and badges** are managed too; the rest of the body stays
+package-owned. Two managed blocks, each delimited by markers that carry a
+`managed by EpiAwarePackageTools` flag so an editor knows not to hand-edit them:
+
+- a `<!-- title:start … -->` / `<!-- title:end -->` block holding the
+  `# <Package>.jl` H1, plus a right-aligned logo `<img>` when
+  `docs/src/assets/logo.svg` exists;
+- a `<!-- badges:start … -->` / `<!-- badges:end -->` block holding the standard
+  badge set (docs stable + dev, Test CI, codecov, SciML style, Aqua, JET,
+  License — plus per-backend AD CI and coverage badges when `ad = true`),
+  parameterised from `{{REPO}}` / `{{PACKAGE}}` so no owner or repo is hardcoded.
+
+`scaffold`/`generate` write the blocks; `update` injects them when absent (an
+existing unmarked H1 is migrated into the title markers in place) and
+re-renders them from the current placeholders when present. Nothing outside the
+markers is touched, so a package keeps the standard title + badges automatically
+while owning the rest of the README.
 
 Each template is **managed** (standard infra, overwritten on `update` to remove
 drift) or **package-owned** (a starting skeleton written once and never
@@ -125,17 +135,24 @@ overwritten). `{{PACKAGE}}` placeholders are filled from the target
 Managed (overwritten on `scaffold`/`update`):
 
 - Root dev config: `Taskfile.yml` (test, lint, format, docs, benchmark, and —
-  when `ad = true` — AD targets), `.pre-commit-config.yaml` (JuliaFormatter +
-  detect-secrets + file hygiene), `.JuliaFormatter.toml` (SciML),
-  `.gitattributes` (normalise line endings to LF so the formatter check is
-  stable on Windows runners), `.secrets.baseline` (the detect-secrets baseline
-  the pre-commit config references), and `codecov.yml` (the `unit` flag, plus
-  per-backend `ad-*` flags when `ad = true`).
+  when `ad = true` — AD targets; it `includes:` a package-owned
+  `Taskfile.custom.yml` for bespoke `custom:` tasks), `.pre-commit-config.yaml`
+  (JuliaFormatter + detect-secrets + file hygiene), `.JuliaFormatter.toml`
+  (SciML), `.gitattributes` (normalise line endings to LF so the formatter
+  check is stable on Windows runners), `.secrets.baseline` (the detect-secrets
+  baseline the pre-commit config references), and `codecov.yml` (the `unit`
+  flag, plus per-backend `ad-*` flags when `ad = true`). Every managed config
+  carries the `# MANAGED by EpiAwarePackageTools.scaffold` header (except
+  `.secrets.baseline`, which is JSON and takes no comment).
 - CI: `.github/workflows/*` thin callers that invoke the
   [EpiAware/.github](https://github.com/EpiAware/.github) reusables (tests,
   downgrade-compat, docs, doc-preview-cleanup, format/pre-commit, coverage,
-  opt-in downstream/reverse-deps, TagBot) and `.github/dependabot.yml`. The
-  per-backend AD matrix caller (`ad.yaml`) is added only when `ad = true`.
+  opt-in downstream/reverse-deps, TagBot, cancel-on-close), the generic
+  org-standard helpers (`try-this-pr`, `claude` + `claude-code-review`),
+  `.github/dependabot.yml`, and `.github/CODEOWNERS`. Each managed workflow
+  carries the managed-by header. The per-backend AD matrix caller (`ad.yaml`)
+  is added only when `ad = true`. `CODEOWNERS` + the Dependabot `reviewers`
+  are populated from the `reviewer` handle (see the inputs above).
 - Test infra: `test/package/quality.jl` (the QA testset that calls the helpers),
   `test/jet/runtests.jl` + `test/jet/Project.toml`, `test/formatter/runtests.jl`
   + `test/formatter/Project.toml`, and `benchmark/run.jl` / `benchmark/compare.jl`
@@ -157,9 +174,14 @@ Package-owned (written once, never overwritten — `force = true` overrides):
   `ADFixtures` registry skeleton (`test/ADFixtures/`) implementing the
   `ADRegistry` contract.
 - `benchmark/benchmarks.jl` — the package's `SUITE`.
-- `.github/CODEOWNERS` — a commented placeholder naming reviewers. Seeded once
-  because it is repo-specific (real people/teams) and GitHub serves no
-  org-default CODEOWNERS.
+- `Taskfile.custom.yml` — a write-once skeleton for package-specific Task
+  targets, surfaced under the `custom:` namespace via the managed Taskfile's
+  `includes:`. Editing it never causes managed-template drift.
+
+`.github/CODEOWNERS` is **managed** (not package-owned): GitHub serves no
+org-default CODEOWNERS, but its content is fully derived from the `reviewer`
+handle (`* @<reviewer>`, or a commented placeholder when no handle is given), so
+it is re-applied like any other managed file.
 
 The org-level community health files — `.github/ISSUE_TEMPLATE/`,
 `.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
