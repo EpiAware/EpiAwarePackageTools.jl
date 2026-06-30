@@ -539,7 +539,13 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         repo = "github.com/$repo", devbranch = "main", devurl = "dev",
         deploy_url = deploy_url, build_vitepress = build_vitepress,
         keep = :patch)
-    Base.invokelatest(Documenter.makedocs; sitename = "$mod.jl",
+    # `root` is pinned to the package's docs dir. Documenter otherwise defaults
+    # it to the running script's directory; because the build now lives in the
+    # kit rather than in `docs/make.jl`, the thin caller (or a test) may run
+    # from anywhere, so set it explicitly. `source`/`build` keep their defaults
+    # relative to `root` (`src`/`build`), matching the previous layout.
+    Base.invokelatest(Documenter.makedocs; root = docs_dir,
+        sitename = "$mod.jl",
         authors = authors, clean = true, doctest = false,
         linkcheck = !skip_notebooks,
         linkcheck_ignore = vcat(linkcheck_ignore, benchmark_linkcheck),
