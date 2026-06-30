@@ -545,6 +545,41 @@
             end
         end
 
+        @testset "reviewer handle persists across resyncs (#72)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+
+                codeowners = joinpath(dir, ".github/CODEOWNERS")
+                dependabot = joinpath(dir, ".github/dependabot.yml")
+                action = joinpath(dir,
+                    ".github/actions/increment-version/action.yaml")
+
+                # scaffold writes the handle into every managed reviewer surface.
+                @test occursin("* @octocat", read(codeowners, String))
+                @test occursin("- \"octocat\"", read(dependabot, String))
+                @test occursin("default: 'octocat'", read(action, String))
+
+                # A scheduled resync does NOT re-pass `reviewer`; the handle must
+                # be recovered from the destination (#72), not reverted to the org
+                # placeholder. Two updates confirm it stays put.
+                update(dir)
+                update(dir)
+
+                co = read(codeowners, String)
+                dep = read(dependabot, String)
+                act = read(action, String)
+                @test occursin("* @octocat", co)
+                @test occursin("reviewers:", dep)
+                @test occursin("- \"octocat\"", dep)
+                @test occursin("default: 'octocat'", act)
+                # No reversion to the commented org placeholder / bare-org
+                # assignee, the bug this guards.
+                @test !occursin("# * @EpiAware/maintainers", co)
+                @test !occursin("default: 'EpiAware'", act)
+            end
+        end
+
         @testset "scaffold preserves owned, rewrites managed on re-run" begin
             mktempdir() do dir
                 _fake_pkg(dir)

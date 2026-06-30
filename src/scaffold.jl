@@ -300,6 +300,30 @@ function _tutorials_subdir(target_dir::AbstractString)
     return join(segs, "/")
 end
 
+# Recover a persisted reviewer handle from an already-scaffolded repo so a resync
+# (`update` with no `reviewer` kwarg) keeps it instead of reverting to the org
+# placeholder (#72). CODEOWNERS and the Dependabot `reviewers` block are MANAGED
+# (re-emitted on every sync), and the scheduled template-sync never re-passes
+# `reviewer`, so the handle must be read back from the destination — exactly as
+# `_preserve_reusable_refs` reads existing reusable-workflow refs to stay
+# idempotent against Dependabot SHA bumps. The destination is the source of
+# truth. Reads the active (uncommented) CODEOWNERS owner line the kit renders
+# from the handle and returns its first `@handle` (the leading `@` stripped, an
+# `org/team` slug kept whole), or `nothing` when CODEOWNERS is absent or carries
+# only the commented placeholder (so a never-configured repo stays unconfigured).
+function _detect_reviewer(target_dir::AbstractString)
+    co = joinpath(target_dir, ".github", "CODEOWNERS")
+    isfile(co) || return nothing
+    for line in eachline(co)
+        s = strip(line)
+        (isempty(s) || startswith(s, "#")) && continue
+        m = match(r"@(\S+)", s)
+        m === nothing && continue
+        return String(something(m.captures[1]))
+    end
+    return nothing
+end
+
 """
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
@@ -370,18 +394,24 @@ function scaffold_inputs(target_dir::AbstractString;
     # `org/team` slug) is required — GitHub cannot assign a BARE org, so when no
     # handle is given those owners are left empty (with a note) rather than
     # producing PRs that error with "can't assign <org> as a reviewer".
-    has_reviewer = reviewer !== nothing && !isempty(reviewer)
-    rev = reviewer === nothing ? org : reviewer
+    # When no `reviewer` is passed, recover any handle a previous scaffold/update
+    # persisted in the destination, so a scheduled resync stays idempotent rather
+    # than reverting CODEOWNERS / Dependabot reviewers / the assignee to the org
+    # placeholder (#72). An explicit `reviewer = ""` still omits owners.
+    resolved_reviewer = reviewer === nothing ? _detect_reviewer(target_dir) :
+                        reviewer
+    has_reviewer = resolved_reviewer !== nothing && !isempty(resolved_reviewer)
+    rev = resolved_reviewer === nothing ? org : resolved_reviewer
     # The CODEOWNERS rule (active when a handle is given; otherwise a commented
     # placeholder so a bare org is never written as a code owner).
-    codeowners_line = has_reviewer ? string("* @", reviewer) :
+    codeowners_line = has_reviewer ? string("* @", resolved_reviewer) :
                       string("# * @", org, "/maintainers  # set the `reviewer` ",
         "input to a GitHub handle to enable")
     # The per-entry Dependabot `reviewers:` block (empty when no handle). The
     # template carries the 4-space indent before the following `commit-message:`
     # key, so this fragment only supplies the reviewers lines themselves.
     dependabot_reviewers = has_reviewer ?
-                           string("    reviewers:\n      - \"", reviewer,
+                           string("    reviewers:\n      - \"", resolved_reviewer,
         "\"\n") : ""
     yr = year === nothing ? Dates.year(Dates.now()) : year
     uuid = _project_string(proj, "uuid")
