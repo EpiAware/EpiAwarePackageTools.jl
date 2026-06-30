@@ -285,6 +285,66 @@
             end
         end
 
+        @testset ".gitignore package-owned tail survives update (#65)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                @test res.gitignore === :created
+                gi = joinpath(dir, ".gitignore")
+                # A package adds its own ignore rule after the managed block.
+                keep = "!docs/src/getting-started/tutorials/data/**"
+                write(gi, read(gi, String) * "\n# Keep bundled data.\n" * keep * "\n")
+                res2 = update(dir)
+                @test res2.gitignore === :refreshed
+                txt = read(gi, String)
+                @test occursin(keep, txt)
+                # The managed block is still correctly refreshed alongside it.
+                @test occursin("Manifest.toml", txt)
+                # A further no-op update changes nothing (idempotent with a
+                # package-owned tail present).
+                before = read(gi, String)
+                res3 = update(dir)
+                @test res3.gitignore === :refreshed
+                @test read(gi, String) == before
+            end
+        end
+
+        @testset ".gitignore legacy (marker-less) file migrates without data loss" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                # Simulate a pre-fix kit version: a flat, marker-less .gitignore
+                # with a package-owned keep-rule mixed into the managed copy
+                # (the real CensoredDistributions.jl#65 scenario).
+                keep = "!docs/src/getting-started/tutorials/data/**"
+                write(joinpath(dir, ".gitignore"),
+                    "# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n" *
+                    "Manifest.toml\n" *
+                    "docs/src/release-notes.md\n" *
+                    "docs/src/getting-started/tutorials/*.md\n" *
+                    "# Keep the bundled tutorial data (redistributed with the docs).\n" *
+                    keep * "\n")
+                res = update(dir)
+                @test res.gitignore === :injected
+                txt = read(joinpath(dir, ".gitignore"), String)
+                @test occursin(keep, txt)
+                @test occursin("# managed:start", txt)
+                @test occursin("# managed:end", txt)
+                # Idempotent once markers exist.
+                before = txt
+                update(dir)
+                @test read(joinpath(dir, ".gitignore"), String) == before
+            end
+        end
+
+        @testset ".gitignore carries the managed-by header" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                txt = read(joinpath(dir, ".gitignore"), String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+            end
+        end
+
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

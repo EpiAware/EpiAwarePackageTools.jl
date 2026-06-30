@@ -59,7 +59,10 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, false),
     Template(".JuliaFormatter.toml", ".JuliaFormatter.toml", true, false),
     Template(".gitattributes", ".gitattributes", true, false),
-    Template(".gitignore", ".gitignore", true, true),
+    # NOTE: `.gitignore` is NOT in this list. It is managed between markers
+    # (see `_apply_gitignore`) so a package's own ignore-rule additions below
+    # the managed block survive `update`, rather than being copied verbatim
+    # and clobbered on the next sync (#65).
     Template(".secrets.baseline", ".secrets.baseline", true, false),
     Template("codecov.yml", "codecov.yml", true, true, :ad_only),
     Template("codecov.noad.yml", "codecov.yml", true, false, :noad_only),
@@ -805,6 +808,73 @@ function _apply_workspace(target_dir::AbstractString)
     return :injected
 end
 
+# --- managed .gitignore block (package additions preserved) ----------------
+#
+# `.gitignore` used to be a fully-managed template: `update` copied it
+# verbatim, so a package's own ignore-rule additions (e.g. a keep-rule for
+# bundled data the standard rules would otherwise exclude) were silently
+# dropped on the next sync (#65). It now follows the same managed-block
+# pattern as the README badges: the standard rules live between the markers
+# below and are (re)rendered on every scaffold/update; anything outside the
+# markers — including a legacy `.gitignore` with no markers yet, which is
+# treated as a package-owned tail and kept below the freshly-inserted block —
+# is left untouched.
+
+const GITIGNORE_START = "# managed:start"
+const GITIGNORE_END = "# managed:end"
+
+# Render the managed `.gitignore` body (without markers) from the bundled
+# template, substituting placeholders (currently `{{TUTORIALS_SUBDIR}}`).
+function _render_gitignore(inputs::NamedTuple)
+    from = joinpath(_templates_dir(), ".gitignore")
+    isfile(from) || error("missing bundled template .gitignore at $from")
+    return _substitute(read(from, String), inputs, from)
+end
+
+# Apply the managed `.gitignore` block to `target_dir`. Returns `(action,
+# changed)` where action is `:created`, `:injected` (markers added to an
+# existing file, e.g. on first run of a kit version with this fix, or
+# `:refreshed` (markers already present; only the marked region is
+# touched). Mirrors `_apply_badges`.
+function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
+    path = joinpath(target_dir, ".gitignore")
+    body = _render_gitignore(inputs)
+    # The explanatory header lives INSIDE the marker pair (the start marker is
+    # always the block's first line) so the whole block — header included —
+    # is replaced as one unit on refresh. Putting the header before the start
+    # marker would leave it sitting in the "preserved" prefix on every
+    # subsequent refresh, duplicating it on each `update` call.
+    block = GITIGNORE_START * "\n" *
+            "# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n" *
+            "# Standard ignore rules live between the markers below and are\n" *
+            "# replaced on every update. Add package-specific rules after the\n" *
+            "# closing marker — they are preserved across updates.\n" *
+            body * GITIGNORE_END
+    if !isfile(path)
+        write(path, block * "\n")
+        return (:created, true)
+    end
+    text = read(path, String)
+    # `findfirst` for the opening marker (the block we write always puts it
+    # first); `findlast` for the closing one, so a closing marker is found
+    # correctly even if the package-owned tail happens to mention the marker
+    # text (e.g. in a comment) before the real terminator.
+    si = findfirst(GITIGNORE_START, text)
+    ei = findlast(GITIGNORE_END, text)
+    if si !== nothing && ei !== nothing && first(ei) > last(si)
+        new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
+        new == text && return (:refreshed, false)
+        write(path, new)
+        return (:refreshed, true)
+    end
+    # No markers yet: a legacy fully-managed copy (pre-#65) or a hand-written
+    # file. Insert the managed block at the top and keep everything that was
+    # already there as the package-owned tail — never drop existing content.
+    new = block * "\n\n" * text
+    write(path, new)
+    return (:injected, true)
+end
+
 # Whether a template is emitted for the requested `ad` value: `:always` always,
 # `:ad_only` when `ad = true`, `:noad_only` when `ad = false`.
 function _ad_selected(t::Template, ad::Bool)
@@ -871,9 +941,13 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # thereafter. Reported separately so the template manifest stays
     # template-driven.
     workspace_action = _apply_workspace(target_dir)
+    # `.gitignore` is managed between markers so package-owned additions below
+    # the block survive `update` (#65). Reported separately for the same
+    # reason as `readme`/`license`/`workspace` above.
+    gitignore_action = first(_apply_gitignore(target_dir, inputs))
     return (created = created, updated = updated, preserved = preserved,
         readme = readme_action, license = license_action,
-        workspace = workspace_action)
+        workspace = workspace_action, gitignore = gitignore_action)
 end
 
 """
@@ -935,6 +1009,15 @@ hardcoded). The block is injected after the README's `# ` title when the markers
 are absent and refreshed in place when present; nothing outside the markers is
 touched. A missing README is created with a title and the block.
 
+`.gitignore` follows the same managed-block pattern: the standard ignore rules
+live between `$(GITIGNORE_START)` / `$(GITIGNORE_END)` markers and are
+(re)rendered on every scaffold/update, but anything after the end marker is a
+package-owned tail that is never touched — add your own ignore rules there. A
+pre-existing `.gitignore` with no markers (e.g. one written by a kit version
+before this behaviour existed) is treated the same way a legacy README is:
+the managed block is inserted at the top and the whole existing file is kept
+below as the tail, so nothing a package added is ever silently dropped.
+
 `docs_subdomain` selects how the docs site is hosted. The DEFAULT (`nothing`) is
 a GitHub project-pages deploy: `docs/make.jl` gets `deploy_url = nothing`, so
 DocumenterVitepress derives the VitePress base from the repo name and the site
@@ -952,11 +1035,12 @@ explicit choice it defaults to its own DNS-wired subdomain
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`update`](@ref) to re-apply only the managed files later.
 
-Returns a `(created, updated, preserved, readme, license, workspace)` named
-tuple: destination paths newly written, managed files overwritten, package-owned
-files left in place, the README badge action (`:created`, `:injected`,
-`:refreshed`, or `:skipped`), the `LICENSE` action, and the root `[workspace]`
-stanza action (`:injected`, `:preserved`, or `:skipped`).
+Returns a `(created, updated, preserved, readme, license, workspace, gitignore)`
+named tuple: destination paths newly written, managed files overwritten,
+package-owned files left in place, the README badge action (`:created`,
+`:injected`, `:refreshed`, or `:skipped`), the `LICENSE` action, the root
+`[workspace]` stanza action (`:injected`, `:preserved`, or `:skipped`), and the
+`.gitignore` managed-block action (`:created`, `:injected`, or `:refreshed`).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, kwargs...)
@@ -991,10 +1075,15 @@ The README's managed badge block is also refreshed: `update` injects it when the
 current placeholders when present, so a package gets and keeps the standard
 badges automatically without its README body being touched.
 
-Returns a `(created, updated, preserved, readme, license, workspace)` named
-tuple: managed files newly added, managed files rewritten, (always empty here)
-preserved, the README badge action, the `LICENSE` action (`:skipped` on update),
-and the root `[workspace]` stanza action.
+The managed `.gitignore` block is handled the same way: refreshed between its
+markers (or migrated in place if a pre-existing file has none yet), with any
+package-owned tail after the block left untouched.
+
+Returns a `(created, updated, preserved, readme, license, workspace, gitignore)`
+named tuple: managed files newly added, managed files rewritten, (always empty
+here) preserved, the README badge action, the `LICENSE` action (`:skipped` on
+update), the root `[workspace]` stanza action, and the `.gitignore`
+managed-block action.
 """
 function update(target_dir::AbstractString; ad::Bool = true, kwargs...)
     inputs = scaffold_inputs(target_dir; kwargs...)

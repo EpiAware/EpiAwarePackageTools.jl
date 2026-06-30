@@ -1,5 +1,3 @@
-# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
-
 # Julia: Manifest.toml records a resolved env. For a package (not an
 # application) it must NOT be committed — a committed Manifest resolved on the
 # newest Julia warns and fails the lts CI job, and its git-tree-sha1 hashes trip
