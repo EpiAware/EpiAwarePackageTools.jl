@@ -653,6 +653,13 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
     ci = "[![Test](" * gh * "/actions/workflows/test.yaml/badge.svg" *
          "?branch=main)](" * gh * "/actions/workflows/test.yaml) " *
          "[![codecov](" * cov * "/graph/badge.svg)](" * cov * ")"
+    # We ship one aggregate `ad.yaml` (not six per-backend workflows), so the
+    # Build Status cell carries a single AD status badge; the per-backend detail
+    # lives in the AD coverage-flag table below.
+    if ad
+        ci *= " [![AD](" * gh * "/actions/workflows/ad.yaml/badge.svg" *
+              "?branch=main)](" * gh * "/actions/workflows/ad.yaml)"
+    end
     quality = "[![SciML Code Style](https://img.shields.io/static/v1?" *
               "label=code%20style&message=SciML&color=9558b2&" *
               "labelColor=389826)](https://github.com/SciML/SciMLStyle) " *
@@ -674,13 +681,12 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         "| " * docs * " | " * ci * " | " * quality * " | " * license_doi * " | " * downloads * " |"
     ]
     if ad
+        # Per-backend AD COVERAGE flags (one codecov upload per backend from the
+        # aggregate ad.yaml matrix). No per-backend *status* badges: only the
+        # aggregate ad.yaml exists, so per-backend status URLs would 404 — the
+        # single aggregate AD status badge lives in the Build Status cell above.
         headers = join((h for (_, h, _) in _AD_BACKENDS), " | ")
         sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
-        ci_badges = join(
-            ["[![AD $alt]($gh/actions/workflows/$slug.yaml/" *
-             "badge.svg?branch=main)]($gh/actions/workflows/" *
-             "$slug.yaml)" for (alt, _, slug) in _AD_BACKENDS],
-            " | ")
         cov_badges = join(
             ["[![cov $alt]($cov/graph/badge.svg?flag=$slug)]" *
              "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
@@ -689,7 +695,6 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         push!(lines, "")
         push!(lines, "| " * headers * " |")
         push!(lines, sep)
-        push!(lines, "| " * ci_badges * " |")
         push!(lines, "| " * cov_badges * " |")
     end
     return join(lines, "\n")

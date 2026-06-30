@@ -90,7 +90,7 @@
                     ".github/workflows/claude-code-review.yml",
                     ".github/dependabot.yml", ".github/CODEOWNERS",
                     "codecov.yml", ".pre-commit-config.yaml",
-                    ".JuliaFormatter.toml")
+                    ".JuliaFormatter.toml", "Taskfile.yml")
                     @test occursin(hdr,
                         read(joinpath(dir, f), String))
                 end
@@ -669,9 +669,18 @@
                 write(joinpath(dir, "README.md"), "# Numeric\n\nbody\n")
                 update(dir; ad = true)
                 txt = read(joinpath(dir, "README.md"), String)
-                @test occursin("AD ForwardDiff", txt)
-                @test occursin("ad-forwarddiff", txt)
+                # One aggregate AD status badge in Build Status (we ship a single
+                # `ad.yaml`, not six per-backend workflows).
+                @test occursin(
+                    "[![AD](https://github.com/EpiAware/Numeric.jl/actions/" *
+                    "workflows/ad.yaml/badge.svg?branch=main)]", txt)
+                # The six per-backend COVERAGE flag badges are kept.
                 @test occursin("cov ForwardDiff", txt)
+                @test occursin("flag=ad-forwarddiff", txt)
+                @test occursin("cov Mooncake forward", txt)
+                # No per-backend STATUS badges (those URLs would 404).
+                @test !occursin("AD ForwardDiff", txt)
+                @test !occursin("workflows/ad-forwarddiff.yaml", txt)
             end
         end
 
@@ -841,6 +850,13 @@
                 bench = read(joinpath(dir, ".github/workflows/benchmark.yaml"),
                     String)
                 @test occursin("AirspeedVelocity", bench)
+                # Triggers on every path that affects performance: sources, the
+                # extensions, the benchmark suite, and the AD fixtures.
+                @test occursin("pull_request_target", bench)
+                for p in ("'src/**'", "'ext/**'", "'benchmark/**'",
+                    "'test/ADFixtures/**'")
+                    @test occursin(p, bench)
+                end
                 # The package name is substituted into the comment step.
                 @test occursin("results Wombat", bench)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
