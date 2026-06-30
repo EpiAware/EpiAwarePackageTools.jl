@@ -42,14 +42,16 @@ const INDEX_REWRITES = Pair{String, String}[]
 # execute.
 const README_EXECUTE = true
 
-# Whether to drop raw markdown table rows (and a leading `**Websites**` line)
-# when generating the home page. Needed only for a README whose badges are a raw
-# table NOT wrapped in the managed `<!-- badges:start/end -->` markers; leave
-# `false` to preserve content tables (the marker strip already removes badges).
-const README_STRIP_TABLES = false
+# README headings whose whole section (heading + body, up to the next heading
+# of the same or a higher level) is dropped when generating the home page. The
+# managed badge block is always stripped via its `<!-- badges:start/end -->`
+# markers; this list is the package-owned hook for omitting any OTHER named
+# section from the home page (the managed build hardcodes none). Leave empty to
+# keep the whole README — content tables and all.
+const INDEX_STRIP_SECTIONS = String[]
 
-# Whether `make.jl` generates the benchmark history page (`src/benchmarks.md`).
-# The page links the published performance timeline and splices in the
-# package-owned `docs/benchmarks.md` prose. Set `false` to drop the page (and
-# remove its `pages.jl` nav entry).
+# Whether the build generates the benchmark page (`src/benchmarks.md`): the
+# package-owned `docs/benchmarks.md` prose hook plus the rendered performance
+# history (the timeline published to the repo's `benchmarks` branch). Set
+# `false` to drop the page (and remove its `pages.jl` nav entry).
 const BENCHMARK_PAGE = true

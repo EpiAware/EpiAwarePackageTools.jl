@@ -41,6 +41,12 @@ generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools
 result data into a legible Markdown PR comment. A package keeps its own
 benchmark definitions and calls into this module to run and report them.
 
+A [`DocsBuild`](@ref EpiAwarePackageTools.DocsBuild) submodule supplies the
+generic documentation-build machinery: [`build_docs`](@ref) runs the standard
+Documenter + DocumenterVitepress build (README→index, release notes, benchmark
+page, API split, Literate tutorials) for a package module, so the managed
+`docs/make.jl` is a thin caller.
+
 Package-specific fixtures (the actual distributions, models, or interface
 checklists a package wants to exercise) stay in that package. This module only
 supplies the reusable scaffolding.
@@ -57,6 +63,7 @@ include("qa.jl")
 include("scaffold.jl")
 include("ad_harness.jl")
 include("benchmarks.jl")
+include("docs_build.jl")
 
 export test_aqua, test_jet, test_explicit_imports, dynamicppl_model_filter
 export test_docstring_format, test_ext_ambiguities, test_doctest,
@@ -65,5 +72,8 @@ export test_readme_sections, STANDARD_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
 export scaffold, update, generate, scaffold_inputs
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
+export build_docs
+
+using .DocsBuild: build_docs
 
 end # module EpiAwarePackageTools
