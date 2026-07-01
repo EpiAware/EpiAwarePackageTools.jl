@@ -606,10 +606,15 @@ const DOCS_PAGES_APEX = "epiaware.org"
 # Resolve the `docs_subdomain` input to either `nothing` (project-pages, the
 # default) or a concrete host string. `true` selects the conventional
 # `<pkg>.epiaware.org`; a string is taken verbatim; `nothing`/`false` opt out.
+# The Bool and Nothing cases dispatch to their own methods so the `String`
+# conversion only ever runs on a genuine string input (keeps JET type-stable —
+# `String(::Bool)` has no method and would otherwise show as a possible error).
+_resolve_docs_subdomain(::Nothing, pkg) = nothing
+function _resolve_docs_subdomain(spec::Bool, pkg)
+    spec || return nothing
+    return pkg === nothing ? nothing : _docs_host(pkg)
+end
 function _resolve_docs_subdomain(spec, pkg)
-    spec === nothing && return nothing
-    spec === false && return nothing
-    spec === true && return pkg === nothing ? nothing : _docs_host(pkg)
     s = String(spec)
     return isempty(s) ? nothing : s
 end

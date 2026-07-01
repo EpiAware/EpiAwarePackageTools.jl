@@ -489,6 +489,11 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         benchmark_page::Bool = true, build_vitepress::Bool = true,
         deploy::Bool = true)
     project_root = pkgdir(mod)
+    # `pkgdir` returns `Union{Nothing,String}`; narrow to a concrete String up
+    # front so the downstream `joinpath` calls never see `Nothing` (keeps JET
+    # type-stable). A missing package directory is unrecoverable here.
+    project_root === nothing &&
+        error("Cannot locate the package directory for module $mod")
     docs_dir = joinpath(project_root, "docs")
     src_dir = joinpath(docs_dir, "src")
     tutorials_dir = joinpath(src_dir, tutorials_subdir)

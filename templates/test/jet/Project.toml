@@ -7,3 +7,9 @@
 
 [sources]
 {{PACKAGE}} = {path = "../.."}{{KIT_SOURCE_LINE}}
+
+# Pin JET to its current 0.x series so a new minor (which is a breaking bump
+# under Julia's 0.x semver) cannot silently tighten static analysis and turn
+# the managed check red without a deliberate bump (see kit #77, #60, #73).
+[compat]
+JET = "0.11"
