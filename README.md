@@ -138,9 +138,11 @@ Managed (overwritten on `scaffold`/`update`):
   per-backend AD matrix caller (`ad.yaml`) is added only when `ad = true`.
 - Test infra: `test/package/quality.jl` (the QA testset that calls the helpers),
   `test/jet/runtests.jl` + `test/jet/Project.toml`, `test/formatter/runtests.jl`
-  + `test/formatter/Project.toml`, and `benchmark/run.jl` / `benchmark/compare.jl`
-  (the benchmark wiring using `Benchmarks`). When `ad = true`, the AD-harness
-  wiring (`test/ad/setup.jl`, `test/ad/runtests.jl`) is managed too.
+  + `test/formatter/Project.toml`. When `ad = true`, the AD-harness wiring
+  (`test/ad/setup.jl`, `test/ad/runtests.jl`) is managed too. When
+  `benchmarks = true`, the benchmark wiring (`benchmark/run.jl` /
+  `benchmark/compare.jl` using `Benchmarks`, plus the `benchmark.yaml` /
+  `benchmark-history.yaml` CI callers and the comment env) is managed too.
 
 Package-owned (written once, never overwritten — `force = true` overrides):
 
@@ -156,7 +158,12 @@ Package-owned (written once, never overwritten — `force = true` overrides):
 - When `ad = true`: `test/ad/scenarios.jl` + `test/ad/Project.toml`, and an
   `ADFixtures` registry skeleton (`test/ADFixtures/`) implementing the
   `ADRegistry` contract.
-- `benchmark/benchmarks.jl` — the package's `SUITE`.
+- When `benchmarks = true`: `benchmark/benchmarks.jl` (the package's `SUITE`),
+  the `benchmark/` env + comment harness, and the docs benchmark page (its
+  `docs/benchmarks.md` prose hook and `pages.jl` nav entry). Benchmarks are
+  opt-in, so a package with no performance suite ships none of these and its
+  docs emit no Benchmarks page. `update` detects an adopter's existing
+  benchmark workflows and preserves the choice on a resync.
 - `.github/CODEOWNERS` — a commented placeholder naming reviewers. Seeded once
   because it is repo-specific (real people/teams) and GitHub serves no
   org-default CODEOWNERS.

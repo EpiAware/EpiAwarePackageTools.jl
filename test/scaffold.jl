@@ -7,7 +7,7 @@
     using Pkg
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
-                                scaffold_inputs, _ad_selected
+                                scaffold_inputs, _ad_selected, _bench_selected
     using Dates: year, now
 
     # Build a minimal package root with a Project.toml so placeholder substitution
@@ -45,28 +45,33 @@
         return ok
     end
 
-    # The templates emitted for a given `ad` value (an AD/no-AD variant pair writes
-    # to the same `dest`, so only one of the pair fires). Default scaffold/update use
-    # `ad = true`.
-    _selected(ad) = [t for t in SCAFFOLD_TEMPLATES if _ad_selected(t, ad)]
+    # The templates emitted for a given (`ad`, `benchmarks`) pair. AD/no-AD and
+    # benchmark-gated variants writing to the same `dest` collapse to one entry.
+    # The bulk of the suite exercises the FULL standard (ad = true,
+    # benchmarks = true); the opt-in benchmark gating (on/off) is covered
+    # separately in the `benchmarks_gating` testitem, so tests here scaffold with
+    # `benchmarks = true` where they assert the benchmark surface.
+    function _selected(ad, benchmarks)
+        return [t
+                for t in SCAFFOLD_TEMPLATES
+                if _ad_selected(t, ad) && _bench_selected(t, benchmarks)]
+    end
 
-    # The managed / package-owned destination paths, derived from the manifest so
-    # the test tracks the real set. Computed for the AD-enabled standard (the
-    # default), since the bulk of the tests scaffold with `ad = true`.
-    const MANAGED_DESTS = [t.dest for t in _selected(true) if t.managed]
-    const OWNED_DESTS = [t.dest for t in _selected(true) if !t.managed]
+    # The managed / package-owned destination paths for the full standard.
+    const MANAGED_DESTS = [t.dest for t in _selected(true, true) if t.managed]
+    const OWNED_DESTS = [t.dest for t in _selected(true, true) if !t.managed]
 
     @testset "scaffold + update" begin
         @testset "scaffold writes managed + owned" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                res = scaffold(dir)
-                # Everything selected for ad=true is newly created; nothing updated
-                # or preserved. (AD/no-AD variant pairs map to one dest each.)
-                @test length(res.created) == length(_selected(true))
+                res = scaffold(dir; benchmarks = true)
+                # Everything selected for the full standard is newly created;
+                # nothing updated or preserved. (Variant pairs map to one dest.)
+                @test length(res.created) == length(_selected(true, true))
                 @test isempty(res.updated)
                 @test isempty(res.preserved)
-                for t in _selected(true)
+                for t in _selected(true, true)
                     @test isfile(joinpath(dir, t.dest))
                 end
             end
@@ -75,7 +80,7 @@
         @testset "managed CI callers + test infra present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
                 # A representative slice of the managed infra.
                 for f in (".github/workflows/test.yaml",
                     ".github/workflows/document.yaml",
@@ -373,7 +378,7 @@
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
                 bp = joinpath(dir, "benchmark/Project.toml")
                 @test isfile(bp)
                 txt = read(bp, String)
@@ -387,7 +392,7 @@
         @testset "test envs pin EpiAwarePackageTools via [sources]" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
                 # Every env that depends on the kit must resolve it: an active
                 # (not commented-out) [sources] git pin, since it is unregistered.
                 for f in ("test/Project.toml", "test/ad/Project.toml",
@@ -416,7 +421,7 @@
         @testset "package-owned skeletons present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
                 for f in ("test/runtests.jl", "test/package/qa_config.jl",
                     "test/ad/scenarios.jl", "benchmark/benchmarks.jl")
                     @test isfile(joinpath(dir, f))
@@ -534,7 +539,7 @@
         @testset "update re-applies only managed files, idempotently" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
 
                 # Mutate a package-owned file and a managed file to simulate drift.
                 owned = joinpath(dir, "test/package/qa_config.jl")
@@ -543,7 +548,7 @@
                 write(owned, owned_marker * read(owned, String))
                 write(managed, "# drifted\n")
 
-                res = update(dir)
+                res = update(dir; benchmarks = true)
                 # Only managed files are touched; all of them already existed, so
                 # they are `updated`, none `created`, none `preserved`.
                 @test isempty(res.created)
@@ -563,7 +568,7 @@
                 # Idempotent: a second update produces no content change.
                 before = Dict(f => read(joinpath(dir, f), String)
                 for f in MANAGED_DESTS)
-                update(dir)
+                update(dir; benchmarks = true)
                 for (f, c) in before
                     @test read(joinpath(dir, f), String) == c
                 end
@@ -608,8 +613,8 @@
         @testset "scaffold preserves owned, rewrites managed on re-run" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir)
-                res = scaffold(dir)   # second adopt, no force
+                scaffold(dir; benchmarks = true)
+                res = scaffold(dir; benchmarks = true)  # second adopt, no force
                 @test isempty(res.created)
                 @test Set(res.updated) ==
                       Set(joinpath(dir, d) for d in MANAGED_DESTS)
@@ -621,11 +626,11 @@
         @testset "force overwrites owned too" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir)
-                res = scaffold(dir; force = true)
+                scaffold(dir; benchmarks = true)
+                res = scaffold(dir; benchmarks = true, force = true)
                 @test isempty(res.created)
                 @test isempty(res.preserved)
-                @test length(res.updated) == length(_selected(true))
+                @test length(res.updated) == length(_selected(true, true))
             end
         end
 
@@ -673,8 +678,9 @@
                 tp = read(joinpath(dir, "test/Project.toml"), String)
                 @test !occursin("DifferentiationInterface", tp)
                 @test !occursin("ForwardDiff", tp)
-                # The manifest count matches the ad=false selection.
-                @test length(res.created) == length(_selected(false))
+                # The manifest count matches the ad=false, benchmarks=false
+                # selection (the fresh default opts out of both).
+                @test length(res.created) == length(_selected(false, false))
             end
         end
 
@@ -925,14 +931,16 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `ad` value and is fully substituted.
+                # own `ad` + `benchmarks` values and is fully substituted.
                 sync = read(
                     joinpath(dir, ".github/workflows/template-sync.yaml"),
                     String)
-                @test occursin("update(\".\"; ad = false)", sync)
+                @test occursin(
+                    "update(\".\"; ad = false, benchmarks = false)", sync)
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
                 @test !occursin("{{AD}}", sync)
+                @test !occursin("{{BENCHMARKS}}", sync)
                 @test !occursin("{{SYNC_INSTALL}}", sync)
                 # It is managed: an update re-applies it.
                 res = update(dir; ad = false)
@@ -960,7 +968,7 @@
         @testset "benchmark CI workflows + comment env present" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
                 for f in (".github/workflows/benchmark.yaml",
                     ".github/workflows/benchmark-history.yaml",
                     "benchmark/comment/comment.jl",
@@ -1016,7 +1024,7 @@
         @testset "docs build reproduces CD (Literate + citations + helpers)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir)
+                scaffold(dir; benchmarks = true)
                 for f in ("docs/run_literate_tutorial.jl", "docs/docs_config.jl",
                     "docs/release_notes_header.jl")
                     @test isfile(joinpath(dir, f))

@@ -55,5 +55,5 @@ build_docs(
     index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
     readme_execute = _cfg(:README_EXECUTE, true),
     index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
-    benchmark_page = _cfg(:BENCHMARK_PAGE, true)
+    benchmark_page = _cfg(:BENCHMARK_PAGE, false)
 )

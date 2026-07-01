@@ -462,6 +462,25 @@ end
 
 # ---- orchestrator ---------------------------------------------------------
 
+# Remove any `... => "benchmarks.md"` leaf from a Documenter `pages` nav tree
+# (at any nesting depth). Used when the benchmark page is disabled but a
+# package-owned `pages.jl` still lists the entry, so the built nav carries no
+# dangling link. Every non-benchmark entry is kept unchanged.
+function _strip_benchmark_nav(pages)
+    kept = Any[]
+    for entry in pages
+        if entry isa Pair && entry.second isa AbstractString
+            endswith(entry.second, "benchmarks.md") && continue
+            push!(kept, entry)
+        elseif entry isa Pair && entry.second isa AbstractVector
+            push!(kept, entry.first => _strip_benchmark_nav(entry.second))
+        else
+            push!(kept, entry)
+        end
+    end
+    return kept
+end
+
 """
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
@@ -525,6 +544,10 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
             project_root = project_root)
     else
         println("BENCHMARK_PAGE = false; skipping benchmark history page")
+        # Drop any stale Benchmarks nav entry so a package that disabled the page
+        # without regenerating its (package-owned) `pages.jl` still gets a nav
+        # tree with no dangling "benchmarks.md" link.
+        pages = _strip_benchmark_nav(pages)
     end
     build_api_pages(mod, joinpath(src_dir, "lib"))
 

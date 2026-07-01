@@ -52,6 +52,7 @@ const INDEX_STRIP_SECTIONS = String[]
 
 # Whether the build generates the benchmark page (`src/benchmarks.md`): the
 # package-owned `docs/benchmarks.md` prose hook plus the rendered performance
-# history (the timeline published to the repo's `benchmarks` branch). Set
-# `false` to drop the page (and remove its `pages.jl` nav entry).
-const BENCHMARK_PAGE = true
+# history (the timeline published to the repo's `benchmarks` branch). Defaults
+# to the `benchmarks` flag the package was scaffolded with; `false` drops the
+# page and `make.jl` also omits its `pages.jl` nav entry.
+const BENCHMARK_PAGE = {{BENCHMARK_PAGE}}

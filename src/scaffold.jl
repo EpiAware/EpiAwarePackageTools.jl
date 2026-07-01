@@ -38,16 +38,33 @@ import UUIDs
 #
 # A file whose content depends on AD ships as a pair (`:ad_only` + `:noad_only`)
 # writing to the same `dest`; exactly one is emitted for a given `ad` value.
+#
+# `bench` gates a template on the `benchmarks` flag, mirroring `ad` (benchmarks
+# are opt-in: a package with a real performance suite opts in, everything else
+# skips the benchmark CI, suite skeleton, and docs page):
+#
+#   - `:always`     — emitted regardless of the `benchmarks` flag.
+#   - `:bench_only` — emitted only when `benchmarks = true` (the benchmark CI
+#                     callers, the `benchmark/` suite + comment harness, and the
+#                     package-owned benchmark docs prose hook).
 struct Template
     src::String
     dest::String
     managed::Bool
     substitute::Bool
     ad::Symbol
+    bench::Symbol
 end
 
-# Convenience constructor: most templates are AD-agnostic (`:always`).
-Template(src, dest, managed, substitute) = Template(src, dest, managed, substitute, :always)
+# Convenience constructor: most templates are AD- and benchmark-agnostic.
+function Template(src, dest, managed, substitute)
+    Template(src, dest, managed, substitute, :always, :always)
+end
+
+# AD-flavoured templates specify only `ad`; still benchmark-agnostic.
+function Template(src, dest, managed, substitute, ad::Symbol)
+    Template(src, dest, managed, substitute, ad, :always)
+end
 
 # The standard template set. Order is informational only.
 const SCAFFOLD_TEMPLATES = Template[
@@ -117,15 +134,16 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".github/workflows/template-sync.yaml",
         ".github/workflows/template-sync.yaml", true, true),
 
-    # --- benchmark CI (managed) ---
+    # --- benchmark CI (managed, opt-in via `benchmarks = true`) ---
     # The PR base-vs-head comparison comment (`benchmark.yaml`) and the
     # persistent history timeline (`benchmark-history.yaml`), reproducing the
     # CensoredDistributions.jl benchmark CI. Both call AirspeedVelocity and build
     # the comment via the shared `Benchmarks` harness (see `benchmark/comment`).
     Template(".github/workflows/benchmark.yaml",
-        ".github/workflows/benchmark.yaml", true, true),
+        ".github/workflows/benchmark.yaml", true, true, :always, :bench_only),
     Template(".github/workflows/benchmark-history.yaml",
-        ".github/workflows/benchmark-history.yaml", true, true),
+        ".github/workflows/benchmark-history.yaml", true, true, :always,
+        :bench_only),
 
     # --- version automation (managed) ---
     # Auto-increment the patch version on a merge to main when it was not bumped
@@ -159,14 +177,18 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("test/ad/setup.jl", "test/ad/setup.jl", true, false, :ad_only),
     Template("test/ad/runtests.jl", "test/ad/runtests.jl", true, false,
         :ad_only),
-    Template("benchmark/run.jl", "benchmark/run.jl", true, false),
-    Template("benchmark/compare.jl", "benchmark/compare.jl", true, false),
+    # The benchmark suite drivers are opt-in (managed, only when
+    # `benchmarks = true`).
+    Template("benchmark/run.jl", "benchmark/run.jl", true, false, :always,
+        :bench_only),
+    Template("benchmark/compare.jl", "benchmark/compare.jl", true, false,
+        :always, :bench_only),
     # The benchmark-comment job's thin script + isolated env (it calls
     # `Benchmarks.asv_comment`); used by `benchmark.yaml`.
     Template("benchmark/comment/comment.jl",
-        "benchmark/comment/comment.jl", true, false),
+        "benchmark/comment/comment.jl", true, false, :always, :bench_only),
     Template("benchmark/comment/Project.toml",
-        "benchmark/comment/Project.toml", true, true),
+        "benchmark/comment/Project.toml", true, true, :always, :bench_only),
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
     # The standard org docs build (mirrors CensoredDistributions.jl). `make.jl`
@@ -195,14 +217,19 @@ const SCAFFOLD_TEMPLATES = Template[
     # CensoredDistributions.jl `src/docstrings.jl`).
     Template("src/docstrings.jl", "src/docstrings.jl", false, false),
     Template("docs/Project.toml", "docs/Project.toml", false, true),
-    Template("docs/pages.jl", "docs/pages.jl", false, false),
+    # Substituted so the benchmark nav entry (`{{BENCHMARKS_NAV}}`) is present
+    # only when `benchmarks = true`; package-owned so a package extends the tree.
+    Template("docs/pages.jl", "docs/pages.jl", false, true),
     # The optional Literate/tutorial + README-rewrite config `make.jl` reads
     # (empty by default), and the release-notes page header (NEWS.md prepend).
-    Template("docs/docs_config.jl", "docs/docs_config.jl", false, false),
+    # Substituted so `BENCHMARK_PAGE` defaults to the `benchmarks` flag.
+    Template("docs/docs_config.jl", "docs/docs_config.jl", false, true),
     Template("docs/release_notes_header.jl",
         "docs/release_notes_header.jl", false, true),
     # The package-owned prose hook spliced into the generated benchmark page.
-    Template("docs/benchmarks.md", "docs/benchmarks.md", false, true),
+    # Opt-in: only written when `benchmarks = true` (no page, no hook otherwise).
+    Template("docs/benchmarks.md", "docs/benchmarks.md", false, true, :always,
+        :bench_only),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
     Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
@@ -212,8 +239,9 @@ const SCAFFOLD_TEMPLATES = Template[
         "test/package/qa_config.jl", false, true),
     # The optional JET report filter (e.g. for a DynamicPPL @model package).
     Template("test/jet/jet_config.jl", "test/jet/jet_config.jl", false, false),
-    # The benchmark environment, so `--project=benchmark` resolves.
-    Template("benchmark/Project.toml", "benchmark/Project.toml", false, true),
+    # The benchmark environment, so `--project=benchmark` resolves. Opt-in.
+    Template("benchmark/Project.toml", "benchmark/Project.toml", false, true,
+        :always, :bench_only),
     # The AD scenarios + registry skeleton are opt-in (only when `ad = true`).
     Template("test/ad/scenarios.jl", "test/ad/scenarios.jl", false, false,
         :ad_only),
@@ -223,7 +251,9 @@ const SCAFFOLD_TEMPLATES = Template[
         "test/ADFixtures/Project.toml", false, true, :ad_only),
     Template("test/ADFixtures/src/ADFixtures.jl",
         "test/ADFixtures/src/ADFixtures.jl", false, true, :ad_only),
-    Template("benchmark/benchmarks.jl", "benchmark/benchmarks.jl", false, true)
+    # The package-owned benchmark suite skeleton (the `SUITE`). Opt-in.
+    Template("benchmark/benchmarks.jl", "benchmark/benchmarks.jl", false, true,
+        :always, :bench_only)
 ]
 
 # The default org used to derive `{{ORG}}`/`{{REPO}}` when a caller does not
@@ -919,17 +949,47 @@ function _ad_selected(t::Template, ad::Bool)
     error("template $(t.src) has unknown ad mode $(t.ad)")
 end
 
+# Whether a template is emitted for the requested `benchmarks` value:
+# `:always` always, `:bench_only` only when `benchmarks = true`.
+function _bench_selected(t::Template, benchmarks::Bool)
+    t.bench === :always && return true
+    t.bench === :bench_only && return benchmarks
+    error("template $(t.src) has unknown bench mode $(t.bench)")
+end
+
+# Whether a repo already has benchmarks enabled, so a resync (`update` with no
+# `benchmarks` kwarg) preserves an adopter's opt-in instead of reverting to the
+# opt-out default and STRIPPING their benchmark CI/suite/page (the #72 trap).
+# The scheduled template-sync bakes `benchmarks = {{BENCHMARKS}}` into its
+# `update` call, but a repo scaffolded BEFORE this flag has a template-sync that
+# re-passes nothing, so the state must also be recoverable from the destination.
+# The managed benchmark CI workflows are the marker: present iff benchmarks were
+# enabled. A fresh (never-scaffolded) target has neither, so it defaults to
+# opt-out — exactly the intended behaviour for a new package.
+function _detect_benchmarks(target_dir::AbstractString)
+    wf = joinpath(target_dir, ".github", "workflows")
+    return isfile(joinpath(wf, "benchmark.yaml")) ||
+           isfile(joinpath(wf, "benchmark-history.yaml"))
+end
+
 # Shared worker for `scaffold`/`update`. `managed_only` restricts to managed
 # templates (the `update` path). `force` overwrites package-owned files too
 # (only meaningful for `scaffold`). `ad` selects the AD-enabled or AD-disabled
-# standard. Returns a `(created, updated, preserved)` manifest of destination
-# paths.
+# standard; `benchmarks` gates the opt-in benchmark CI/suite/docs page. Returns
+# a `(created, updated, preserved)` manifest of destination paths.
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, inputs::NamedTuple)
+        ad::Bool, benchmarks::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
-    # Expose the AD flag as a substitution value so the scheduled template-sync
-    # workflow re-applies the standard with the same `ad` the package adopted.
-    inputs = merge(inputs, (AD = string(ad),))
+    # Expose the AD + benchmarks flags as substitution values so the scheduled
+    # template-sync workflow re-applies the standard with the same `ad` /
+    # `benchmarks` the package adopted. `BENCHMARKS_NAV` is the benchmark docs
+    # nav entry (present only when enabled); `BENCHMARK_PAGE` the `docs_config`
+    # default the build reads.
+    bench_nav = benchmarks ?
+                ",\n    \"Benchmarks\" => \"benchmarks.md\"" : ""
+    inputs = merge(inputs,
+        (AD = string(ad), BENCHMARKS = string(benchmarks),
+            BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks)))
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -937,6 +997,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     for t in SCAFFOLD_TEMPLATES
         managed_only && !t.managed && continue
         _ad_selected(t, ad) || continue
+        _bench_selected(t, benchmarks) || continue
         from = joinpath(src_dir, t.src)
         isfile(from) || error("missing bundled template $(t.src) at $from")
         to = joinpath(target_dir, t.dest)
@@ -986,7 +1047,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
 end
 
 """
-    scaffold(target_dir; force = false, ad = true, kwargs...)
+    scaffold(target_dir; force = false, ad = true, benchmarks = nothing,
+        kwargs...)
 
 Adopt the standard EpiAware package tooling in `target_dir` (a package root).
 
@@ -1036,6 +1098,16 @@ package). When `ad = false`, NONE of the AD infra is written — no
 variants (no `test-ad` tasks, no per-backend `ad-*` coverage flags, no AD test
 deps). Pass the same `ad` value to [`update`](@ref) to keep the standard stable.
 
+`benchmarks` controls the opt-in benchmark suite: the benchmark CI callers
+(`.github/workflows/benchmark.yaml`, `benchmark-history.yaml`), the `benchmark/`
+suite + comment harness, and the docs benchmark page (its nav entry and the
+package-owned `docs/benchmarks.md` prose hook, gated by `docs_config`'s
+`BENCHMARK_PAGE`). It defaults to `nothing`, which DETECTS the target's current
+state from the benchmark workflows so re-scaffolding preserves an opt-in; a
+fresh package has none, so the default is opt-out. When disabled, none of the
+benchmark files are written and the docs emit no Benchmarks page. Pass
+`benchmarks = true` to opt in; [`update`](@ref) detects and preserves the state.
+
 The README body is package-owned, but the standard badge set is MANAGED: a block
 between `$(BADGES_START)` / `$(BADGES_END)` markers carries the docs/CI/coverage/
 quality/license badges (plus per-backend AD CI + coverage badges when
@@ -1078,14 +1150,16 @@ package-owned files left in place, the README badge action (`:created`,
 `.gitignore` managed-block action (`:created`, `:injected`, or `:refreshed`).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
-        ad::Bool = true, kwargs...)
+        ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
+        kwargs...)
     inputs = scaffold_inputs(target_dir; kwargs...)
+    bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
     return _apply(target_dir; managed_only = false, force = force, ad = ad,
-        inputs = inputs)
+        benchmarks = bench, inputs = inputs)
 end
 
 """
-    update(target_dir; ad = true, kwargs...)
+    update(target_dir; ad = true, benchmarks = nothing, kwargs...)
 
 Re-apply only the MANAGED standard files to an already-adopted package and
 report the drift.
@@ -1105,6 +1179,14 @@ stable across a sync.
 `test/ad/runtests.jl`) are not managed and the no-AD variants of `Taskfile.yml`
 and `codecov.yml` are re-applied instead.
 
+`benchmarks` controls the opt-in benchmark CI + suite. It defaults to `nothing`,
+which DETECTS the package's current state from the managed benchmark workflows
+(`benchmark.yaml` / `benchmark-history.yaml`) so a resync PRESERVES an adopter's
+benchmarks rather than stripping them — the scheduled template-sync bakes the
+adopted value into its own `update` call, but a repo scaffolded before this flag
+re-passes nothing, so detection is what keeps that first sync idempotent. Pass
+`benchmarks = true`/`false` to force enable/disable.
+
 The README's managed badge block is also refreshed: `update` injects it when the
 `$(BADGES_START)` / `$(BADGES_END)` markers are absent and re-renders it from the
 current placeholders when present, so a package gets and keeps the standard
@@ -1120,10 +1202,12 @@ here) preserved, the README badge action, the `LICENSE` action (`:skipped` on
 update), the root `[workspace]` stanza action, and the `.gitignore`
 managed-block action.
 """
-function update(target_dir::AbstractString; ad::Bool = true, kwargs...)
+function update(target_dir::AbstractString; ad::Bool = true,
+        benchmarks::Union{Nothing, Bool} = nothing, kwargs...)
     inputs = scaffold_inputs(target_dir; kwargs...)
+    bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
     return _apply(target_dir; managed_only = true, force = false, ad = ad,
-        inputs = inputs)
+        benchmarks = bench, inputs = inputs)
 end
 
 # Write a minimal package skeleton (Project.toml + src/<Package>.jl) into
@@ -1165,7 +1249,7 @@ end
 
 """
     generate(target_dir, package; authors = String[], uuid = <fresh>,
-        ad = true, kwargs...)
+        ad = true, benchmarks = false, kwargs...)
 
 Generate a fresh package at `target_dir` and adopt the standard tooling.
 
@@ -1183,6 +1267,9 @@ and source module, so it works from an empty (or non-existent) directory.
   - `ad` — forwarded to [`scaffold`](@ref): `true` (default) scaffolds the AD
     infra, `false` opts out. See [`scaffold`](@ref) for the full AD-opt-in
     behaviour.
+  - `benchmarks` — forwarded to [`scaffold`](@ref): opt into the benchmark CI +
+    suite + docs page. A fresh package has no benchmark workflows to detect, so
+    this defaults to `false` (opt-out); pass `benchmarks = true` to enable.
 
 Remaining keyword arguments (`org`, `repo`, `reviewer`, `year`, `license`, ...)
 are forwarded to [`scaffold_inputs`](@ref); e.g. `license = "Apache-2.0"` writes
@@ -1191,9 +1278,9 @@ the Apache licence. Returns the `scaffold` manifest.
 function generate(target_dir::AbstractString, package::AbstractString;
         authors::AbstractVector{<:AbstractString} = String[],
         uuid::AbstractString = string(UUIDs.uuid4()),
-        ad::Bool = true, kwargs...)
+        ad::Bool = true, benchmarks::Bool = false, kwargs...)
     mkpath(target_dir)
     authors_array = "[" * join(("\"" * a * "\"" for a in authors), ", ") * "]"
     _emit_package_skeleton(target_dir, package, uuid, authors_array)
-    return scaffold(target_dir; ad = ad, kwargs...)
+    return scaffold(target_dir; ad = ad, benchmarks = benchmarks, kwargs...)
 end

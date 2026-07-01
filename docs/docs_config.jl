@@ -45,6 +45,7 @@ const INDEX_STRIP_SECTIONS = String[]
 
 # Whether the build generates the benchmark page (`src/benchmarks.md`): the
 # package-owned `docs/benchmarks.md` prose hook plus the rendered performance
-# history (the timeline published to the repo's `benchmarks` branch). Set
-# `false` to drop the page (and remove its `pages.jl` nav entry).
-const BENCHMARK_PAGE = true
+# history (the timeline published to the repo's `benchmarks` branch). The kit
+# has no active benchmark suite, so it opts out (`benchmarks = false`); set
+# `true` and add a `pages.jl` "Benchmarks" nav entry to enable it.
+const BENCHMARK_PAGE = false
