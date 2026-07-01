@@ -1137,34 +1137,44 @@
                     @test parsed isa AbstractDict
                 end
 
-                # Two fully local environments carry no EpiAwarePackageTools
-                # dependency at all, so instantiating them exercises nothing
-                # beyond the generated package + registry deps already
-                # primed by the kit's own test run.
-                for env in ("test/ADFixtures", "docs")
-                    @test _env_instantiates(joinpath(dir, env))
-                end
+                # Instantiating the generated environments needs Pkg
+                # `[sources]` (the path/git dep pins), which only exists on
+                # Julia >= 1.11. On the LTS (1.10) `[sources]` is ignored, so
+                # these envs cannot resolve their local/unregistered pins at
+                # all — the same reason an adopter's full env needs >= 1.11
+                # until the kit is registered. The TOML round-trip above still
+                # runs on every version.
+                if VERSION >= v"1.11"
+                    # Two fully local environments carry no EpiAwarePackageTools
+                    # dependency at all, so instantiating them exercises nothing
+                    # beyond the generated package + registry deps already
+                    # primed by the kit's own test run.
+                    for env in ("test/ADFixtures", "docs")
+                        @test _env_instantiates(joinpath(dir, env))
+                    end
 
-                # The remaining envs pin EpiAwarePackageTools by git
-                # (`rev = "main"`) so a fresh adopter resolves out of the
-                # box; that network fetch is an extra dependency the kit's
-                # own tests should not take on. Patch the pin to the local
-                # kit checkout instead — the same switch the template
-                # comments themselves suggest for kit development — so the
-                # rest of each env (every other dep/compat bound) is proven
-                # to resolve hermetically.
-                kit_root = pkgdir(EpiAwarePackageTools)
-                kit_pin = r"EpiAwarePackageTools = \{url = \"[^\"]+\", " *
-                          r"rev = \"main\"\}"
-                for env in ("test", "test/jet")
-                    proj = joinpath(dir, env, "Project.toml")
-                    txt = read(proj, String)
-                    patched = replace(txt,
-                        kit_pin => "EpiAwarePackageTools = {path = \"" *
-                                   kit_root * "\"}")
-                    @test patched != txt
-                    write(proj, patched)
-                    @test _env_instantiates(joinpath(dir, env))
+                    # The remaining envs pin EpiAwarePackageTools by git
+                    # (`rev = "main"`) so a fresh adopter resolves out of the
+                    # box; that network fetch is an extra dependency the kit's
+                    # own tests should not take on. Patch the pin to the local
+                    # kit checkout instead — the same switch the template
+                    # comments themselves suggest for kit development — so the
+                    # rest of each env (every other dep/compat bound) is proven
+                    # to resolve hermetically.
+                    kit_root = pkgdir(EpiAwarePackageTools)
+                    kit_pin = r"EpiAwarePackageTools = \{url = \"[^\"]+\", " *
+                              r"rev = \"main\"\}"
+                    for env in ("test", "test/jet")
+                        proj = joinpath(dir, env, "Project.toml")
+                        txt = read(proj, String)
+                        patched = replace(txt,
+                            kit_pin =>
+                                "EpiAwarePackageTools = {path = \"" *
+                                kit_root * "\"}")
+                        @test patched != txt
+                        write(proj, patched)
+                        @test _env_instantiates(joinpath(dir, env))
+                    end
                 end
             end
         end
