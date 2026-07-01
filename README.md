@@ -6,14 +6,24 @@
 | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://epiawarepackagetools.epiaware.org/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://epiawarepackagetools.epiaware.org/dev/) | [![Test](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/EpiAwarePackageTools.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/EpiAwarePackageTools.jl) | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) | [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Ftotal_downloads%2FEpiAwarePackageTools&query=total_requests&label=Downloads)](https://juliapkgstats.com/pkg/EpiAwarePackageTools) [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Fmonthly_downloads%2FEpiAwarePackageTools&query=total_requests&suffix=%2Fmonth&label=Downloads)](https://juliapkgstats.com/pkg/EpiAwarePackageTools) |
 <!-- badges:end -->
 
-## Overview
+## Why EpiAwarePackageTools?
 
-EpiAwarePackageTools (the kit) is the scaffolding toolkit for
-[EpiAware](https://github.com/EpiAware) Julia packages.
-It supplies package-quality helpers (Aqua, JET, docstring and formatting
-checks), an AD-gradient harness, benchmark reporting, and a `scaffold`/
-`update` pair that writes and keeps in sync the standard CI, documentation
-build, and test infrastructure a package would otherwise maintain by hand.
+- **Scaffold**: Adopt the standard CI, documentation build, quality checks, and
+  AD-gradient harness into a package in one call, instead of hand-copying and
+  maintaining them separately.
+- **Update / template-sync**: Re-apply the managed standard later and report
+  drift; a scheduled workflow does this automatically, so an improvement made
+  once in the kit reaches every adopting package.
+- **Managed QA and AD helpers**: Aqua, ExplicitImports, JET, docstring format,
+  doctest, and formatting checks, plus an AD-gradient harness that checks
+  backends against a ForwardDiff reference.
+- **Managed docs build**: A thin `docs/make.jl` wired to the kit's Documenter +
+  DocumenterVitepress build, so every adopting package's site looks and
+  behaves the same.
+- **Benchmarks (opt-in)**: AirspeedVelocity/BenchmarkTools results rendered
+  into a legible Markdown PR comment, gated behind an opt-in flag for packages
+  that ship a performance suite.
+
 Package-specific content — the actual distributions, models, or fixtures —
 stays in each adopting package; the kit only supplies the reusable machinery.
 
@@ -29,22 +39,6 @@ scaffold(pkgdir(MyPackage))   # adopt the standard tooling once
 update(pkgdir(MyPackage))     # re-apply managed files later, report drift
 ```
 
-See
-[Getting started](https://epiawarepackagetools.epiaware.org/stable/getting-started/)
-for the full quickstart, and
-[Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure/)
-for what `scaffold`/`update` manage versus what stays package-owned.
-Every exported helper is documented in the
-[Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)
-reference.
-
-## Documentation
-
-- [Stable docs](https://epiawarepackagetools.epiaware.org/stable/) — the latest
-  release.
-- [Dev docs](https://epiawarepackagetools.epiaware.org/dev/) — the `main`
-  branch.
-
 ## Installation
 
 The package is not yet registered in the General registry. Until it is, depend
@@ -54,6 +48,23 @@ on it from a test environment via a `[sources]` git pin:
 [sources]
 EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
 ```
+
+## Where to learn more
+
+- Want to get started? See the
+  [Getting started](https://epiawarepackagetools.epiaware.org/stable/getting-started/)
+  guide.
+- Want to know what `scaffold`/`update` manage versus what stays
+  package-owned? See
+  [Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure/).
+- Want the full interface? Browse the
+  [Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)
+  reference.
+- Want the latest release or the `main`-branch docs? See the
+  [Stable docs](https://epiawarepackagetools.epiaware.org/stable/) or
+  [Dev docs](https://epiawarepackagetools.epiaware.org/dev/).
+- Want to see the code or report a problem? Check out the
+  [GitHub repository](https://github.com/EpiAware/EpiAwarePackageTools.jl).
 
 ## Contributing
 
