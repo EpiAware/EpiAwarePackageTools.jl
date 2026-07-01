@@ -33,8 +33,16 @@ const LINKCHECK_IGNORE = Regex[]
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,
 # e.g. rewriting an absolute docs URL to an in-site `@ref` so links stay within
-# the built version.
-const INDEX_REWRITES = Pair{String, String}[]
+# the built version. No release has been tagged yet, so the `/stable/` docs
+# these README links point to are not live; rewriting them to `@ref`s (as
+# CensoredDistributions.jl does) keeps the raw README useful on GitHub while
+# the generated home page's linkcheck resolves them in-site instead of over
+# HTTP.
+const INDEX_REWRITES = Pair{String, String}[
+    "[Getting started](https://epiawarepackagetools.epiaware.org/stable/getting-started/)" => "[Getting started](@ref getting-started)",
+    "[Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure/)" => "[Infrastructure and template sync](@ref infrastructure)",
+    "[Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)" => "[Public API](@ref public-api)"
+]
 
 # The kit's README uses illustrative code (placeholder package names like
 # `MyPackage`), so its ```julia blocks must NOT execute on the home page.

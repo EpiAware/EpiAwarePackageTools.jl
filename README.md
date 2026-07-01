@@ -60,9 +60,6 @@ EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.
 - Want the full interface? Browse the
   [Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)
   reference.
-- Want the latest release or the `main`-branch docs? See the
-  [Stable docs](https://epiawarepackagetools.epiaware.org/stable/) or
-  [Dev docs](https://epiawarepackagetools.epiaware.org/dev/).
 - Want to see the code or report a problem? Check out the
   [GitHub repository](https://github.com/EpiAware/EpiAwarePackageTools.jl).
 
