@@ -396,7 +396,10 @@ function _process_tutorials(docs_dir, tutorials_dir, light, heavy)
     if !isempty(light)
         println("Building light Literate tutorials " *
                 "(this may take several minutes)...")
-        flavor = Literate.DocumenterFlavor()
+        # `DocumenterFlavor` lives in a newer world age than this function
+        # (Literate is lazily `Base.require`d), so construct it through
+        # `invokelatest` like every other call into the lazily-loaded deps.
+        flavor = Base.invokelatest(Literate.DocumenterFlavor)
         for file in light
             Base.invokelatest(Literate.markdown,
                 joinpath(tutorials_dir, file), tutorials_dir;
