@@ -44,6 +44,8 @@ can be unit-tested and reused in isolation.
 """
 module DocsBuild
 
+import ..EpiAwarePackageTools: _require_pkg
+
 export build_docs, build_index, build_release_notes, build_benchmark_page,
        build_api_pages, api_bindings
 
@@ -51,22 +53,19 @@ export build_docs, build_index, build_release_notes, build_benchmark_page,
 
 # Resolve the heavy docs dependencies at call time so they are not hard
 # dependencies of EpiAwarePackageTools; a package only needs them in its `docs`
-# environment.
+# environment. `_require_pkg` (defined once in the parent module, #58) is
+# shared with every other lazy-load site in the kit.
 function _documenter()
-    Base.require(Base.PkgId(
-        Base.UUID("e30172f5-a6a5-5a46-863b-614d45cd2de4"), "Documenter"))
+    _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4", "Documenter")
 end
 function _vitepress()
-    Base.require(Base.PkgId(
-        Base.UUID("4710194d-e776-4893-9690-8d956a29c365"), "DocumenterVitepress"))
+    _require_pkg("4710194d-e776-4893-9690-8d956a29c365", "DocumenterVitepress")
 end
 function _citations()
-    Base.require(Base.PkgId(
-        Base.UUID("daee34ce-89f3-4625-b898-19384cb65244"), "DocumenterCitations"))
+    _require_pkg("daee34ce-89f3-4625-b898-19384cb65244", "DocumenterCitations")
 end
 function _literate()
-    Base.require(Base.PkgId(
-        Base.UUID("98b081ad-f1c9-55d3-8b20-4c87d4299306"), "Literate"))
+    _require_pkg("98b081ad-f1c9-55d3-8b20-4c87d4299306", "Literate")
 end
 
 # ---- README -> index.md ---------------------------------------------------
