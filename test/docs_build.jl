@@ -205,4 +205,54 @@
         @test occursin("# Internal Documentation", intr)
         @test !occursin("@id public-api", intr)
     end
+
+    @testset "_documenter loads the real Documenter module" begin
+        # Documenter is already a test dependency (for `test_doctest`), so
+        # this is cheap and exercises the lazy-load wrapper for real.
+        Documenter = DB._documenter()
+        @test Documenter isa Module
+        @test nameof(Documenter) == :Documenter
+    end
+
+    @testset "_write_tutorial_stubs writes each stub, no-ops when empty" begin
+        mktempdir() do dir
+            tdir = joinpath(dir, "tutorials")
+            DB._write_tutorial_stubs(
+                tdir, ["a.md" => "# A", "b.md" => "# B"])
+            @test isfile(joinpath(tdir, "a.md"))
+            @test isfile(joinpath(tdir, "b.md"))
+            a = read(joinpath(tdir, "a.md"), String)
+            @test occursin("# A", a)
+            @test occursin("fast documentation", a)
+
+            # Empty stubs: no directory created, no error.
+            empty_dir = joinpath(dir, "untouched")
+            DB._write_tutorial_stubs(empty_dir, Pair{String, String}[])
+            @test !isdir(empty_dir)
+        end
+    end
+
+    @testset "_copy_tutorial_data copies data/*-data dirs, skips others" begin
+        mktempdir() do dir
+            src_root = joinpath(dir, "src")
+            build_root = joinpath(dir, "build")
+            mkpath(joinpath(src_root, "tutorials", "data"))
+            write(joinpath(src_root, "tutorials", "data", "sample.csv"),
+                "a,b\n1,2\n")
+            mkpath(joinpath(src_root, "tutorials", "other-data"))
+            write(joinpath(src_root, "tutorials", "other-data", "x.txt"), "x")
+            mkpath(joinpath(src_root, "tutorials", "not-data-dir"))
+            write(joinpath(src_root, "tutorials", "not-data-dir", "y.txt"),
+                "y")
+
+            DB._copy_tutorial_data(src_root, build_root)
+
+            @test isfile(
+                joinpath(build_root, "tutorials", "data", "sample.csv"))
+            @test isfile(
+                joinpath(build_root, "tutorials", "other-data", "x.txt"))
+            @test !isdir(
+                joinpath(build_root, "tutorials", "not-data-dir"))
+        end
+    end
 end
