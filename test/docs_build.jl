@@ -206,6 +206,49 @@
         @test !occursin("@id public-api", intr)
     end
 
+    @testset "_check_index_not_truncated fails on a short copy (#91)" begin
+        mktempdir() do dir
+            src = joinpath(dir, "index.md")
+            write(src,
+                join(
+                    ("# Title", "", "one", "two", "three", "four",
+                        "five", "six", "seven", "eight", "nine", "ten"),
+                    "\n"))
+            built_dir = joinpath(dir, "build", ".documenter")
+            mkpath(built_dir)
+            # A suspiciously short copy (the #91 failure mode) errors loudly
+            # instead of silently shipping a half-built home page.
+            write(joinpath(built_dir, "index.md"), "# Title\n\none\ntwo\n")
+            @test_throws ErrorException DB._check_index_not_truncated(
+                src, built_dir)
+
+            # A complete (here: identical) copy is fine.
+            cp(src, joinpath(built_dir, "index.md"); force = true)
+            @test DB._check_index_not_truncated(src, built_dir) === nothing
+
+            # Documenter's real pipeline only ever ADDS lines (docstring /
+            # cross-reference expansion), which must never be flagged.
+            write(joinpath(built_dir, "index.md"),
+                read(src, String) * "\nexpanded content\nmore\n")
+            @test DB._check_index_not_truncated(src, built_dir) === nothing
+        end
+    end
+
+    @testset "_check_index_not_truncated no-ops when nothing to check" begin
+        mktempdir() do dir
+            # No source index.md yet.
+            @test DB._check_index_not_truncated(
+                joinpath(dir, "index.md"), joinpath(dir, "build")) === nothing
+
+            # Source exists but the built copy is absent (e.g. a caller that
+            # skips the Documenter build entirely).
+            src = joinpath(dir, "index.md")
+            write(src, "# Title\n")
+            @test DB._check_index_not_truncated(
+                src, joinpath(dir, "nobuild")) === nothing
+        end
+    end
+
     @testset "_documenter loads the real Documenter module" begin
         # Documenter is already a test dependency (for `test_doctest`), so
         # this is cheap and exercises the lazy-load wrapper for real.
