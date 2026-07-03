@@ -41,8 +41,23 @@ update(pkgdir(MyPackage))     # re-apply managed files later, report drift
 
 ## Installation
 
-The package is not yet registered in the General registry. Until it is, depend
-on it from a test environment via a `[sources]` git pin:
+Once the package is registered in the General registry:
+
+```julia
+pkg> add EpiAwarePackageTools
+```
+
+or, equivalently:
+
+```julia
+using Pkg
+Pkg.add("EpiAwarePackageTools")
+```
+
+### Until registered / development
+
+The package is not yet registered in the General registry. Until it is,
+depend on it from a test environment via a `[sources]` git pin:
 
 ```toml
 [sources]
@@ -52,13 +67,13 @@ EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.
 ## Where to learn more
 
 - Want to get started? See the
-  [Getting started](https://epiawarepackagetools.epiaware.org/stable/getting-started/)
+  [Getting started](https://epiawarepackagetools.epiaware.org/dev/getting-started)
   guide.
 - Want to know what `scaffold`/`update` manage versus what stays
   package-owned? See
-  [Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure/).
+  [Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/dev/getting-started/infrastructure).
 - Want the full interface? Browse the
-  [Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)
+  [Public API](https://epiawarepackagetools.epiaware.org/dev/lib/public)
   reference.
 - Want to see the code or report a problem? Check out the
   [GitHub repository](https://github.com/EpiAware/EpiAwarePackageTools.jl).
