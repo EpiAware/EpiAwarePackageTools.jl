@@ -69,7 +69,7 @@
         @test !occursin("```julia", out)
         # Line rewrite applied.
         @test occursin("REWRITTEN", out)
-        # With no strip sections, content tables are KEPT.
+        # With no strip sections, content tables are kept.
         @test occursin("| 1 | 2 |", out)
     end
 
@@ -81,7 +81,7 @@
         DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl",
             strip_sections = ["Drop me"])
         out = read(dest, String)
-        # The named section AND its deeper subsection are removed...
+        # The named section and its deeper subsection are removed...
         @test !occursin("## Drop me", out)
         @test !occursin("### sub of drop", out)
         @test !occursin("also gone", out)

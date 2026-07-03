@@ -1,6 +1,6 @@
-# Benchmarks are opt-in: a fresh scaffold writes NO benchmark CI, suite, or docs
+# Benchmarks are opt-in: a fresh scaffold writes no benchmark CI, suite, or docs
 # page; `benchmarks = true` writes them all. `update` detects an adopter's state
-# from the managed benchmark workflows so a resync PRESERVES an opt-in instead
+# from the managed benchmark workflows so a resync preserves an opt-in instead
 # of stripping it (the #72 idempotence trap), and bakes the value into the
 # scheduled template-sync call.
 
@@ -83,7 +83,7 @@
             _fake_pkg(dir)
             scaffold(dir; benchmarks = true)
             # A plain resync (as the scheduled sync's first run would do before
-            # its template-sync.yaml carries the baked value) must NOT strip the
+            # its template-sync.yaml carries the baked value) must not strip the
             # benchmark infra: detection recovers the enabled state.
             update(dir)
             update(dir)

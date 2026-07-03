@@ -47,7 +47,7 @@
 
     # The templates emitted for a given (`ad`, `benchmarks`) pair. AD/no-AD and
     # benchmark-gated variants writing to the same `dest` collapse to one entry.
-    # The bulk of the suite exercises the FULL standard (ad = true,
+    # The bulk of the suite exercises the full standard (ad = true,
     # benchmarks = true); the opt-in benchmark gating (on/off) is covered
     # separately in the `benchmarks_gating` testitem, so tests here scaffold with
     # `benchmarks = true` where they assert the benchmark surface.
@@ -491,7 +491,7 @@
                 @test !occursin("{{HOLDER}}", lic)
                 @test !occursin("{{YEAR}}", lic)
 
-                # With no `reviewer` handle, Dependabot sets NO reviewers and
+                # With no `reviewer` handle, Dependabot sets no reviewers and
                 # CODEOWNERS ships a commented placeholder: GitHub cannot assign
                 # a bare org, so a person is never hardcoded.
                 dep = read(joinpath(dir, ".github/dependabot.yml"), String)
@@ -626,7 +626,7 @@
                 @test occursin("- \"octocat\"", read(dependabot, String))
                 @test occursin("default: 'octocat'", read(action, String))
 
-                # A scheduled resync does NOT re-pass `reviewer`; the handle must
+                # A scheduled resync does not re-pass `reviewer`; the handle must
                 # be recovered from the destination (#72), not reverted to the org
                 # placeholder. Two updates confirm it stays put.
                 update(dir)
@@ -836,11 +836,11 @@
                 @test occursin(
                     "[![AD](https://github.com/EpiAware/Numeric.jl/actions/" *
                     "workflows/ad.yaml/badge.svg?branch=main)]", txt)
-                # The six per-backend COVERAGE flag badges are kept.
+                # The six per-backend coverage flag badges are kept.
                 @test occursin("cov ForwardDiff", txt)
                 @test occursin("flag=ad-forwarddiff", txt)
                 @test occursin("cov Mooncake forward", txt)
-                # No per-backend STATUS badges (those URLs would 404).
+                # No per-backend status badges (those URLs would 404).
                 @test !occursin("AD ForwardDiff", txt)
                 @test !occursin("workflows/ad-forwarddiff.yaml", txt)
             end
@@ -887,7 +887,7 @@
                 @test !occursin("{{HOLDER}}", txt)
                 @test !occursin("{{YEAR}}", txt)
 
-                # A deliberate licence change must NOT be reverted by update.
+                # A deliberate licence change must not be reverted by update.
                 custom = "Custom proprietary licence — all rights reserved.\n"
                 write(lic, custom)
                 ures = update(dir)
@@ -965,7 +965,7 @@
                 @test isfile(
                     joinpath(dir, ".github/workflows/template-sync.yaml"))
                 # The org-level community health files come from
-                # EpiAware/.github org-wide, so the kit must NOT ship them
+                # EpiAware/.github org-wide, so the kit must not ship them
                 # (shipping them would shadow the org defaults and drift).
                 for f in (".github/ISSUE_TEMPLATE/bug_report.md",
                     ".github/ISSUE_TEMPLATE/feature_request.md",

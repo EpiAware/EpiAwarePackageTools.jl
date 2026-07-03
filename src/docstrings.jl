@@ -3,8 +3,8 @@
 # function, type, and the module a consistent docstring layout: a signature
 # header, the authored prose, and — for types — an auto-generated field list.
 #
-# PACKAGE-OWNED: scaffold writes this once and never overwrites it. To activate
-# it, `include` this file near the TOP of the package module, BEFORE any
+# package-owned: scaffold writes this once and never overwrites it. To activate
+# it, `include` this file near the top of the package module, before any
 # docstrings are defined (a `@template` only applies to docstrings written after
 # it in the same module):
 #

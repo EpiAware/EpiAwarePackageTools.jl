@@ -6,9 +6,9 @@
 # (`scaffold.jl`, `qa.jl`, `ad_harness.jl`, `benchmarks.jl`), which exercise the
 # helpers the kit ships rather than re-running them on the package.
 #
-# The kit ships an AD harness but is itself a TOOLING package with no
+# The kit ships an AD harness but is itself a tooling package with no
 # differentiable code, so it scaffolds/manages itself with `ad = false`: there
-# is no `test/ad/` real-backend matrix here. The AD harness LOGIC is unit-tested
+# is no `test/ad/` real-backend matrix here. The AD harness logic is unit-tested
 # in `ad_harness.jl` with the light backends (ForwardDiff, ReverseDiff) only;
 # heavy backends (Enzyme, Mooncake) are kept out of the kit's required CI.
 #
