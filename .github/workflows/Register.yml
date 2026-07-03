@@ -26,8 +26,16 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.comment.body, '/register')
     runs-on: ubuntu-latest
+    # `contents: write` — posting the `@JuliaRegistrator register` commit
+    # comment (`POST .../commits/{sha}/comments`) needs Contents write.
+    # `issues: write` — posting the permission-denied reaction
+    # (`POST .../issues/comments/{id}/reactions`) needs Issues write (a PR
+    # conversation comment is an issue comment for this endpoint). The
+    # collaborator-permission check below needs no extra scope: `Metadata`
+    # read is always available to `GITHUB_TOKEN`, permissions block or not.
     permissions:
-      contents: read
+      contents: write
+      issues: write
     steps:
       - name: Check permissions
         id: check-permissions

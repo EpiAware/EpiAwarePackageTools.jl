@@ -26,7 +26,12 @@
             @test occursin("Register", text)
             # A ready-to-paste tracking-issue body follows the checklist.
             @test occursin("Manual setup for FakePkg", text)
-            @test occursin("- [ ] Enable the repo on Codecov", text)
+            @test occursin("- [ ] Enable FakePkg on Codecov", text)
+            # Every step actually names the target package (not just the
+            # title/heading) — regression check for the package name being
+            # resolved but never interpolated into the step text.
+            @test occursin("GitHub Pages for FakePkg's", text)
+            @test occursin("Protect FakePkg's `main` branch", text)
             # No `gh`/API dependency: nothing in the output shells out.
             @test !occursin("gh api", text)
             @test !occursin("gh issue create --title", text)

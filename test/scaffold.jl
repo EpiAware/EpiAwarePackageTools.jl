@@ -1251,6 +1251,14 @@
                 # No kit `{{PLACEHOLDER}}`s remain (the `${{ ... }}` GitHub
                 # Actions expression syntax is not one).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", txt)
+                # The job needs `contents: write` (the commit-comment API
+                # call that triggers JuliaRegistrator) and `issues: write`
+                # (the permission-denied reaction). A `permissions:` block
+                # zeroes every unlisted scope, so both must be listed
+                # explicitly or the workflow 403s on every real run.
+                @test occursin(r"(?m)^\s*contents:\s*write\s*$", txt)
+                @test occursin(r"(?m)^\s*issues:\s*write\s*$", txt)
+                @test !occursin(r"(?m)^\s*contents:\s*read\s*$", txt)
                 # Managed: `update` re-applies it (not merely preserved).
                 res = update(dir)
                 @test joinpath(dir, ".github/workflows/Register.yml") in
