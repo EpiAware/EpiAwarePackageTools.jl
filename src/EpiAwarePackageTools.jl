@@ -31,6 +31,11 @@ first. [`update`](@ref) re-applies the managed standard files (the scheduled
 template-sync entry point), leaving package-owned tests, AD scenarios, and QA
 config values untouched.
 
+[`setup_checklist`](@ref) prints the handful of manual, dashboard-only setup
+steps `scaffold`/`generate` cannot do for us (Codecov, GitHub Pages, branch
+protection, the first registry registration), plus a ready-to-paste tracking
+issue body.
+
 The AD harness + AD CI are OPT-IN: `scaffold`/`generate`/`update` take an
 `ad::Bool` keyword (default `true`). A numerical package keeps `ad = true`; a
 tooling/non-numerical package passes `ad = false` to scaffold none of the AD
@@ -62,6 +67,7 @@ include("docstrings.jl")
 include("quality.jl")
 include("qa.jl")
 include("scaffold.jl")
+include("setup_checklist.jl")
 include("ad_harness.jl")
 include("benchmarks.jl")
 include("docs_build.jl")
@@ -71,7 +77,7 @@ export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
-export scaffold, update, generate, scaffold_inputs
+export scaffold, update, generate, scaffold_inputs, setup_checklist
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export build_docs
 
