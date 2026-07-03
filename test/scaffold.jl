@@ -171,6 +171,12 @@
                 @test !occursin("{{", cov)
                 adyaml = read(joinpath(dir, ".github/workflows/ad.yaml"), String)
                 @test occursin("EpiAware/.github/.github/workflows/ad.yml", adyaml)
+                # Docs-only changes skip the heavy 6-backend AD sweep on both
+                # push and pull_request (a mixed docs+src PR still runs it).
+                @test count("paths-ignore:", adyaml) == 2
+                @test occursin("'docs/**'", adyaml)
+                @test occursin("'**/*.md'", adyaml)
+                @test occursin("'LICENSE'", adyaml)
 
                 # The seeded ADFixtures registry and the AD env agree on its UUID.
                 reg = read(joinpath(dir, "test/ADFixtures/Project.toml"), String)
