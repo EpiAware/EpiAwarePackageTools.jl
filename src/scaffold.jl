@@ -608,15 +608,62 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
         end)
 end
 
+# A managed CI caller job's reusable `uses:` line, its optional `with:` block,
+# and the following `secrets:` key. Reuses the same workflow-filename capture
+# as `_REUSABLE_USES` to key the block; group 3 is the `with:` block itself
+# (empty when the job has none), group 4 (the `with:` line's own indent) is
+# only used internally, via the `\4` backreference, to require the block's
+# input lines be indented DEEPER than `with:` — which is what stops the match
+# from swallowing the sibling `secrets:` line (indented the same as `with:`).
+# See `_preserve_caller_with_inputs`.
+const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
+
+# Keep a package-owned `with:` block on a managed CI caller job across
+# `update()` (#73). A package can deliberately override a reusable workflow's
+# defaults on a managed caller (e.g. a Julia version floor/matrix on
+# `test.yaml`'s `test`/`downgrade-compat` jobs) by adding a `with:` block; the
+# template itself carries no `with:` block for these jobs, so re-emitting it
+# verbatim would silently drop the override on every sync. Mirrors
+# `_preserve_reusable_refs`: the destination is the source of truth, so when
+# it already carries a `with:` block for a job, that block is kept and only
+# the rest of the caller (the `uses:` ref, `secrets:`, etc.) is re-applied
+# from the template; on first adoption (no destination yet) the template's
+# with-less form is used untouched.
+function _preserve_caller_with_inputs(content::AbstractString,
+        dest::AbstractString)
+    occursin(_CALLER_JOB, content) || return content
+    isfile(dest) || return content
+    existing = Dict{String, String}()
+    for m in eachmatch(_CALLER_JOB, read(dest, String))
+        block = String(something(m.captures[3], ""))
+        isempty(block) && continue
+        existing[String(something(m.captures[2]))] = block
+    end
+    isempty(existing) && return content
+    return replace(content,
+        _CALLER_JOB => function (s)
+            m = match(_CALLER_JOB, s)
+            m === nothing && return String(s)
+            prefix = String(something(m.captures[1]))
+            workflow = String(something(m.captures[2]))
+            seed = String(something(m.captures[3], ""))
+            suffix = String(something(m.captures[5]))
+            return prefix * get(existing, workflow, seed) * suffix
+        end)
+end
+
 # Copy one template to `to`, substituting placeholders when requested. Managed
-# CI callers additionally keep any reusable-workflow ref the destination already
-# pins (see `_preserve_reusable_refs`), so a Dependabot bump is never reverted.
+# CI callers additionally keep any reusable-workflow ref the destination
+# already pins (see `_preserve_reusable_refs`) and any package-owned `with:`
+# input the destination already carries (see `_preserve_caller_with_inputs`),
+# so neither a Dependabot bump nor a deliberate caller override is reverted.
 function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         inputs::NamedTuple)
     mkpath(dirname(to))
     if substitute
         content = _substitute(read(from, String), inputs, from)
         content = _preserve_reusable_refs(content, to)
+        content = _preserve_caller_with_inputs(content, to)
         write(to, content)
     else
         cp(from, to; force = true)
