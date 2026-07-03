@@ -143,16 +143,19 @@ test_linting(mod::Module; kwargs...) = test_jet(mod; kwargs...)
 
 # --- docstring format -------------------------------------------------------
 
-# Render one `DocStr`'s text vector to a string, keeping only the authored
-# prose. A `DocStr.text` is a vector of pieces: plain interpolation splits it
-# into several `AbstractString` fragments, and with `DocStringExtensions.
-# @template` registered the package's `@template` directive wraps each docstring
-# as `[Template{:before}, "<prose>", Template{:after}]`, so the prose is an
-# interior element, not the last one. Keep the `AbstractString` / `Markdown.MD`
-# pieces (joining all fragments, so an interpolated docstring is read whole) and
-# drop the `Template` directives, so a templated package reads the same as a
-# plain one. (Taking only `text[end]` returned the appended `Template` object or
-# the final interpolation fragment, dropping the rest of the prose.)
+"""
+    _docstr_text(docstr)
+
+Render one `DocStr`'s text vector to a string, keeping only the
+authored prose.
+
+A `DocStr.text` is a vector of pieces: plain interpolation splits it
+into several `AbstractString` fragments, and a registered `@template`
+wraps each docstring as `[Template{:before}, "<prose>", Template{:after}]`,
+so the prose is an interior element, not the last one. Joining only the
+`AbstractString`/`Markdown.MD` pieces and dropping the `Template`
+markers means a templated package reads the same as a plain one.
+"""
 function _docstr_text(docstr)
     text = try
         docstr.text

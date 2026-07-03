@@ -340,11 +340,16 @@ end
 # Strip a trailing `<email>` from an author entry, leaving the display name.
 _author_name(a::AbstractString) = strip(replace(a, r"<[^>]*>" => ""))
 
-# The single glyph shown on the placeholder logo (`templates/docs/src/assets/
-# logo.svg`): the package's first letter, uppercased, or "?" when the package
-# name is unknown (a `generate`d/`scaffold`ed target always has one, but this
-# keeps `scaffold_inputs` total). Purely cosmetic — replacing the placeholder
-# SVG with a real logo makes this irrelevant.
+"""
+    _logo_initial(pkg)
+
+The single glyph shown on the placeholder logo
+(`templates/docs/src/assets/logo.svg`): the package's first letter,
+uppercased, or `"?"` when the package name is unknown (a
+`generate`d/`scaffold`ed target always has one, but this keeps
+`scaffold_inputs` total). Purely cosmetic — replacing the placeholder
+SVG with a real logo makes this irrelevant.
+"""
 function _logo_initial(pkg::Union{Nothing, AbstractString})
     (pkg === nothing || isempty(pkg)) && return "?"
     return uppercase(string(first(pkg)))
@@ -354,14 +359,21 @@ end
 # docs_config.jl`), used when a target has no `docs_config.jl` yet.
 const _DEFAULT_TUTORIALS_SUBDIR = "getting-started/tutorials"
 
-# Read `TUTORIALS_SUBDIR` from the package-owned `docs/docs_config.jl`: the
-# subdir (relative to `docs/src`) holding the Literate tutorial sources and
-# their rendered `.md` pages. The managed `.gitignore` ignores those rendered
-# pages, so the ignore must track whatever path the package configures rather
-# than hardcode one. The const is written as a quoted string or a
-# `joinpath("a", "b")` of quoted segments; join every quoted segment with `/`
-# (the gitignore separator). Falls back to the template default when the config
-# is absent (e.g. at first scaffold, before it is written) or omits the const.
+"""
+    _tutorials_subdir(target_dir)
+
+Read `TUTORIALS_SUBDIR` from the package-owned `docs/docs_config.jl`:
+the subdir (relative to `docs/src`) holding the Literate tutorial
+sources and their rendered `.md` pages.
+
+The managed `.gitignore` ignores those rendered pages, so the ignore
+must track whatever path the package configures rather than hardcode
+one. The const is written as a quoted string or a
+`joinpath("a", "b")` of quoted segments; every quoted segment is
+joined with `/` (the gitignore separator). Falls back to the template
+default when the config is absent (e.g. at first scaffold) or omits
+the const.
+"""
 function _tutorials_subdir(target_dir::AbstractString)
     cfg = joinpath(target_dir, "docs", "docs_config.jl")
     isfile(cfg) || return _DEFAULT_TUTORIALS_SUBDIR
@@ -374,17 +386,24 @@ function _tutorials_subdir(target_dir::AbstractString)
     return join(segs, "/")
 end
 
-# Recover a persisted reviewer handle from an already-scaffolded repo so a resync
-# (`update` with no `reviewer` kwarg) keeps it instead of reverting to the org
-# placeholder (#72). CODEOWNERS and the Dependabot `reviewers` block are managed
-# (re-emitted on every sync), and the scheduled template-sync never re-passes
-# `reviewer`, so the handle must be read back from the destination — exactly as
-# `_preserve_reusable_refs` reads existing reusable-workflow refs to stay
-# idempotent against Dependabot SHA bumps. The destination is the source of
-# truth. Reads the active (uncommented) CODEOWNERS owner line the kit renders
-# from the handle and returns its first `@handle` (the leading `@` stripped, an
-# `org/team` slug kept whole), or `nothing` when CODEOWNERS is absent or carries
-# only the commented placeholder (so a never-configured repo stays unconfigured).
+"""
+    _detect_reviewer(target_dir)
+
+Recover a persisted reviewer handle from an already-scaffolded repo so
+a resync (`update` with no `reviewer` kwarg) keeps it instead of
+reverting to the org placeholder (#72).
+
+CODEOWNERS and the Dependabot `reviewers` block are managed
+(re-emitted on every sync), and the scheduled template-sync never
+re-passes `reviewer`, so the handle must be read back from the
+destination — exactly as `_preserve_reusable_refs` reads existing
+reusable-workflow refs to stay idempotent against Dependabot SHA
+bumps. Reads the active (uncommented) CODEOWNERS owner line the kit
+renders from the handle and returns its first `@handle` (the leading
+`@` stripped, an `org/team` slug kept whole), or `nothing` when
+CODEOWNERS is absent or carries only the commented placeholder (so a
+never-configured repo stays unconfigured).
+"""
 function _detect_reviewer(target_dir::AbstractString)
     co = joinpath(target_dir, ".github", "CODEOWNERS")
     isfile(co) || return nothing
@@ -577,14 +596,21 @@ end
 # each adopting repo. See `_preserve_reusable_refs`.
 const _REUSABLE_USES = r"(uses:\s*\S+/\.github/\.github/workflows/([^@\s]+)@)(\S+)"
 
-# Keep the destination's existing reusable-workflow refs when re-emitting a
-# managed CI caller. Dependabot owns the EpiAware/.github reusable SHAs in every
-# adopting repo, so a template that hard-pinned one SHA would report drift (and
-# fail self-drift / churn the scheduled sync) every time Dependabot moved the
-# live pin. When the destination already pins a ref for the same reusable
-# workflow, that ref wins and only the rest of the caller body is re-applied
-# from the template; on first adoption (no destination yet) the template's seed
-# ref is used. This makes `update` idempotent against Dependabot's bumps.
+"""
+    _preserve_reusable_refs(content, dest)
+
+Keep the destination's existing reusable-workflow refs when
+re-emitting a managed CI caller.
+
+Dependabot owns the EpiAware/.github reusable SHAs in every adopting
+repo, so a template that hard-pinned one SHA would report drift (and
+fail self-drift / churn the scheduled sync) every time Dependabot
+moved the live pin. When the destination already pins a ref for the
+same reusable workflow, that ref wins and only the rest of the caller
+body is re-applied from the template; on first adoption (no
+destination yet) the template's seed ref is used. This makes `update`
+idempotent against Dependabot's bumps.
+"""
 function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
     occursin(_REUSABLE_USES, content) || return content
     isfile(dest) || return content
@@ -678,12 +704,19 @@ _docs_host(pkg::AbstractString) = lowercase(pkg) * ".epiaware.org"
 # custom domain is reachable at `<this>/<Repo>.jl/`.
 const DOCS_PAGES_APEX = "epiaware.org"
 
-# Resolve the `docs_subdomain` input to either `nothing` (project-pages, the
-# default) or a concrete host string. `true` selects the conventional
-# `<pkg>.epiaware.org`; a string is taken verbatim; `nothing`/`false` opt out.
-# The Bool and Nothing cases dispatch to their own methods so the `String`
-# conversion only ever runs on a genuine string input (keeps JET type-stable —
-# `String(::Bool)` has no method and would otherwise show as a possible error).
+"""
+    _resolve_docs_subdomain(spec, pkg)
+
+Resolve the `docs_subdomain` input to either `nothing` (project-pages,
+the default) or a concrete host string.
+
+`true` selects the conventional `<pkg>.epiaware.org`; a string is
+taken verbatim; `nothing`/`false` opt out. The `Bool` and `Nothing`
+cases dispatch to their own methods so the `String` conversion only
+ever runs on a genuine string input (keeps JET type-stable —
+`String(::Bool)` has no method and would otherwise show as a possible
+error).
+"""
 _resolve_docs_subdomain(::Nothing, pkg) = nothing
 function _resolve_docs_subdomain(spec::Bool, pkg)
     spec || return nothing
@@ -741,14 +774,21 @@ function _downloads_badges(pkg::AbstractString)
     return total * " " * monthly
 end
 
-# Render the standard badge block (without the markers) from resolved inputs.
-# `repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds the
-# per-backend AD CI + coverage badge table; `license` is the SPDX id whose badge
-# is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when both are given. The
-# layout matches CensoredDistributions.jl: a five-column header table
-# (Documentation, Build Status, Code Quality, License & DOI, Downloads) plus the
-# per-backend AD table. No owner/repo is hardcoded — every URL is built from
-# `repo`/`pkg`.
+"""
+    _render_badges(repo, pkg; ad, license = DEFAULT_LICENSE,
+        docs_url = nothing, doi = nothing, zenodo_badge = nothing)
+
+Render the standard badge block (without the markers) from resolved
+inputs.
+
+`repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds
+the per-backend AD CI + coverage badge table; `license` is the SPDX id
+whose badge is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when
+both are given. The layout matches CensoredDistributions.jl: a
+five-column header table (Documentation, Build Status, Code Quality,
+License & DOI, Downloads) plus the per-backend AD table. No owner/repo
+is hardcoded — every URL is built from `repo`/`pkg`.
+"""
 function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
         docs_url::Union{Nothing, AbstractString} = nothing,
@@ -1022,11 +1062,16 @@ function _render_gitignore(inputs::NamedTuple)
     return _substitute(read(from, String), inputs, from)
 end
 
-# Apply the managed `.gitignore` block to `target_dir`. Returns `(action,
-# changed)` where action is `:created`, `:injected` (markers added to an
-# existing file, e.g. on first run of a kit version with this fix, or
-# `:refreshed` (markers already present; only the marked region is
-# touched). Mirrors `_apply_badges`.
+"""
+    _apply_gitignore(target_dir, inputs)
+
+Apply the managed `.gitignore` block to `target_dir`.
+
+Returns `(action, changed)` where action is `:created`, `:injected`
+(markers added to an existing file, e.g. on first run of a kit version
+with this fix), or `:refreshed` (markers already present; only the
+marked region is touched). Mirrors `_apply_badges`.
+"""
 function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
     path = joinpath(target_dir, ".gitignore")
     body = _render_gitignore(inputs)
@@ -1083,26 +1128,39 @@ function _bench_selected(t::Template, benchmarks::Bool)
     error("template $(t.src) has unknown bench mode $(t.bench)")
 end
 
-# Whether a repo already has benchmarks enabled, so a resync (`update` with no
-# `benchmarks` kwarg) preserves an adopter's opt-in instead of reverting to the
-# opt-out default and stripping their benchmark CI/suite/page (the #72 trap).
-# The scheduled template-sync bakes `benchmarks = {{BENCHMARKS}}` into its
-# `update` call, but a repo scaffolded before this flag has a template-sync that
-# re-passes nothing, so the state must also be recoverable from the destination.
-# The managed benchmark CI workflows are the marker: present iff benchmarks were
-# enabled. A fresh (never-scaffolded) target has neither, so it defaults to
-# opt-out — exactly the intended behaviour for a new package.
+"""
+    _detect_benchmarks(target_dir)
+
+Whether a repo already has benchmarks enabled, so a resync (`update`
+with no `benchmarks` kwarg) preserves an adopter's opt-in instead of
+reverting to the opt-out default and stripping their benchmark
+CI/suite/page (the #72 trap).
+
+The scheduled template-sync bakes `benchmarks = {{BENCHMARKS}}` into
+its `update` call, but a repo scaffolded before this flag has a
+template-sync that re-passes nothing, so the state must also be
+recoverable from the destination. The managed benchmark CI workflows
+are the marker: present iff benchmarks were enabled. A fresh
+(never-scaffolded) target has neither, so it defaults to opt-out —
+exactly the intended behaviour for a new package.
+"""
 function _detect_benchmarks(target_dir::AbstractString)
     wf = joinpath(target_dir, ".github", "workflows")
     return isfile(joinpath(wf, "benchmark.yaml")) ||
            isfile(joinpath(wf, "benchmark-history.yaml"))
 end
 
-# Shared worker for `scaffold`/`update`. `managed_only` restricts to managed
-# templates (the `update` path). `force` overwrites package-owned files too
-# (only meaningful for `scaffold`). `ad` selects the AD-enabled or AD-disabled
-# standard; `benchmarks` gates the opt-in benchmark CI/suite/docs page. Returns
-# a `(created, updated, preserved)` manifest of destination paths.
+"""
+    _apply(target_dir; managed_only, force, ad, benchmarks, inputs)
+
+Shared worker for `scaffold`/`update`.
+
+`managed_only` restricts to managed templates (the `update` path).
+`force` overwrites package-owned files too (only meaningful for
+`scaffold`). `ad` selects the AD-enabled or AD-disabled standard;
+`benchmarks` gates the opt-in benchmark CI/suite/docs page. Returns a
+`(created, updated, preserved)` manifest of destination paths.
+"""
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         ad::Bool, benchmarks::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
