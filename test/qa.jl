@@ -109,6 +109,37 @@
 
     end # module _NonConforming
 
+    # A module whose exported type carries a docstring too short to count as
+    # "meaningful" (see `_meaningful`), for the type-level meaningful-doc skip.
+    module _ShortDoc
+
+    export Thingy
+
+    "x"
+    struct Thingy
+        a::Int
+    end
+
+    end # module _ShortDoc
+
+    # Tiny stand-ins for JET's report structure (`report.vst[end].linfo.
+    # specTypes`) and a DynamicPPL-shaped evaluator signature, used to
+    # exercise `dynamicppl_model_filter`'s classification branches without a
+    # real JET/DynamicPPL dependency.
+    struct _FakeFrame
+        linfo::Any
+    end
+    struct _FakeLinfo
+        specTypes::Any
+    end
+    struct _FakeReport
+        vst::Any
+    end
+    module _FakeDynamicPPL
+    struct Model end
+    struct VarInfo end
+    end
+
     # Sentinel standing in for a `DocStringExtensions.Template` directive in a
     # `DocStr.text` vector (see the `_docstring_content` template test).
     struct _TemplateDirective end
@@ -260,6 +291,14 @@
             # The kit's own README conforms to the standard structure.
             root = dirname(dirname(pathof(EpiAwarePackageTools)))
             test_readme_sections(root)
+
+            # A missing README skips rather than erroring (e.g. a
+            # freshly-`generate`d package with no README yet); the function
+            # returns early with `nothing` rather than a testset.
+            mktempdir() do dir
+                @test test_readme_sections(
+                    joinpath(dir, "no-such-readme.md")) === nothing
+            end
         end
 
         @testset "test_formatting over self" begin
@@ -313,6 +352,97 @@
             # A report whose innermost frame cannot be inspected is KEPT (fail
             # closed): the filter returns `true` for a non-report object.
             @test dynamicppl_model_filter((; nope = 1)) == true
+
+            # A `specTypes` that resolves but has no `.parameters` field (not
+            # a real signature type) fails inside the `try`: kept.
+            r_bad_sig = _FakeReport([_FakeFrame(_FakeLinfo("not a type"))])
+            @test dynamicppl_model_filter(r_bad_sig) == true
+
+            # Fewer than 3 tuple parameters (no room for a Model/VarInfo
+            # pair in positions 2/3): kept.
+            r_short = _FakeReport([_FakeFrame(_FakeLinfo(Tuple{Int}))])
+            @test dynamicppl_model_filter(r_short) == true
+
+            # The DynamicPPL evaluator signature `(::Model,
+            # ::AbstractVarInfo, ...)`: dropped.
+            sig_match = Tuple{typeof(identity), _FakeDynamicPPL.Model,
+                _FakeDynamicPPL.VarInfo}
+            r_match = _FakeReport([_FakeFrame(_FakeLinfo(sig_match))])
+            @test dynamicppl_model_filter(r_match) == false
+
+            # A `Model` in position 2 but nothing VarInfo-like in position 3:
+            # kept (not a full evaluator-signature match).
+            sig_partial = Tuple{typeof(identity), _FakeDynamicPPL.Model, Int}
+            r_partial = _FakeReport([_FakeFrame(_FakeLinfo(sig_partial))])
+            @test dynamicppl_model_filter(r_partial) == true
+        end
+
+        @testset "_typename_is / _occurs_varinfo" begin
+            @test EpiAwarePackageTools._typename_is(Int, "Int64")
+            @test !EpiAwarePackageTools._typename_is(Int, "Model")
+            # A value that is not a `Type`/`UnionAll` has no `.name` field:
+            # caught, `false` (fail closed, same as the filter above).
+            @test !EpiAwarePackageTools._typename_is(5, "Model")
+            @test EpiAwarePackageTools._occurs_varinfo(
+                _FakeDynamicPPL.VarInfo)
+            @test !EpiAwarePackageTools._occurs_varinfo(Int)
+        end
+
+        @testset "test_jet skips on the forced-experimental flag" begin
+            # `skip_experimental = true` (the default) short-circuits before
+            # ever loading JET when the experimental-Julia override is set,
+            # so this is cheap and exercises the skip branch without
+            # depending on the actual Julia version under test.
+            withenv("JULIA_CI_EXPERIMENTAL" => "true") do
+                # The skip happens via a non-local `return nothing` from
+                # inside the `@testset` body (same idiom as
+                # `test_readme_sections`'s missing-README skip), so the
+                # function returns `nothing`, not a testset.
+                @test test_jet(EpiAwarePackageTools) === nothing
+            end
+        end
+
+        @testset "_formatter_style covers every named style" begin
+            JF = Base.require(Base.PkgId(
+                Base.UUID("98e50ef6-434e-11e9-1051-2b60c6c9e899"),
+                "JuliaFormatter"))
+            for style in ("sciml", "blue", "yas", "default", "", "SciML")
+                s = EpiAwarePackageTools._formatter_style(JF, style)
+                @test s !== nothing
+            end
+            @test_throws ErrorException EpiAwarePackageTools._formatter_style(
+                JF, "not-a-style")
+        end
+
+        @testset "_docstr_text falls back for a non-DocStr object" begin
+            # An object with no `.text` field takes the `catch` fallback:
+            # stringify the whole thing rather than erroring.
+            @test EpiAwarePackageTools._docstr_text(42) == "42"
+        end
+
+        @testset "_check_type_docstring / _check_func_docstring skip branches" begin
+            # A name that does not resolve in the module (`getfield` throws)
+            # is skipped rather than erroring, for both the type and the
+            # function check.
+            EpiAwarePackageTools._check_type_docstring(
+                _Conforming, :NoSuchBinding123; require_field_docs = true)
+            EpiAwarePackageTools._check_func_docstring(
+                _Conforming, :NoSuchBinding123; exported_only_examples = true,
+                require_arg_sections = true, require_examples = true)
+
+            # A type whose docstring is too short to count as "meaningful"
+            # is skipped too.
+            EpiAwarePackageTools._check_type_docstring(
+                _ShortDoc, :Thingy; require_field_docs = true)
+        end
+
+        @testset "_is_type fails closed on an unresolvable name" begin
+            @test EpiAwarePackageTools._is_type(_Conforming, :Widget)
+            @test !EpiAwarePackageTools._is_type(_Conforming, :build)
+            # `getfield` throws for a name that isn't actually defined;
+            # caught and treated as "not a type" rather than erroring.
+            @test !EpiAwarePackageTools._is_type(
+                _Conforming, :NoSuchBinding123)
         end
 
         @testset "ambiguity helpers error on unloaded extension" begin
@@ -322,6 +452,13 @@
                 EpiAwarePackageTools, :NotAnExtension)
             @test_throws ErrorException on_surface_ambiguities(
                 EpiAwarePackageTools, :NotAnExtension)
+            # `test_ext_ambiguities` wraps its body in its own `@testset`,
+            # which catches the `error(...)` and records it as a failing
+            # result rather than letting it propagate as an exception — so
+            # this is checked the same way as a failing `test_docstring_format`
+            # call above, via `check_flags`, not `@test_throws`.
+            @test check_flags(() -> test_ext_ambiguities(
+                EpiAwarePackageTools, :NotAnExtension))
         end
     end # @testset "QA helpers"
 end # @testitem "QA helpers"
