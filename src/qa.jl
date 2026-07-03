@@ -24,8 +24,8 @@ fails with `UndefVarError: <mod> not defined in Main`. To make the standard
 """
 function test_doctest(mod::Module)
     # See `test_aqua` for why this goes through `invokelatest`.
-    Documenter = Base.require(Base.PkgId(
-        Base.UUID("e30172f5-a6a5-5a46-863b-614d45cd2de4"), "Documenter"))
+    Documenter = _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4",
+        "Documenter")
     # Bind `mod` into `Main` under its own name so `@meta CurrentModule = <mod>`
     # blocks in the docs pages resolve when doctest runs inside a TestItemRunner
     # sandbox module (where `Main` would otherwise lack the binding). Set it
@@ -69,8 +69,7 @@ function test_formatting(dirs; style::AbstractString = "sciml",
         env::Union{Nothing, AbstractString} = nothing)
     env === nothing || return _test_formatting_env(env)
     # See `test_aqua` for why this goes through `invokelatest`.
-    JF = Base.require(Base.PkgId(
-        Base.UUID("98e50ef6-434e-11e9-1051-2b60c6c9e899"), "JuliaFormatter"))
+    JF = _require_pkg("98e50ef6-434e-11e9-1051-2b60c6c9e899", "JuliaFormatter")
     existing = filter(isdir, collect(String, dirs))
     return @testset "formatting" begin
         if isempty(existing)
@@ -86,25 +85,15 @@ function test_formatting(dirs; style::AbstractString = "sciml",
     end
 end
 
-# Run the formatter check in an isolated subprocess (cf. `test_jet`'s `env`
-# path): instantiate `env`, then run its `runtests.jl` and assert a zero exit.
+# Run the formatter check in an isolated subprocess via the shared
+# `_validate_isolated_env`/`_run_isolated_env` (cf. `test_jet`'s `env` path, in
+# quality.jl): validate `env`, then run its `runtests.jl` and assert a zero
+# exit. Validation happens before the `@testset` so a malformed `env` raises
+# directly rather than as a testset failure (see `_validate_isolated_env`).
 function _test_formatting_env(env::AbstractString)
-    Pkg = Base.require(Base.PkgId(
-        Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg"))
-    isdir(env) && isfile(joinpath(env, "Project.toml")) ||
-        error("formatter env $env has no Project.toml")
-    runner = joinpath(env, "runtests.jl")
-    isfile(runner) || error("formatter env $env has no runtests.jl")
-    current = Base.active_project()
-    Pkg.activate(env)
-    Pkg.instantiate()
-    Pkg.activate(current)
+    runner = _validate_isolated_env(env, "formatter")
     return @testset "formatting" begin
-        result = run(
-            pipeline(`$(Base.julia_cmd()) --project=$env $runner`,
-                stdout = stdout, stderr = stderr);
-            wait = true)
-        @test result.exitcode == 0
+        @test _run_isolated_env(env, runner)
     end
 end
 

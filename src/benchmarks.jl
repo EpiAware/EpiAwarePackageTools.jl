@@ -50,6 +50,8 @@ the environment that runs the benchmark job, not as package dependencies.
 """
 module Benchmarks
 
+import ..EpiAwarePackageTools: _require_pkg
+
 export flatten_asv, asv_comment, compare_comment, run_suite
 export fmt_time, fmt_ratio
 
@@ -58,14 +60,15 @@ export fmt_time, fmt_ratio
 # Resolve JSON3 / BenchmarkTools at call time so they are not hard
 # dependencies of EpiAwarePackageTools. Calls into them go through `invokelatest`
 # because the loaded methods live in a newer world age than these functions.
+# `_require_pkg` (defined once in the parent module, #58) is shared with every
+# other lazy-load site in the kit.
 function _json3()
-    return Base.require(Base.PkgId(
-        Base.UUID("0f8b85d8-7281-11e9-16c2-39a750bddbf1"), "JSON3"))
+    return _require_pkg("0f8b85d8-7281-11e9-16c2-39a750bddbf1", "JSON3")
 end
 
 function _benchmarktools()
-    return Base.require(Base.PkgId(
-        Base.UUID("6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"), "BenchmarkTools"))
+    return _require_pkg(
+        "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf", "BenchmarkTools")
 end
 
 # ---- shared formatting -----------------------------------------------------
