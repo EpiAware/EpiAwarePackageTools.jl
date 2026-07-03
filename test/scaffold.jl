@@ -1236,5 +1236,115 @@
                 end
             end
         end
+
+        @testset "Register.yml is managed and self-identifying" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                reg = joinpath(dir, ".github/workflows/Register.yml")
+                @test isfile(reg)
+                txt = read(reg, String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("workflow_dispatch", txt)
+                @test occursin("issue_comment", txt)
+                @test occursin("@JuliaRegistrator register", txt)
+                # No kit `{{PLACEHOLDER}}`s remain (the `${{ ... }}` GitHub
+                # Actions expression syntax is not one).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", txt)
+                # The job needs `contents: write` (the commit-comment API
+                # call that triggers JuliaRegistrator) and `issues: write`
+                # (the permission-denied reaction). A `permissions:` block
+                # zeroes every unlisted scope, so both must be listed
+                # explicitly or the workflow 403s on every real run.
+                @test occursin(r"(?m)^\s*contents:\s*write\s*$", txt)
+                @test occursin(r"(?m)^\s*issues:\s*write\s*$", txt)
+                @test !occursin(r"(?m)^\s*contents:\s*read\s*$", txt)
+                # Managed: `update` re-applies it (not merely preserved).
+                res = update(dir)
+                @test joinpath(dir, ".github/workflows/Register.yml") in
+                      res.updated
+            end
+        end
+
+        @testset "NEWS.md is package-owned (write-once)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                news = joinpath(dir, "NEWS.md")
+                @test isfile(news)
+                @test news in res.created
+                @test occursin("Unreleased", read(news, String))
+                # Package-owned: a caller's own entry survives `update`.
+                write(news, "## v1.0.0\n\nFirst release.\n")
+                res2 = update(dir)
+                @test news ∉ res2.updated
+                @test read(news, String) == "## v1.0.0\n\nFirst release.\n"
+            end
+        end
+
+        @testset "logo.svg is package-owned and substituted" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                logo = joinpath(dir, "docs/src/assets/logo.svg")
+                @test isfile(logo)
+                @test logo in res.created
+                txt = read(logo, String)
+                @test occursin("Wombat", txt)
+                @test !occursin("{{", txt)
+                # Package-owned: a real logo the caller drops in survives
+                # `update`.
+                write(logo, "<svg><!-- real logo --></svg>\n")
+                update(dir)
+                @test occursin("real logo", read(logo, String))
+            end
+        end
+
+        @testset "README logo title" begin
+            @testset "no logo file: title is left alone" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    write(joinpath(dir, "README.md"), "# Wombat\n\nbody\n")
+                    # `update` never writes package-owned files (including the
+                    # logo), so this exercises the no-logo-yet path directly.
+                    res = update(dir)
+                    @test res.logo === :skipped
+                    txt = read(joinpath(dir, "README.md"), String)
+                    @test !occursin("<img", txt)
+                end
+            end
+
+            @testset "logo present: title gets the img tag once" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    res = scaffold(dir)
+                    @test res.logo === :injected
+                    txt = read(joinpath(dir, "README.md"), String)
+                    @test occursin(
+                        "# Wombat <img src=\"docs/src/assets/logo.svg\"", txt)
+                    # Idempotent: re-scaffolding does not duplicate the tag.
+                    res2 = scaffold(dir)
+                    @test res2.logo === :preserved
+                    txt2 = read(joinpath(dir, "README.md"), String)
+                    @test count("<img", txt2) == 1
+                end
+            end
+
+            @testset "custom title tag is never overwritten" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    mkpath(joinpath(dir, "docs/src/assets"))
+                    write(joinpath(dir, "docs/src/assets/logo.svg"),
+                        "<svg></svg>\n")
+                    write(joinpath(dir, "README.md"),
+                        "# Wombat <img src=\"docs/src/assets/logo.svg\" " *
+                        "width=\"50\">\n\nbody\n")
+                    res = update(dir)
+                    @test res.logo === :preserved
+                    txt = read(joinpath(dir, "README.md"), String)
+                    @test occursin("width=\"50\"", txt)
+                end
+            end
+        end
     end # @testset "scaffold + update"
 end # @testitem "scaffold + update (logic)"

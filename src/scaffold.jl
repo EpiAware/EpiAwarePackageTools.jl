@@ -110,6 +110,13 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/docpreviewcleanup.yaml", true, true),
     Template(".github/workflows/TagBot.yaml",
         ".github/workflows/TagBot.yaml", true, true),
+    # Triggers Julia General Registry registration: a `/register` issue/PR
+    # comment or a manual `workflow_dispatch` both post the
+    # `@JuliaRegistrator register` comment on `main`'s HEAD commit (gated on
+    # the actor having write access). No `{{PLACEHOLDER}}`s — every value it
+    # needs comes from the GitHub Actions context, so it ships unsubstituted.
+    Template(".github/workflows/Register.yml",
+        ".github/workflows/Register.yml", true, false),
     Template(".github/workflows/downstream.yaml",
         ".github/workflows/downstream.yaml", true, true),
     # Cancel a PR's in-flight runs on close/merge (thin caller of the
@@ -222,7 +229,20 @@ const SCAFFOLD_TEMPLATES = Template[
     # BEFORE its docstrings are defined for the templates to take effect (see
     # CensoredDistributions.jl `src/docstrings.jl`).
     Template("src/docstrings.jl", "src/docstrings.jl", false, false),
+    # The hybrid-changelog NEWS.md seed (major-release notes; GitHub Releases
+    # cover the rest — see `docs/release_notes_header.jl` /
+    # `docs/make.jl`'s release-notes.md step, which reads this file when
+    # present). Package-owned so a package's own entries are never touched.
+    Template("NEWS.md", "NEWS.md", false, false),
     Template("docs/Project.toml", "docs/Project.toml", false, true),
+    # A placeholder logo, seeded once at this exact path so a package can drop
+    # in a real logo without any further wiring: `docs/make.jl`'s README ->
+    # index.md step already strips an `<img ... assets/logo.svg ...>` tag from
+    # the generated docs home page (see `_apply_logo_title` for the managed
+    # README title tag). Package-owned like LICENSE — replace the file, never
+    # regenerated.
+    Template("docs/src/assets/logo.svg",
+        "docs/src/assets/logo.svg", false, true),
     # Substituted so the benchmark nav entry (`{{BENCHMARKS_NAV}}`) is present
     # only when `benchmarks = true`; package-owned so a package extends the tree.
     Template("docs/pages.jl", "docs/pages.jl", false, true),
@@ -319,6 +339,16 @@ end
 
 # Strip a trailing `<email>` from an author entry, leaving the display name.
 _author_name(a::AbstractString) = strip(replace(a, r"<[^>]*>" => ""))
+
+# The single glyph shown on the placeholder logo (`templates/docs/src/assets/
+# logo.svg`): the package's first letter, uppercased, or "?" when the package
+# name is unknown (a `generate`d/`scaffold`ed target always has one, but this
+# keeps `scaffold_inputs` total). Purely cosmetic — replacing the placeholder
+# SVG with a real logo makes this irrelevant.
+function _logo_initial(pkg::Union{Nothing, AbstractString})
+    (pkg === nothing || isempty(pkg)) && return "?"
+    return uppercase(string(first(pkg)))
+end
 
 # The template default for the tutorial subdir (see `templates/docs/
 # docs_config.jl`), used when a target has no `docs_config.jl` yet.
@@ -522,7 +552,8 @@ function scaffold_inputs(target_dir::AbstractString;
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
         KIT_DEP_LINE = kit_dep,
-        KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install)
+        KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
+        LOGO_INITIAL = _logo_initial(pkg))
 end
 
 # Apply placeholder substitution to `content`. A template may use any subset of
@@ -906,6 +937,43 @@ function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
     return (:injected, true)
 end
 
+# --- managed README logo title ---------------------------------------------
+#
+# Once a package has a `docs/src/assets/logo.svg` (package-owned; see the
+# `docs/src/assets/logo.svg` template), the README's `# ` title gets an inline
+# `<img>` tag pointing at it, mirroring CensoredDistributions.jl. This is
+# managed like the badge block: (re)checked on every scaffold/update, but it
+# only ADDS the tag — a title that already references `assets/logo.svg` (in
+# whatever form the package customised it to) is left exactly as-is.
+
+const _LOGO_REL = "docs/src/assets/logo.svg"
+
+# The standard inline logo tag for a README title, sized/positioned to match
+# CensoredDistributions.jl.
+function _logo_img_tag(pkg::AbstractString)
+    string(
+        "<img src=\"", _LOGO_REL, "\" width=\"150\" alt=\"", pkg,
+        " logo\" align=\"right\">")
+end
+
+# Add the logo `<img>` tag to the README's `# ` title when `docs/src/assets/
+# logo.svg` exists and the title does not already reference it. Returns
+# `:injected`, `:preserved`, or `:skipped` (no logo file, or no README title to
+# amend).
+function _apply_logo_title(target_dir::AbstractString, pkg::AbstractString)
+    isfile(joinpath(target_dir, _LOGO_REL)) || return :skipped
+    readme = joinpath(target_dir, "README.md")
+    isfile(readme) || return :skipped
+    text = read(readme, String)
+    m = match(r"^#[^\n]*"m, text)
+    m === nothing && return :skipped
+    title = m.match
+    occursin("assets/logo.svg", title) && return :preserved
+    write(readme, replace(text, title => title * " " * _logo_img_tag(pkg);
+        count = 1))
+    return :injected
+end
+
 # --- managed [workspace] stanza in the root Project.toml -------------------
 #
 # The root Project.toml is package-owned (the kit never rewrites its deps), but
@@ -1085,6 +1153,10 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             zenodo_badge = inputs.ZENODO_BADGE,
             authors = inputs.AUTHORS, year = inputs.YEAR))
     end
+    # The README title's inline logo tag is managed the same way as the badge
+    # block: added once a `docs/src/assets/logo.svg` exists, left alone
+    # otherwise. Reported separately for the same reason as `readme` above.
+    logo_action = pkg === nothing ? :skipped : _apply_logo_title(target_dir, pkg)
     # LICENSE is package-owned and write-once: only `scaffold`/`generate`
     # (`managed_only = false`) may write it, and only when absent. `update`
     # (`managed_only = true`) never touches it, so a deliberate licence stands.
@@ -1102,7 +1174,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
     return (created = created, updated = updated, preserved = preserved,
         readme = readme_action, license = license_action,
-        workspace = workspace_action, gitignore = gitignore_action)
+        workspace = workspace_action, gitignore = gitignore_action,
+        logo = logo_action)
 end
 
 """
@@ -1128,12 +1201,14 @@ adopts the whole kit in one call. Two kinds of file are written:
   - PACKAGE-OWNED skeletons — written only when absent, never overwritten:
     `test/runtests.jl`, `test/Project.toml` (the test env), `test/package/
     qa_config.jl` (the QA config values the managed testset reads), `LICENSE`
-    (the `license`-selected licence text — see below),
-    `test/ad/scenarios.jl` + `test/ad/Project.toml`, an `ADFixtures` registry
-    skeleton implementing the `ADRegistry` contract
-    (`test/ADFixtures/Project.toml` + `src/ADFixtures.jl`), and
-    `benchmark/benchmarks.jl` (the `SUITE`). These are where a package's own
-    unit tests, AD scenarios, registry, and config values live.
+    (the `license`-selected licence text — see below), `NEWS.md` (the
+    hybrid-changelog seed), `docs/src/assets/logo.svg` (a placeholder logo —
+    see the `logo` return value below), `test/ad/scenarios.jl` +
+    `test/ad/Project.toml`, an `ADFixtures` registry skeleton implementing the
+    `ADRegistry` contract (`test/ADFixtures/Project.toml` +
+    `src/ADFixtures.jl`), and `benchmark/benchmarks.jl` (the `SUITE`). These
+    are where a package's own unit tests, AD scenarios, registry, and config
+    values live.
 
 Placeholders (`{{PACKAGE}}`, `{{AUTHORS}}`, `{{HOLDER}}`, `{{ORG}}`, `{{REPO}}`,
 `{{REVIEWER}}`, `{{YEAR}}`) are filled by [`scaffold_inputs`](@ref): each
@@ -1146,6 +1221,13 @@ one of `$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
 selects the bundled licence text, written with `{{YEAR}}`/`{{HOLDER}}` filled
 only when no `LICENSE` exists. [`update`](@ref) never rewrites it, so a package
 that deliberately changes its licence is not reverted on a sync.
+
+The managed `.github/workflows/Register.yml` triggers Julia General Registry
+registration: a `/register` comment on an issue or PR, or a manual
+`workflow_dispatch` run, both post `@JuliaRegistrator register` on `main`'s
+HEAD commit (gated on the actor having write/maintain/admin access). See
+[`setup_checklist`](@ref) for the rest of the one-off manual setup a fresh
+repo needs (Codecov, GitHub Pages, branch protection, ...).
 
 `ad` controls whether the AD CI caller and AD test infrastructure are
 scaffolded, so a numerical package opts in and a tooling/non-numerical package
@@ -1201,12 +1283,14 @@ explicit choice it defaults to its own DNS-wired subdomain
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`update`](@ref) to re-apply only the managed files later.
 
-Returns a `(created, updated, preserved, readme, license, workspace, gitignore)`
-named tuple: destination paths newly written, managed files overwritten,
-package-owned files left in place, the README badge action (`:created`,
-`:injected`, `:refreshed`, or `:skipped`), the `LICENSE` action, the root
-`[workspace]` stanza action (`:injected`, `:preserved`, or `:skipped`), and the
-`.gitignore` managed-block action (`:created`, `:injected`, or `:refreshed`).
+Returns a `(created, updated, preserved, readme, license, workspace, gitignore,
+logo)` named tuple: destination paths newly written, managed files
+overwritten, package-owned files left in place, the README badge action
+(`:created`, `:injected`, `:refreshed`, or `:skipped`), the `LICENSE` action,
+the root `[workspace]` stanza action (`:injected`, `:preserved`, or
+`:skipped`), the `.gitignore` managed-block action (`:created`, `:injected`,
+or `:refreshed`), and the README logo-title action (`:injected`, `:preserved`,
+or `:skipped` when no logo file exists yet).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
@@ -1255,11 +1339,14 @@ The managed `.gitignore` block is handled the same way: refreshed between its
 markers (or migrated in place if a pre-existing file has none yet), with any
 package-owned tail after the block left untouched.
 
-Returns a `(created, updated, preserved, readme, license, workspace, gitignore)`
-named tuple: managed files newly added, managed files rewritten, (always empty
-here) preserved, the README badge action, the `LICENSE` action (`:skipped` on
-update), the root `[workspace]` stanza action, and the `.gitignore`
-managed-block action.
+The README logo title (see `scaffold`) is also (re)checked: once a package has
+a `docs/src/assets/logo.svg`, the tag is added to the title if missing.
+
+Returns a `(created, updated, preserved, readme, license, workspace, gitignore,
+logo)` named tuple: managed files newly added, managed files rewritten,
+(always empty here) preserved, the README badge action, the `LICENSE` action
+(`:skipped` on update), the root `[workspace]` stanza action, the
+`.gitignore` managed-block action, and the README logo-title action.
 """
 function update(target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing, kwargs...)
