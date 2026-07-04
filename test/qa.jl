@@ -7,12 +7,12 @@
     using Test
     using EpiAwarePackageTools
 
-    # A testset that TALLIES Fail/Error and never throws. The helpers under test
+    # A testset that tallies Fail/Error and never throws. The helpers under test
     # build their own nested `@testset`s; with `CountingTestSet` as the outer set
     # of `@testset`, every nested set is also a `CountingTestSet`. Each records a
     # direct `@test` Fail/Error into its own `fails`; on `finish` a nested set
     # folds its `fails` into its parent (so leaf counts bubble up), and the
-    # OUTERMOST set (no enclosing testset) simply returns itself WITHOUT throwing.
+    # outermost set (no enclosing testset) simply returns itself without throwing.
     # Reading `fails` off the returned outermost set is therefore version-stable:
     # it does not depend on the `TestSetException` thrown on a top-level finish
     # (whose behaviour varies, e.g. 1.13-pre) nor leak failures into the
@@ -380,7 +380,7 @@
         end
 
         @testset "dynamicppl_model_filter classifies reports" begin
-            # A report whose innermost frame cannot be inspected is KEPT (fail
+            # A report whose innermost frame cannot be inspected is kept (fail
             # closed): the filter returns `true` for a non-report object.
             @test dynamicppl_model_filter((; nope = 1)) == true
 

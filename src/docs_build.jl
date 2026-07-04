@@ -2,7 +2,7 @@
 #
 # This is the package-agnostic core of the EpiAware docs standard: the build
 # steps that every package's `docs/make.jl` would otherwise copy inline. The
-# managed `make.jl` template is a THIN caller — it wires the package-owned
+# managed `make.jl` template is a thin caller — it wires the package-owned
 # `pages.jl` + `docs_config.jl` into [`build_docs`](@ref) and nothing else, so
 # the logic lives here (versioned + tested) rather than in each repo.
 #
@@ -173,14 +173,20 @@ end
 
 # ---- benchmark history page -----------------------------------------------
 
-# Render the published benchmark timeline into `io`. The history is published
-# by `benchmark-history.yaml` to the repo's `benchmarks` branch under
-# `history/` (per-benchmark PNG plots + a `table.md` ratio summary); GitHub
-# Pages serves only the gh-pages docs site, so the history is shown HERE by
-# enumerating the branch at build time (a best-effort `git fetch`) and
-# embedding the ratio table inline + each plot via its raw GitHub URL. When the
-# branch does not exist yet (no release has published a timeline) it degrades
-# to a link to the branch.
+"""
+    _embed_benchmark_history(io, repo, project_root; fetch = true)
+
+Render the published benchmark timeline into `io`.
+
+The history is published by `benchmark-history.yaml` to the repo's
+`benchmarks` branch under `history/` (per-benchmark PNG plots + a
+`table.md` ratio summary). GitHub Pages serves only the gh-pages docs
+site, so the history is shown here by enumerating the branch at build
+time (a best-effort `git fetch`) and embedding the ratio table inline
+plus each plot via its raw GitHub URL. When the branch does not exist
+yet (no release has published a timeline) it degrades to a link to
+the branch.
+"""
 function _embed_benchmark_history(io, repo::AbstractString,
         project_root::AbstractString; fetch::Bool = true)
     ref = _benchmarks_ref(project_root; fetch = fetch)

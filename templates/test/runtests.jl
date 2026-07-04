@@ -12,7 +12,7 @@
 
 using TestItemRunner
 
-# Restrict discovery to THIS package's test tree so a nested worktree's items
+# Restrict discovery to this package's test tree so a nested worktree's items
 # are not globbed in. Trailing separator guards against sibling dirs sharing a
 # string prefix.
 const TEST_ROOT = normpath(@__DIR__) * Base.Filesystem.path_separator

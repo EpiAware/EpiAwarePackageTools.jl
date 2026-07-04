@@ -71,7 +71,7 @@
 
     @testset "broken bookkeeping marks a scenario broken" begin
         # Mark one scenario globally broken: it should now be routed through
-        # check_broken (where it still passes, so it is NOT a failure) and the
+        # check_broken (where it still passes, so it is not a failure) and the
         # other through test_differentiation. Both paths must complete cleanly.
         broken_reg = merge(reg,
             (broken_scenario_names = () -> ["centred"],))

@@ -22,7 +22,7 @@ Two groups are provided.
     package's reverse/forward AD backends against a ForwardDiff reference. It
     works on any registry satisfying the [`ADRegistry`](@ref) contract.
 
-A [`scaffold`](@ref) helper writes the shipped standard configuration AND test
+A [`scaffold`](@ref) helper writes the shipped standard configuration and test
 infrastructure into a package — root dev config, CI caller workflows +
 dependabot, and the QA/AD/benchmark test-infra drivers that call these
 helpers — so a package adopts the whole kit at once. [`generate`](@ref) does the
@@ -36,10 +36,10 @@ steps `scaffold`/`generate` cannot do for us (Codecov, GitHub Pages, branch
 protection, the first registry registration), plus a ready-to-paste tracking
 issue body.
 
-The AD harness + AD CI are OPT-IN: `scaffold`/`generate`/`update` take an
+The AD harness + AD CI are opt-in: `scaffold`/`generate`/`update` take an
 `ad::Bool` keyword (default `true`). A numerical package keeps `ad = true`; a
 tooling/non-numerical package passes `ad = false` to scaffold none of the AD
-infrastructure. The kit manages its OWN repo with `ad = false`.
+infrastructure. The kit manages its own repo with `ad = false`.
 
 A [`Benchmarks`](@ref EpiAwarePackageTools.Benchmarks) submodule supplies the
 generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools

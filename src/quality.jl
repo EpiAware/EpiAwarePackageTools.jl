@@ -279,7 +279,7 @@ end
 """
     dynamicppl_model_filter(report) -> Bool
 
-A `report_filter` for [`test_jet`](@ref) that DROPS reports arising inside a
+A `report_filter` for [`test_jet`](@ref) that drops reports arising inside a
 DynamicPPL `@model`-generated method (matched on the model-evaluator signature
 `(::Model, ::AbstractVarInfo, ...)`), and keeps every other report.
 
@@ -337,7 +337,7 @@ to a project directory holding JET plus the package; that project's
 
 `report_filter` is an optional predicate `report -> Bool`: when supplied, JET is
 run via `report_package` and the test asserts that no report for which the
-predicate returns `true` survives (a report is KEPT when the predicate returns
+predicate returns `true` survives (a report is kept when the predicate returns
 `true`). This lets a package suppress known false positives without silencing
 the whole check. For a DynamicPPL `@model` package, pass
 [`dynamicppl_model_filter`](@ref), which drops the macro's spurious
