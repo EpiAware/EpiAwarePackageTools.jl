@@ -1300,6 +1300,11 @@
                 txt = read(ds, String)
                 @test occursin("@template", txt)
                 @test occursin("TYPEDSIGNATURES", txt)
+                # The `using` lives in the module file, not this
+                # package-owned, write-once template (#105). (A worked
+                # example inside the header comment mentions the phrase, so
+                # match a genuine top-level statement, not any occurrence.)
+                @test !occursin(r"(?m)^using DocStringExtensions", txt)
                 # CODEOWNERS is managed; with no reviewer handle it ships a
                 # commented placeholder (a bare org is never a code owner).
                 co = read(joinpath(dir, ".github/CODEOWNERS"), String)
@@ -1316,6 +1321,14 @@
                 mod = read(joinpath(dir, "src/FreshPkg.jl"), String)
                 @test occursin("include(\"docstrings.jl\")", mod)
                 @test isfile(joinpath(dir, "src/docstrings.jl"))
+                # generate wires the `using` into the module's own import
+                # block, before the docstrings.jl include (#105).
+                @test occursin("using DocStringExtensions", mod)
+                using_idx = findfirst("using DocStringExtensions", mod)
+                include_idx = findfirst("include(\"docstrings.jl\")", mod)
+                @test first(using_idx) < first(include_idx)
+                ds_txt = read(joinpath(dir, "src/docstrings.jl"), String)
+                @test !occursin(r"(?m)^using DocStringExtensions", ds_txt)
             end
         end
 

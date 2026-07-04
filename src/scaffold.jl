@@ -15,10 +15,6 @@
 # to reading the target package's `Project.toml` (name, authors) and a sensible
 # org default. A caller can override any of them by keyword.
 
-using Test: @testset, @test
-import Dates
-import UUIDs
-
 # A template entry. `src` is the path under `templates/`; `dest` the path under
 # the target package root (usually equal). `managed = true` means standard
 # infra (overwritten on update); `false` a package-owned skeleton (write once).
@@ -1586,6 +1582,11 @@ function _emit_package_skeleton(target_dir::AbstractString, package::AbstractStr
     A fresh EpiAware package. Replace this skeleton with the package's API.
     \"\"\"
     module $package
+
+    # All genuine module-scope `using`/`import` statements live here, in
+    # the main module file, rather than scattered across included files.
+    using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
+                               TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
     # Register the standard EpiAware docstring conventions before any
     # docstrings are defined (see src/docstrings.jl).

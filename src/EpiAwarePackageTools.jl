@@ -58,6 +58,20 @@ supplies the reusable scaffolding.
 """
 module EpiAwarePackageTools
 
+# All genuine module-scope `using`/`import` statements live here, in one
+# place, rather than scattered across the `include`d files below (they all
+# run in this module's namespace, so this is behaviour-preserving). Heavy
+# deps that are only needed at call time (e.g. Aqua, JET, Documenter) are
+# NOT here: they are resolved lazily via `_require_pkg`/`Base.require`
+# inside the functions that use them, so they stay out of the kit's hard
+# dependency set (see `_require_pkg` below).
+using Test: @testset, @test, @test_skip, @test_broken, detect_ambiguities
+using Markdown: Markdown
+using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
+                           TYPEDFIELDS, TYPEDSIGNATURES
+import Dates
+import UUIDs
+
 # Resolve a heavy dependency at call time via `Base.require`, rather than
 # making it a hard dependency of the kit: a package only needs it in the
 # environment that actually runs the check (e.g. JET only in the test env,
@@ -87,7 +101,8 @@ include("ad_harness.jl")
 include("benchmarks.jl")
 include("docs_build.jl")
 
-export test_aqua, test_jet, test_explicit_imports, dynamicppl_model_filter
+export test_aqua, test_jet, test_explicit_imports, test_import_centralisation
+export dynamicppl_model_filter
 export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS

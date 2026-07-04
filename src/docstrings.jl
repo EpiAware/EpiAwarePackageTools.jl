@@ -13,13 +13,11 @@
 #     # ... the rest of the package, with docstrings ...
 #     end
 #
-# Add DocStringExtensions to the package `[deps]` (this file imports from it).
-# `generate` wires both for a fresh package automatically. It pairs with
-# `test_docstring_format` (which checks the rendered docstrings) and the
-# Documenter + DocumenterVitepress build in `docs/make.jl`.
-
-using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
-                           TYPEDFIELDS, TYPEDSIGNATURES
+# Add DocStringExtensions to the package `[deps]` (this file imports from it,
+# via the `using` centralised in the main module file). `generate` wires both
+# for a fresh package automatically. It pairs with `test_docstring_format`
+# (which checks the rendered docstrings) and the Documenter +
+# DocumenterVitepress build in `docs/make.jl`.
 
 @template (FUNCTIONS, METHODS, MACROS) = """
                                          $(TYPEDSIGNATURES)

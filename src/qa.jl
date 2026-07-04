@@ -4,9 +4,6 @@
 # these checks; the package-specific parts (ignore lists, extension names,
 # allowed cross-references) are caller-supplied arguments, never baked in.
 
-using Test: @testset, @test, @test_skip, @test_broken, detect_ambiguities
-using Markdown: Markdown
-
 """
     test_doctest(mod)
 

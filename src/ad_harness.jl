@@ -10,8 +10,6 @@
 # The harness talks to a package's fixtures through the `ADRegistry` contract
 # below, so it has no dependency on any particular package's types.
 
-using Test: @testset, @test, @test_broken
-
 """
     ADRegistry
 
