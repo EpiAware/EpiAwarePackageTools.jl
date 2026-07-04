@@ -324,6 +324,37 @@
             @test ts isa Test.AbstractTestSet
         end
 
+        @testset "_run_isolated_env survives a fresh process (#58)" begin
+            # Regression test: `_run_isolated_env` lazily loads `Pkg` via
+            # `_require_pkg`, so `Pkg.activate`/`Pkg.instantiate` must go
+            # through `Base.invokelatest` (#58's hotfix). The in-process
+            # testset above can PASS even when that invokelatest is missing,
+            # because an earlier testitem in the same process may have
+            # already loaded `Pkg` (masking the world-age error) — exactly
+            # what happened on kit main: green locally, red on a genuinely
+            # clean CI process (`MethodError: no method matching
+            # activate(::String)`, "method too new to be called from this
+            # world context"). Spawning a real fresh `julia` process (no
+            # prior `using Pkg`) makes this deterministic rather than
+            # order-dependent.
+            dir = mktempdir()
+            write(joinpath(dir, "Project.toml"), "")
+            write(joinpath(dir, "runtests.jl"), "exit(0)")
+            root = pkgdir(EpiAwarePackageTools)
+            kit_src = joinpath(root, "src", "EpiAwarePackageTools.jl")
+            code = "include(" * repr(kit_src) * "); " *
+                   "ok = Main.EpiAwarePackageTools._run_isolated_env(" *
+                   repr(dir) * ", " * repr(joinpath(dir, "runtests.jl")) *
+                   "); exit(ok ? 0 : 1)"
+            result = run(
+                pipeline(
+                    `$(Base.julia_cmd()) --startup-file=no --project=$root
+                     -e $code`;
+                    stdout = devnull, stderr = devnull);
+                wait = true)
+            @test result.exitcode == 0
+        end
+
         @testset "test_doctest runs over self" begin
             # EpiAwarePackageTools has no `jldoctest` blocks, so `doctest` passes
             # trivially — this exercises the Documenter wiring end to end.
