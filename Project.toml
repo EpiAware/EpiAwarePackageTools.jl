@@ -2,7 +2,7 @@ name = "EpiAwarePackageTools"
 uuid = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 license = "MIT"
 authors = ["Sam Abbott", "EpiAware contributors"]
-version = "0.1.1"
+version = "0.1.2"
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
