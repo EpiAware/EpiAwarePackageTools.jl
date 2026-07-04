@@ -434,22 +434,39 @@ end
 # `.jl` source name).
 _tutorial_md_name(jl_file) = string(splitext(jl_file)[1], ".md")
 
+# The rendered `.md` names for `files` (a subset of `light`/`heavy_tutorials`
+# `.jl` source names), as the `Set` `tutorial_stubs` is keyed by.
+_tutorial_md_names(files) = Set(_tutorial_md_name(f) for f in files)
+
 # The tutorial-processing step of `build_docs`, split out so it can be unit
 # tested directly (`build_docs` itself is an integration point, exercised by
 # each package's own docs build rather than by the kit's own test suite).
 # Under `skip_notebooks`, light tutorials still render in-process (they are
 # cheap); only the heavy tutorials — the ones the flag exists to skip — fall
-# back to `tutorial_stubs` heading stubs.
+# back to `tutorial_stubs` heading stubs. Independent of `skip_notebooks`,
+# any heavy tutorial named in `force_stub` never executes and always renders
+# from its `tutorial_stubs` heading — the escape hatch for a heavy tutorial
+# that is not just slow but has an unresolved model/identifiability problem
+# (so running it is not a matter of CI budget, e.g. a hung/non-terminating
+# sampler), while its siblings keep executing for real in their own
+# subprocess (unaffected — no need to fall back to whole-build stubbing just
+# because one tutorial cannot run yet).
 function _render_tutorials(docs_dir, tutorials_dir, skip_notebooks::Bool,
-        light, heavy, stubs)
+        light, heavy, stubs; force_stub = String[])
     if !skip_notebooks
-        _process_tutorials(docs_dir, tutorials_dir, light, heavy)
+        run_heavy = filter(!in(force_stub), heavy)
+        _process_tutorials(docs_dir, tutorials_dir, light, run_heavy)
+        if !isempty(force_stub)
+            force_stub_md = _tutorial_md_names(force_stub)
+            _write_tutorial_stubs(tutorials_dir,
+                filter(p -> first(p) in force_stub_md, stubs))
+        end
     else
         println("Fast docs build: rendering light tutorials in-process, " *
                 "stubbing heavy tutorials (--skip-notebooks or " *
                 "SKIP_NOTEBOOKS=true)")
         _process_tutorials(docs_dir, tutorials_dir, light, String[])
-        heavy_md = Set(_tutorial_md_name(f) for f in heavy)
+        heavy_md = _tutorial_md_names(heavy)
         heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
         _write_tutorial_stubs(tutorials_dir, heavy_stubs)
     end
@@ -550,9 +567,10 @@ end
 """
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
-               heavy_tutorials=[], tutorial_stubs=[], linkcheck_ignore=[],
-               index_rewrites=[], readme_execute=true, index_strip_sections=[],
-               benchmark_page=true, build_vitepress=true, deploy=true)
+               heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
+               linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
+               index_strip_sections=[], benchmark_page=true,
+               build_vitepress=true, deploy=true)
 
 Run the standard EpiAware documentation build for package module `mod`. All
 paths derive from `pkgdir(mod)`, so the managed `docs/make.jl` only forwards the
@@ -561,9 +579,14 @@ and API pages, processes the Literate tutorials, then renders with
 `DocumenterVitepress` and (when `deploy`) deploys. Under `skip_notebooks`,
 light tutorials still render in-process (cheap: seconds, not minutes) and only
 the heavy tutorials fall back to `tutorial_stubs` heading stubs — the flag
-exists to skip the slow ones, not the cheap ones. `deploy=false` builds without
-deploying, and `build_vitepress=false` runs Documenter without the final
-VitePress (npm) pass — both used by tests and fast local content builds.
+exists to skip the slow ones, not the cheap ones. Independent of
+`skip_notebooks`, any `heavy_tutorials` entry named in `force_stub_tutorials`
+never executes and always renders from its `tutorial_stubs` heading — for a
+heavy tutorial with an unresolved problem of its own (e.g. a model that does
+not terminate in reasonable time), so it need not block its siblings from
+running for real. `deploy=false` builds without deploying, and
+`build_vitepress=false` runs Documenter without the final VitePress (npm)
+pass — both used by tests and fast local content builds.
 """
 function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         pages, deploy_url = nothing, skip_notebooks::Bool = false,
@@ -571,6 +594,7 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
             "getting-started", "tutorials"),
         light_tutorials = String[], heavy_tutorials = String[],
         tutorial_stubs = Pair{String, String}[],
+        force_stub_tutorials = String[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
         readme_execute::Bool = true, index_strip_sections = String[],
         benchmark_page::Bool = true, build_vitepress::Bool = true,
@@ -587,7 +611,7 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
 
     # --- tutorials ---------------------------------------------------------
     _render_tutorials(docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
-        heavy_tutorials, tutorial_stubs)
+        heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials)
 
     # --- generated pages ---------------------------------------------------
     build_index(; readme = joinpath(project_root, "README.md"),
