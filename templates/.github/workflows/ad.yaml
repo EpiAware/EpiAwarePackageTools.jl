@@ -2,8 +2,13 @@
 name: AD
 
 # Drives the per-backend AD gradient matrix (the shipped `test/ad/` harness).
-# The backend matrix and per-flag coverage upload live in the reusable; this is
+# The per-flag coverage upload and job mechanics live in the reusable; this is
 # the thin caller. Without it the AD harness the kit ships never runs in CI.
+#
+# `backends` is passed explicitly (built from `_AD_BACKENDS`, the kit's single
+# source of truth for the AD infra) rather than left to the reusable's own
+# default, so the actual CI matrix can never drift from the badges/codecov
+# flags this same package generates.
 
 on:
   push:
@@ -32,4 +37,6 @@ concurrency:
 jobs:
   ad:
     uses: {{ORG}}/.github/.github/workflows/ad.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
+    with:
+      backends: '{{AD_BACKENDS_JSON}}'
     secrets: inherit  # pragma: allowlist secret

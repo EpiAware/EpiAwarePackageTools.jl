@@ -739,6 +739,114 @@
             end
         end
 
+        @testset "AD backends single source of truth (#821)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric")
+                scaffold(dir)
+                n = length(EpiAwarePackageTools._AD_BACKENDS)
+
+                # One `ad-*` codecov flag block per backend; the build-count
+                # gate is that count plus the `unit` upload — the two can
+                # never desync since both derive from `_AD_BACKENDS`.
+                cov = read(joinpath(dir, "codecov.yml"), String)
+                @test count(r"(?m)^  ad-", cov) == n
+                @test occursin("after_n_builds: $(n + 1)", cov)
+
+                # The `ad.yaml` caller's `backends:` JSON carries one entry
+                # per backend too, so the actual CI matrix matches.
+                adyaml = read(joinpath(dir, ".github/workflows/ad.yaml"),
+                    String)
+                @test occursin("backends:", adyaml)
+                @test count("\"tag\":", adyaml) == n
+
+                # `test/ad/setup.jl`'s `using` line covers every distinct
+                # package a backend needs.
+                setup = read(joinpath(dir, "test/ad/setup.jl"), String)
+                for pkg in unique(b.pkg for b in EpiAwarePackageTools._AD_BACKENDS)
+                    @test occursin(pkg, setup)
+                end
+
+                # The `test/ad/scenarios.jl` starter seed has one `@testitem`
+                # per backend.
+                scenarios = read(joinpath(dir, "test/ad/scenarios.jl"),
+                    String)
+                @test count(r"(?m)^@testitem", scenarios) == n
+            end
+
+            @testset "round-trip: adding a 7th backend" begin
+                n = length(EpiAwarePackageTools._AD_BACKENDS)
+                push!(EpiAwarePackageTools._AD_BACKENDS,
+                    (alt = "FakeAD", header = "FakeAD", slug = "ad-fakead",
+                        tag = "fakead", pkg = "FakeADPkg"))
+                try
+                    mktempdir() do dir
+                        _fake_pkg(dir; name = "Numeric7")
+                        scaffold(dir)
+                        n7 = length(EpiAwarePackageTools._AD_BACKENDS)
+                        @test n7 == n + 1
+
+                        cov = read(joinpath(dir, "codecov.yml"), String)
+                        @test count(r"(?m)^  ad-", cov) == n7
+                        @test occursin("after_n_builds: $(n7 + 1)", cov)
+                        @test occursin("ad-fakead", cov)
+
+                        adyaml = read(
+                            joinpath(dir, ".github/workflows/ad.yaml"),
+                            String)
+                        @test count("\"tag\":", adyaml) == n7
+                        @test occursin("\"fakead\"", adyaml)
+
+                        setup = read(joinpath(dir, "test/ad/setup.jl"),
+                            String)
+                        @test occursin("FakeADPkg", setup)
+
+                        scenarios = read(
+                            joinpath(dir, "test/ad/scenarios.jl"), String)
+                        @test count(r"(?m)^@testitem", scenarios) == n7
+                        @test occursin("fakead", scenarios)
+                    end
+                finally
+                    pop!(EpiAwarePackageTools._AD_BACKENDS)
+                end
+                @test length(EpiAwarePackageTools._AD_BACKENDS) == n
+            end
+
+            @testset "update() refreshes an already-adopted package" begin
+                # A package scaffolds against the current backend set, then a
+                # 7th backend is added and `update()` is run again — the
+                # managed `ad.yaml` `with: backends:` block must refresh to
+                # 7, not freeze at whatever `scaffold` first wrote (the #73
+                # with:-preservation mechanism must not treat this
+                # kit-managed value as a package-owned override).
+                n = length(EpiAwarePackageTools._AD_BACKENDS)
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Numeric7Update")
+                    scaffold(dir)
+                    adyaml = read(
+                        joinpath(dir, ".github/workflows/ad.yaml"), String)
+                    @test count("\"tag\":", adyaml) == n
+
+                    push!(EpiAwarePackageTools._AD_BACKENDS,
+                        (alt = "FakeAD", header = "FakeAD",
+                            slug = "ad-fakead", tag = "fakead",
+                            pkg = "FakeADPkg"))
+                    try
+                        update(dir)
+                        adyaml2 = read(
+                            joinpath(dir, ".github/workflows/ad.yaml"),
+                            String)
+                        @test count("\"tag\":", adyaml2) == n + 1
+                        @test occursin("\"fakead\"", adyaml2)
+                        cov2 = read(joinpath(dir, "codecov.yml"), String)
+                        @test occursin("after_n_builds: $(n + 2)", cov2)
+                    finally
+                        pop!(EpiAwarePackageTools._AD_BACKENDS)
+                    end
+                end
+                @test length(EpiAwarePackageTools._AD_BACKENDS) == n
+            end
+        end
+
         @testset "update respects ad = false" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Tooly")
