@@ -958,6 +958,34 @@
             end
         end
 
+        @testset "update preserves a package-owned with: input (#73)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                caller = joinpath(dir, ".github/workflows/test.yaml")
+                # Simulate a package pinning a Julia floor/matrix on the
+                # managed `test`/`downgrade-compat` callers, exactly the
+                # override #73 reports being silently reverted.
+                before = read(caller, String)
+                overridden = replace(before,
+                    r"(uses: \S+/tests\.yml@\S+\r?\n)" =>
+                        s"\1    with:\n      julia_versions: '[\"1.11\", \"1\"]'\n",
+                    r"(uses: \S+/downgrade\.yml@\S+\r?\n)" =>
+                        s"\1    with:\n      julia_version: '1.11'\n")
+                @test overridden != before
+                write(caller, overridden)
+                update(dir)
+                after = read(caller, String)
+                # The `with:` overrides survive the resync ...
+                @test occursin("julia_versions: '[\"1.11\", \"1\"]'", after)
+                @test occursin("julia_version: '1.11'", after)
+                # ... the rest of the caller is still managed and re-applied,
+                # and a second update is idempotent on the preserved inputs.
+                update(dir)
+                @test read(caller, String) == after
+            end
+        end
+
         @testset "scheduled sync is managed; community health not shipped" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

@@ -58,6 +58,21 @@ supplies the reusable scaffolding.
 """
 module EpiAwarePackageTools
 
+# Resolve a heavy dependency at call time via `Base.require`, rather than
+# making it a hard dependency of the kit: a package only needs it in the
+# environment that actually runs the check (e.g. JET only in the test env,
+# Documenter only in the docs env). Every lazy-load site across the kit
+# (quality/QA wrappers, the AD harness, the Benchmarks and DocsBuild
+# submodules) shares this one helper instead of repeating the
+# `Base.require(Base.PkgId(Base.UUID(...), ...))` boilerplate each time (#58).
+#
+# The loaded module's methods live in a world age newer than the caller, so
+# every call into it must go through `Base.invokelatest` — that rationale is
+# documented once here rather than restated at each of the 15 call sites.
+function _require_pkg(uuid::AbstractString, name::AbstractString)
+    Base.require(Base.PkgId(Base.UUID(uuid), name))
+end
+
 # Register the standard EpiAware docstring conventions before any docstrings are
 # defined, so the kit applies its own `@template` standard to itself, using the
 # same docstrings template it ships to adopting packages (see

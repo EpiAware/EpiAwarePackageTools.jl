@@ -44,6 +44,8 @@ can be unit-tested and reused in isolation.
 """
 module DocsBuild
 
+import ..EpiAwarePackageTools: _require_pkg
+
 export build_docs, build_index, build_release_notes, build_benchmark_page,
        build_api_pages, api_bindings
 
@@ -51,22 +53,19 @@ export build_docs, build_index, build_release_notes, build_benchmark_page,
 
 # Resolve the heavy docs dependencies at call time so they are not hard
 # dependencies of EpiAwarePackageTools; a package only needs them in its `docs`
-# environment.
+# environment. `_require_pkg` (defined once in the parent module, #58) is
+# shared with every other lazy-load site in the kit.
 function _documenter()
-    Base.require(Base.PkgId(
-        Base.UUID("e30172f5-a6a5-5a46-863b-614d45cd2de4"), "Documenter"))
+    _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4", "Documenter")
 end
 function _vitepress()
-    Base.require(Base.PkgId(
-        Base.UUID("4710194d-e776-4893-9690-8d956a29c365"), "DocumenterVitepress"))
+    _require_pkg("4710194d-e776-4893-9690-8d956a29c365", "DocumenterVitepress")
 end
 function _citations()
-    Base.require(Base.PkgId(
-        Base.UUID("daee34ce-89f3-4625-b898-19384cb65244"), "DocumenterCitations"))
+    _require_pkg("daee34ce-89f3-4625-b898-19384cb65244", "DocumenterCitations")
 end
 function _literate()
-    Base.require(Base.PkgId(
-        Base.UUID("98b081ad-f1c9-55d3-8b20-4c87d4299306"), "Literate"))
+    _require_pkg("98b081ad-f1c9-55d3-8b20-4c87d4299306", "Literate")
 end
 
 # ---- README -> index.md ---------------------------------------------------
@@ -487,6 +486,39 @@ function _strip_benchmark_nav(pages)
     return kept
 end
 
+# Verify the Documenter-processed home page was not silently truncated by the
+# (`npm install` + `vitepress build`) pipeline (#91): reproduced (though not
+# reliably — the failure appears to depend on `docs/node_modules`/instantiate
+# ordering) on a clean `docs/build`/`docs/node_modules`, `docs/make.jl` can
+# exit 0 having copied only a PARTIAL `docs/src/index.md` into the internal
+# `docs/build/.documenter/index.md`, with no error or warning — silently
+# hiding real content (and any dead links inside it) from a local
+# contributor. A genuinely complete Documenter pass never drops prose lines
+# (`@ref`/`@example`/docstring expansion only ever adds content), so
+# comparing line counts against the kit-generated source (already past any
+# package's own rewrites/`strip_sections`) catches the failure loudly instead
+# of silently shipping a half-built home page. `built_dir` may lack an
+# `index.md` for callers that skip the Documenter build entirely (tests
+# exercising only the page generators); there is then nothing to check.
+function _check_index_not_truncated(index_src::AbstractString,
+        built_dir::AbstractString)
+    isfile(index_src) || return nothing
+    built = joinpath(built_dir, "index.md")
+    isfile(built) || return nothing
+    src_lines = countlines(index_src)
+    built_lines = countlines(built)
+    if built_lines < max(5, src_lines ÷ 2)
+        error("docs build looks truncated (kit issue #91): the built home " *
+              "page has $built_lines lines but the generated " *
+              "docs/src/index.md has $src_lines lines. This matches the " *
+              "silent npm/vitepress ordering failure from #91 — re-run the " *
+              "docs build; if it persists, run `julia --project=docs -e " *
+              "'using Pkg; Pkg.instantiate()'` once (so docs/node_modules " *
+              "already exists) before running `docs/make.jl`.")
+    end
+    return nothing
+end
+
 """
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
@@ -589,6 +621,10 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         warnonly = [
             :docs_block, :missing_docs, :autodocs_block, :cross_references],
         modules = [mod], pages = pages, format = format, plugins = plugins)
+
+    # Fail loudly rather than silently ship a truncated home page (#91).
+    _check_index_not_truncated(joinpath(src_dir, "index.md"),
+        joinpath(docs_dir, "build", ".documenter"))
 
     _copy_tutorial_data(src_dir, joinpath(docs_dir, "build"))
 

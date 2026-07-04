@@ -96,9 +96,8 @@ a partial backend record the coverage it does have without an all-or-nothing
 result. `DifferentiationInterface` must be loaded by the caller.
 """
 function check_broken(scenarios_list, backend; rtol = 5e-2, atol = 1e-6)
-    DI = Base.require(Base.PkgId(
-        Base.UUID("a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"),
-        "DifferentiationInterface"))
+    DI = _require_pkg("a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63",
+        "DifferentiationInterface")
     for scen in scenarios_list
         ok = try
             g = Base.invokelatest(
@@ -140,9 +139,8 @@ registry's `scenarios` call, e.g. a package's own scenario-group selector
 function test_working_backend(reg, name::AbstractString;
         rtol = 5e-2, atol = 1e-6, scenario_intact::Bool = false,
         scenario_kwargs = (;))
-    DIT = Base.require(Base.PkgId(
-        Base.UUID("a82114a7-5aa3-49a8-9643-716bb13727a3"),
-        "DifferentiationInterfaceTest"))
+    DIT = _require_pkg("a82114a7-5aa3-49a8-9643-716bb13727a3",
+        "DifferentiationInterfaceTest")
     backend = _entry(reg, name).backend
     all_scenarios = _scenarios(
         reg; with_reference = true, scenario_kwargs = scenario_kwargs)

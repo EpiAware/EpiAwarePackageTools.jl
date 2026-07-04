@@ -5,6 +5,48 @@
 
 using Test: @testset, @test, @test_skip
 
+# Validate that `env` looks like a usable isolated project (a `Project.toml`
+# plus a `runtests.jl`), returning the runner path. Raises a plain
+# `ErrorException` directly — NOT wrapped in `@test`/`@testset` — so a
+# malformed `env` surfaces immediately to the caller (matching each site's
+# original behaviour, and what `test/qa.jl`'s
+# `"test_formatting env mode runs a subprocess runner"` asserts via
+# `@test_throws ErrorException`), rather than being swallowed into a
+# `Test.TestSetException`. Shared by `test_jet`'s `env` path and
+# `_test_formatting_env` (in qa.jl) (#58).
+function _validate_isolated_env(env::AbstractString, label::AbstractString)
+    isdir(env) && isfile(joinpath(env, "Project.toml")) ||
+        error("$label env $env has no Project.toml")
+    runner = joinpath(env, "runtests.jl")
+    isfile(runner) || error("$label env $env has no runtests.jl")
+    return runner
+end
+
+# Instantiate `env` (assumed already `_validate_isolated_env`-checked) and run
+# `runner` in an isolated subprocess, reporting whether it exited zero. Shared
+# by `test_jet`'s `env` path and `_test_formatting_env`, which both isolate a
+# heavy QA dependency (JET / JuliaFormatter) from the rest of the test
+# environment by pinning it in its own project and running it out-of-process,
+# rather than loading it alongside deps it may clash with (#58). Callers wrap
+# the returned `Bool` in their own labelled `@testset`/`@test`.
+function _run_isolated_env(env::AbstractString, runner::AbstractString)
+    Pkg = _require_pkg("44cfe95a-1eb2-52ea-b672-e2afdf69b78f", "Pkg")
+    current = Base.active_project()
+    # See `test_aqua` for why this goes through `invokelatest`: `Pkg` is
+    # lazily loaded above, so its methods live in a world age newer than
+    # this function unless a caller happened to load Pkg earlier in the
+    # same process (masking the bug locally while it still reproduces on
+    # a clean process/CI run — see #58's hotfix).
+    Base.invokelatest(Pkg.activate, env)
+    Base.invokelatest(Pkg.instantiate)
+    Base.invokelatest(Pkg.activate, current)
+    result = run(
+        pipeline(`$(Base.julia_cmd()) --project=$env $runner`,
+            stdout = stdout, stderr = stderr);
+        wait = true)
+    return result.exitcode == 0
+end
+
 """
     test_aqua(mod; kwargs...)
 
@@ -21,11 +63,7 @@ Aqua must be a dependency of the calling test environment.
 function test_aqua(mod::Module; ambiguities = true, unbound_args = true,
         undefined_exports = true, project_extras = true, stale_deps = true,
         deps_compat = true, undocumented_names = true, piracies = true)
-    # `Aqua` is loaded at call time via `Base.require`, so its methods live in a
-    # newer world age than this function; call them through `invokelatest` to
-    # avoid a world-age error.
-    Aqua = Base.require(Base.PkgId(
-        Base.UUID("4c88cf16-eb10-579e-8560-4a9242c79595"), "Aqua"))
+    Aqua = _require_pkg("4c88cf16-eb10-579e-8560-4a9242c79595", "Aqua")
     return @testset "Aqua.jl: $(nameof(mod))" begin
         unbound_args && @testset "unbound args" begin
             Base.invokelatest(Aqua.test_unbound_args, mod)
@@ -76,9 +114,7 @@ ExplicitImports must be a dependency of the calling test environment.
 """
 function test_explicit_imports(mod::Module; ignore::Tuple = (),
         implicit_ignore::Tuple = ignore)
-    # See `test_aqua` for why the checks go through `invokelatest`.
-    EI = Base.require(Base.PkgId(
-        Base.UUID("7d51a73a-1435-4ff3-83d9-f097790105c7"), "ExplicitImports"))
+    EI = _require_pkg("7d51a73a-1435-4ff3-83d9-f097790105c7", "ExplicitImports")
     return @testset "ExplicitImports: $(nameof(mod))" begin
         @test Base.invokelatest(
             EI.check_no_stale_explicit_imports, mod) === nothing
@@ -324,8 +360,7 @@ function test_jet(mod::Module; target_modules = (mod,),
         end
         if env === nothing
             # See `test_aqua` for why this goes through `invokelatest`.
-            JET = Base.require(Base.PkgId(
-                Base.UUID("c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"), "JET"))
+            JET = _require_pkg("c3a54625-cd67-489e-a8e7-0a5a0ff4e31b", "JET")
             if report_filter === nothing
                 Base.invokelatest(JET.test_package, mod;
                     target_modules = target_modules)
@@ -343,21 +378,8 @@ function test_jet(mod::Module; target_modules = (mod,),
                 @test isempty(kept)
             end
         else
-            Pkg = Base.require(Base.PkgId(
-                Base.UUID("44cfe95a-1eb2-52ea-b672-e2afdf69b78f"), "Pkg"))
-            isdir(env) && isfile(joinpath(env, "Project.toml")) ||
-                error("JET env $env has no Project.toml")
-            runner = joinpath(env, "runtests.jl")
-            isfile(runner) || error("JET env $env has no runtests.jl")
-            current = Base.active_project()
-            Pkg.activate(env)
-            Pkg.instantiate()
-            Pkg.activate(current)
-            result = run(
-                pipeline(`$(Base.julia_cmd()) --project=$env $runner`,
-                    stdout = stdout, stderr = stderr);
-                wait = true)
-            @test result.exitcode == 0
+            runner = _validate_isolated_env(env, "JET")
+            @test _run_isolated_env(env, runner)
         end
     end
 end
