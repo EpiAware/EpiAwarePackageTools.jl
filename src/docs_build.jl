@@ -9,8 +9,9 @@
 # The steps reproduce CensoredDistributions.jl's bespoke build generically:
 #
 #   - the Literate.jl tutorial pipeline (light tutorials rendered in-process,
-#     heavy tutorials each executed in a fresh subprocess), with fast-build
-#     stubs on `skip_notebooks`,
+#     heavy tutorials each executed in a fresh subprocess); on `skip_notebooks`
+#     the light tutorials still render in-process (they are cheap) and only
+#     the heavy tutorials fall back to fast-build heading stubs,
 #   - `src/index.md` generated from the package README (badge block stripped,
 #     optional package-named sections stripped, ```julia blocks turned into
 #     `@example readme`, link rewrites applied),
@@ -428,6 +429,33 @@ function _process_tutorials(docs_dir, tutorials_dir, light, heavy)
     return
 end
 
+# The rendered `.md` basename Literate produces for a tutorial source file
+# (`tutorial_stubs` is keyed by this name, `light`/`heavy_tutorials` by the
+# `.jl` source name).
+_tutorial_md_name(jl_file) = string(splitext(jl_file)[1], ".md")
+
+# The tutorial-processing step of `build_docs`, split out so it can be unit
+# tested directly (`build_docs` itself is an integration point, exercised by
+# each package's own docs build rather than by the kit's own test suite).
+# Under `skip_notebooks`, light tutorials still render in-process (they are
+# cheap); only the heavy tutorials — the ones the flag exists to skip — fall
+# back to `tutorial_stubs` heading stubs.
+function _render_tutorials(docs_dir, tutorials_dir, skip_notebooks::Bool,
+        light, heavy, stubs)
+    if !skip_notebooks
+        _process_tutorials(docs_dir, tutorials_dir, light, heavy)
+    else
+        println("Fast docs build: rendering light tutorials in-process, " *
+                "stubbing heavy tutorials (--skip-notebooks or " *
+                "SKIP_NOTEBOOKS=true)")
+        _process_tutorials(docs_dir, tutorials_dir, light, String[])
+        heavy_md = Set(_tutorial_md_name(f) for f in heavy)
+        heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
+        _write_tutorial_stubs(tutorials_dir, heavy_stubs)
+    end
+    return nothing
+end
+
 # Fast-build stubs: a lightweight `.md` for each tutorial so the nav resolves
 # and cross-references still anchor without running the heavy pipeline.
 function _write_tutorial_stubs(tutorials_dir, stubs)
@@ -529,11 +557,13 @@ end
 Run the standard EpiAware documentation build for package module `mod`. All
 paths derive from `pkgdir(mod)`, so the managed `docs/make.jl` only forwards the
 package-owned config. Generates the home page, release notes, benchmark page,
-and API pages, processes the Literate tutorials (or writes fast-build stubs when
-`skip_notebooks`), then renders with `DocumenterVitepress` and (when `deploy`)
-deploys. `deploy=false` builds without deploying, and `build_vitepress=false`
-runs Documenter without the final VitePress (npm) pass — both used by tests and
-fast local content builds.
+and API pages, processes the Literate tutorials, then renders with
+`DocumenterVitepress` and (when `deploy`) deploys. Under `skip_notebooks`,
+light tutorials still render in-process (cheap: seconds, not minutes) and only
+the heavy tutorials fall back to `tutorial_stubs` heading stubs — the flag
+exists to skip the slow ones, not the cheap ones. `deploy=false` builds without
+deploying, and `build_vitepress=false` runs Documenter without the final
+VitePress (npm) pass — both used by tests and fast local content builds.
 """
 function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         pages, deploy_url = nothing, skip_notebooks::Bool = false,
@@ -556,14 +586,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     tutorials_dir = joinpath(src_dir, tutorials_subdir)
 
     # --- tutorials ---------------------------------------------------------
-    if !skip_notebooks
-        _process_tutorials(docs_dir, tutorials_dir, light_tutorials,
-            heavy_tutorials)
-    else
-        println("Skipping Literate tutorial processing " *
-                "(--skip-notebooks or SKIP_NOTEBOOKS=true)")
-        _write_tutorial_stubs(tutorials_dir, tutorial_stubs)
-    end
+    _render_tutorials(docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
+        heavy_tutorials, tutorial_stubs)
 
     # --- generated pages ---------------------------------------------------
     build_index(; readme = joinpath(project_root, "README.md"),
