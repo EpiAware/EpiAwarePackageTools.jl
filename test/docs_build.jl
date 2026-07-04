@@ -275,6 +275,55 @@
         end
     end
 
+    @testset "selective skip_notebooks: light renders, heavy stubs" begin
+        # Reproduces the `build_docs` skip_notebooks branch directly (rather
+        # than the full makedocs pipeline): light tutorials still run through
+        # `_process_tutorials` (executed in-process by Literate), and only
+        # heavy tutorials fall back to `_write_tutorial_stubs`.
+        mktempdir() do dir
+            docs_dir = joinpath(dir, "docs")
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            mkpath(tutorials_dir)
+            write(joinpath(tutorials_dir, "light.jl"),
+                """
+                # # A light tutorial
+
+                x = 1 + 1
+                """)
+
+            light = ["light.jl"]
+            heavy = ["heavy.jl"]
+            stubs = Pair{String, String}[
+                "light.md" => "# A light tutorial",
+                "heavy.md" => "# A heavy tutorial"
+            ]
+
+            DB._process_tutorials(docs_dir, tutorials_dir, light, String[])
+            heavy_md = Set(DB._tutorial_md_name(f) for f in heavy)
+            heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
+            DB._write_tutorial_stubs(tutorials_dir, heavy_stubs)
+
+            light_out = read(joinpath(tutorials_dir, "light.md"), String)
+            heavy_out = read(joinpath(tutorials_dir, "heavy.md"), String)
+
+            # Light tutorial went through Literate: real content, not a stub.
+            @test occursin("x = 1 + 1", light_out)
+            @test occursin("```@example", light_out)
+            @test !occursin("fast documentation", light_out)
+
+            # Heavy tutorial is the bare heading stub, never Literate-run.
+            @test occursin("# A heavy tutorial", heavy_out)
+            @test occursin("fast documentation", heavy_out)
+            @test !occursin("x = 1 + 1", heavy_out)
+        end
+    end
+
+    @testset "_tutorial_md_name maps .jl sources to Literate .md output" begin
+        @test DB._tutorial_md_name("ad-backends.jl") == "ad-backends.md"
+        @test DB._tutorial_md_name("composer-toolkit.jl") ==
+              "composer-toolkit.md"
+    end
+
     @testset "_copy_tutorial_data copies data/*-data dirs, skips others" begin
         mktempdir() do dir
             src_root = joinpath(dir, "src")
