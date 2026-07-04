@@ -165,6 +165,29 @@ function _toplevel_import_violations(path::AbstractString)
     return violations
 end
 
+# `(path, line, statement text)` for every scattered top-level `using`/
+# `import` found by walking every `.jl` file under `root`, treating
+# `main_file` (if given) as exempt — see `_scan_scope!` for what "top-level"
+# means here. A pure filesystem walk (no `Module` involved), so it is
+# directly unit-testable against a synthetic fixture tree, unlike
+# [`test_import_centralisation`](@ref) which resolves `root`/`main_file`
+# from a live `Module` via `pathof`.
+function _import_centralisation_violations(root::AbstractString,
+        main_file::Union{Nothing, AbstractString} = nothing)
+    violations = Tuple{String, Int, String}[]
+    for (dirpath, _, files) in walkdir(root)
+        for f in files
+            endswith(f, ".jl") || continue
+            path = joinpath(dirpath, f)
+            path == main_file && continue
+            for (line, text) in _toplevel_import_violations(path)
+                push!(violations, (path, line, text))
+            end
+        end
+    end
+    return violations
+end
+
 """
     test_import_centralisation(mod::Module)
 
@@ -193,21 +216,14 @@ function test_import_centralisation(mod::Module)
             @test_skip "no source file for $(nameof(mod)) (pathof === nothing)"
             return nothing
         end
-        root = dirname(main_file)
-        for (dirpath, _, files) in walkdir(root)
-            for f in files
-                endswith(f, ".jl") || continue
-                path = joinpath(dirpath, f)
-                path == main_file && continue
-                offenders = _toplevel_import_violations(path)
-                if !isempty(offenders)
-                    for (line, text) in offenders
-                        @error "Scattered top-level import (#105)" path line text
-                    end
-                end
-                @test isempty(offenders)
+        offenders = _import_centralisation_violations(
+            dirname(main_file), main_file)
+        if !isempty(offenders)
+            for (path, line, text) in offenders
+                @error "Scattered top-level import (#105)" path line text
             end
         end
+        @test isempty(offenders)
     end
 end
 

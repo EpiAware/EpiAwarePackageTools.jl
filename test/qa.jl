@@ -144,6 +144,12 @@
     # `DocStr.text` vector (see the `_docstring_content` template test).
     struct _TemplateDirective end
 
+    # An ad-hoc module (not loaded via `include`/`Base.require` with a
+    # registered `Base.PkgId`) has `pathof(mod) === nothing` — used to
+    # exercise `test_import_centralisation`'s no-source-file skip branch.
+    module _NoPathModule
+    end
+
     @testset "QA helpers" begin
         @testset "test_docstring_format passes a conforming module" begin
             test_docstring_format(_Conforming)
@@ -377,6 +383,92 @@
             ts = test_explicit_imports(EpiAwarePackageTools;
                 implicit_ignore = (:Nonexistent,))
             @test ts isa Test.AbstractTestSet
+        end
+
+        @testset "_import_centralisation_violations flags a scattered import" begin
+            mktempdir() do dir
+                src = joinpath(dir, "src")
+                mkpath(src)
+                main = joinpath(src, "MyPkg.jl")
+                # The main file's own top-level `using` is exactly where the
+                # convention wants it: exempt when passed as `main_file`.
+                write(main, """
+                module MyPkg
+                using Test: @test
+                include("other.jl")
+                include("sub.jl")
+                end # module MyPkg
+                """)
+                # A plain included file with its own top-level `using`: this
+                # is the scattered-import defect kit issue #105 flags.
+                write(joinpath(src, "other.jl"), """
+                using Markdown: Markdown
+
+                f() = 1
+                """)
+                # A nested `module`/`baremodule` block starts its own scope:
+                # its own top-level `using` is exempt (that submodule body
+                # IS its "module file"), matching `benchmarks.jl`/
+                # `docs_build.jl`'s `Benchmarks`/`DocsBuild` submodules.
+                write(joinpath(src, "sub.jl"), """
+                module Sub
+                using Test: @testset
+                end # module Sub
+                """)
+                # A lazy, call-time `Base.require` load inside a function is
+                # an ordinary function call, not `using`/`import` syntax, so
+                # it never trips the check.
+                write(joinpath(src, "lazy.jl"), """
+                function _load()
+                    return Base.require(Base.PkgId(
+                        Base.UUID("8dfed614-e22c-5e08-85e1-65c5234f0b40"),
+                        "Test"))
+                end
+                """)
+
+                v = EpiAwarePackageTools._import_centralisation_violations(
+                    src, main)
+                @test length(v) == 1
+                @test v[1][1] == joinpath(src, "other.jl")
+                @test occursin("Markdown", v[1][3])
+
+                # `MyPkg.jl`'s own `using` sits inside its `module ... end`
+                # wrapper, so it is exempt via the nested-scope rule
+                # regardless of the `main_file` skip — the count is the
+                # same whether or not `main` is passed.
+                v_no_main = EpiAwarePackageTools._import_centralisation_violations(
+                    src)
+                @test length(v_no_main) == 1
+            end
+        end
+
+        @testset "_import_centralisation_violations respects main_file" begin
+            # A bare top-level `using` with no enclosing `module` block (not
+            # how a real package main file looks, but isolates exactly what
+            # the `main_file` argument itself skips).
+            mktempdir() do dir
+                src = joinpath(dir, "src")
+                mkpath(src)
+                main = joinpath(src, "Main.jl")
+                write(main, "using Test: @test\n")
+                @test isempty(
+                    EpiAwarePackageTools._import_centralisation_violations(
+                    src, main))
+                @test length(
+                    EpiAwarePackageTools._import_centralisation_violations(
+                    src)) == 1
+            end
+        end
+
+        @testset "test_import_centralisation" begin
+            # The kit dogfoods its own now-centralised src: a real, loaded
+            # package resolves via `pathof` and reports no violations.
+            ts = test_import_centralisation(EpiAwarePackageTools)
+            @test ts isa Test.AbstractTestSet
+
+            # An ad-hoc module with no resolvable source file skips rather
+            # than erroring or (worse) silently reporting a false pass.
+            @test !check_flags(() -> test_import_centralisation(_NoPathModule))
         end
 
         @testset "dynamicppl_model_filter classifies reports" begin
