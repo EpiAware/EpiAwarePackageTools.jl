@@ -1056,16 +1056,27 @@
                 end
                 bench = read(joinpath(dir, ".github/workflows/benchmark.yaml"),
                     String)
-                @test occursin("AirspeedVelocity", bench)
+                # `pull_request` (not `pull_request_target`): the comparison
+                # runs the PR's own code, keeping the comment-posting token
+                # scoped to same-repo PRs (#821 gap 1).
+                @test occursin("on:\n  pull_request:", bench)
+                @test !occursin("pull_request_target:", bench)
                 # Triggers on every path that affects performance: sources, the
                 # extensions, the benchmark suite, and the AD fixtures.
-                @test occursin("pull_request_target", bench)
                 for p in ("'src/**'", "'ext/**'", "'benchmark/**'",
                     "'test/ADFixtures/**'")
                     @test occursin(p, bench)
                 end
-                # The package name is substituted into the comment step.
-                @test occursin("results Wombat", bench)
+                # Each revision (PR head vs main base) is benchmarked in its
+                # own job/runner, so a single runner never loads two heavy AD
+                # stacks (e.g. Enzyme + Mooncake) at once.
+                @test occursin("  benchmark:", bench)
+                @test occursin("  compare:", bench)
+                @test occursin("matrix.name", bench)
+                @test occursin("github.event.pull_request.head.sha", bench)
+                @test occursin("github.event.pull_request.base.sha", bench)
+                # The compare job runs the scaffolded, kit-backed script.
+                @test occursin("benchmark/compare.jl", bench)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", bench)
                 # The comment script uses the shared kit harness.
