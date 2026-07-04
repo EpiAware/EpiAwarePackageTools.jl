@@ -181,7 +181,7 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("test/formatter/Project.toml",
         "test/formatter/Project.toml", true, false),
     # The AD harness drivers are opt-in (managed, but only when `ad = true`).
-    Template("test/ad/setup.jl", "test/ad/setup.jl", true, false, :ad_only),
+    Template("test/ad/setup.jl", "test/ad/setup.jl", true, true, :ad_only),
     Template("test/ad/runtests.jl", "test/ad/runtests.jl", true, false,
         :ad_only),
     # The benchmark suite drivers are opt-in (managed, only when
@@ -277,7 +277,7 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("benchmark/Project.toml", "benchmark/Project.toml", false, true,
         :always, :bench_only),
     # The AD scenarios + registry skeleton are opt-in (only when `ad = true`).
-    Template("test/ad/scenarios.jl", "test/ad/scenarios.jl", false, false,
+    Template("test/ad/scenarios.jl", "test/ad/scenarios.jl", false, true,
         :ad_only),
     Template("test/ad/Project.toml", "test/ad/Project.toml", false, true,
         :ad_only),
@@ -568,6 +568,10 @@ function scaffold_inputs(target_dir::AbstractString;
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
         DOI = doi, ZENODO_BADGE = zenodo_badge,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
+        AD_CODECOV_FLAGS = _ad_codecov_flags(),
+        AD_BACKENDS_JSON = _ad_backends_json(),
+        AD_BACKEND_PACKAGES = _ad_backend_packages(),
+        AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
         KIT_DEP_LINE = kit_dep,
@@ -655,6 +659,12 @@ const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\
 # the rest of the caller (the `uses:` ref, `secrets:`, etc.) is re-applied
 # from the template; on first adoption (no destination yet) the template's
 # with-less form is used untouched.
+#
+# A job whose TEMPLATE already renders its own non-empty `with:` block (e.g.
+# `ad.yaml`'s `backends:` passthrough, generated from `_AD_BACKENDS`) is a
+# managed value, not a package override: that `seed` always wins, so a
+# `_AD_BACKENDS` change keeps reaching an already-adopted package on the next
+# `update()` rather than freezing at whatever was first scaffolded.
 function _preserve_caller_with_inputs(content::AbstractString,
         dest::AbstractString)
     occursin(_CALLER_JOB, content) || return content
@@ -674,7 +684,8 @@ function _preserve_caller_with_inputs(content::AbstractString,
             workflow = String(something(m.captures[2]))
             seed = String(something(m.captures[3], ""))
             suffix = String(something(m.captures[5]))
-            return prefix * get(existing, workflow, seed) * suffix
+            replacement = isempty(seed) ? get(existing, workflow, seed) : seed
+            return prefix * replacement * suffix
         end)
 end
 
@@ -728,19 +739,106 @@ end
 const BADGES_START = "<!-- badges:start -->"
 const BADGES_END = "<!-- badges:end -->"
 
-# The per-backend AD jobs, as (badge label, column header, workflow/flag slug)
-# triples. The badge label is the `AD <label>` / `cov <label>` alt text; the
-# column header is the table heading (matching CensoredDistributions.jl, which
-# labels the tape-based ReverseDiff column explicitly). Both match the `ad-*`
-# codecov flags and the org `ad.yml` backend matrix.
+# The single source of truth for the kit's per-backend AD infra: the README
+# coverage-flag badge table (`_render_badges`), the `codecov.yml` `ad-*` flags
+# and `AD_BUILD_COUNT` gate (`scaffold_inputs`), and the `backends` input the
+# kit's `ad.yaml` caller passes to the org `ad.yml` reusable workflow (so the
+# ACTUAL CI matrix is driven from here too, rather than silently trusting the
+# reusable's own default to match). Add, remove, or reorder a backend here and
+# every one of those regenerates consistently on the next `scaffold`/`update`
+# (#821 AD-backend-configurability gap).
+#
+#   - `alt`: the `cov <alt>` badge alt text.
+#   - `header`: the coverage-flag table column heading (matching
+#     CensoredDistributions.jl, which labels the tape-based ReverseDiff column
+#     explicitly) and the `name` the reusable workflow shows as the AD job's
+#     display name.
+#   - `slug`: the `ad-*` codecov flag / reusable-workflow `flag`.
+#   - `tag`: the `@testitem` tag `test/ad/runtests.jl` filters on to run just
+#     this backend (see `test/ad/scenarios.jl`), and the reusable workflow's
+#     `tag` (passed as the CLI argument selecting which backend to test).
+#   - `pkg`: the Julia package the backend is loaded from (several backends
+#     share one package, e.g. Enzyme forward/reverse both come from
+#     `Enzyme`), used to derive the scaffolded `test/ad/setup.jl` `using`
+#     line without repeating a package name.
 const _AD_BACKENDS = [
-    ("ForwardDiff", "ForwardDiff", "ad-forwarddiff"),
-    ("ReverseDiff", "ReverseDiff (tape)", "ad-reversediff"),
-    ("Enzyme forward", "Enzyme forward", "ad-enzyme-forward"),
-    ("Enzyme reverse", "Enzyme reverse", "ad-enzyme-reverse"),
-    ("Mooncake reverse", "Mooncake reverse", "ad-mooncake-reverse"),
-    ("Mooncake forward", "Mooncake forward", "ad-mooncake-forward")
+    (alt = "ForwardDiff", header = "ForwardDiff",
+        slug = "ad-forwarddiff", tag = "forwarddiff", pkg = "ForwardDiff"),
+    (alt = "ReverseDiff", header = "ReverseDiff (tape)",
+        slug = "ad-reversediff", tag = "reversediff", pkg = "ReverseDiff"),
+    (alt = "Enzyme forward", header = "Enzyme forward",
+        slug = "ad-enzyme-forward", tag = "enzyme_forward", pkg = "Enzyme"),
+    (alt = "Enzyme reverse", header = "Enzyme reverse",
+        slug = "ad-enzyme-reverse", tag = "enzyme_reverse", pkg = "Enzyme"),
+    (alt = "Mooncake reverse", header = "Mooncake reverse",
+        slug = "ad-mooncake-reverse", tag = "mooncake_reverse",
+        pkg = "Mooncake"),
+    (alt = "Mooncake forward", header = "Mooncake forward",
+        slug = "ad-mooncake-forward", tag = "mooncake_forward",
+        pkg = "Mooncake")
 ]
+
+# The managed `codecov.yml` `flags:` entries for every AD backend, generated
+# from `_AD_BACKENDS` (one `carryforward` flag block per backend, matching the
+# `unit` flag already in the template) so the flags list can never drift from
+# `AD_BUILD_COUNT` — see `_AD_BACKENDS`.
+function _ad_codecov_flags()
+    blocks = [string("  ", b.slug, ":\n", "    paths:\n", "      - src\n",
+                  "      - ext\n", "    carryforward: true") for b in _AD_BACKENDS]
+    return join(blocks, "\n")
+end
+
+# The `backends` JSON array the kit's `ad.yaml` caller passes to the org
+# `ad.yml` reusable workflow, generated from `_AD_BACKENDS`, so the ACTUAL CI
+# matrix is pinned to the same single source as the badges/codecov flags
+# rather than silently trusting the reusable's own default to match. Emitted
+# compact (one line) and wrapped in single quotes by the template, which is
+# valid YAML (no characters here need escaping) and avoids any risk of a
+# multi-line block scalar being mis-indented by the substitution.
+function _ad_backends_json()
+    entries = [string(
+                   "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
+                   b.slug, "\"}") for b in _AD_BACKENDS]
+    return "[" * join(entries, ",") * "]"
+end
+
+# The comma-joined list of Julia packages the scaffolded `test/ad/setup.jl`
+# `using` line loads, derived from `_AD_BACKENDS` (deduplicated, first-seen
+# order) so adding a backend that needs a new package — or dropping the last
+# backend that needed one — can never leave `setup.jl` over- or
+# under-loading relative to `_AD_BACKENDS`.
+function _ad_backend_packages()
+    pkgs = String[]
+    for b in _AD_BACKENDS
+        b.pkg in pkgs || push!(pkgs, b.pkg)
+    end
+    return join(pkgs, ", ")
+end
+
+# The family tag shared by a backend's forward/reverse variants (e.g.
+# `:enzyme` for `enzyme_forward`/`enzyme_reverse`), or `nothing` when the
+# backend's `tag` has no such split (`forwarddiff`, `reversediff`).
+function _ad_scenario_family(tag::AbstractString)
+    parts = split(tag, '_')
+    return length(parts) > 1 ? first(parts) : nothing
+end
+
+# The scaffolded `test/ad/scenarios.jl` starter `@testitem` blocks, one per
+# `_AD_BACKENDS` entry, so the package-owned starter seed covers every
+# backend the kit currently knows about rather than a hand-picked subset
+# that silently falls behind as backends are added.
+function _ad_scenario_testitems()
+    blocks = map(_AD_BACKENDS) do b
+        family = _ad_scenario_family(b.tag)
+        tags = family === nothing ? "[:ad, :$(b.tag)]" :
+               "[:ad, :$(family), :$(b.tag)]"
+        string("@testitem \"", b.header, " gradients (marginal)\" tags=",
+            tags, " setup=[ADHelpers] begin\n",
+            "    test_working_backend(\"", b.header, "\")\n",
+            "end")
+    end
+    return join(blocks, "\n\n")
+end
 
 # The conventional custom-subdomain docs host for a package, e.g.
 # `MyPkg` -> `mypkg.epiaware.org`. Only used on the opt-in subdomain path
@@ -885,12 +983,12 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         # aggregate ad.yaml matrix). No per-backend *status* badges: only the
         # aggregate ad.yaml exists, so per-backend status URLs would 404 — the
         # single aggregate AD status badge lives in the Build Status cell above.
-        headers = join((h for (_, h, _) in _AD_BACKENDS), " | ")
+        headers = join((b.header for b in _AD_BACKENDS), " | ")
         sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
         cov_badges = join(
-            ["[![cov $alt]($cov/graph/badge.svg?flag=$slug)]" *
+            ["[![cov $(b.alt)]($cov/graph/badge.svg?flag=$(b.slug))]" *
              "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
-             "$slug)" for (alt, _, slug) in _AD_BACKENDS],
+             "$(b.slug))" for b in _AD_BACKENDS],
             " | ")
         push!(lines, "")
         push!(lines, "| " * headers * " |")

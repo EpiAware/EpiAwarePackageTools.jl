@@ -15,8 +15,10 @@
     using EpiAwarePackageTools
     # The package's AD-fixture registry satisfying the `ADRegistry` contract.
     using ADFixtures
-    # Backends the package tests; trim to those the package actually uses.
-    using ForwardDiff, ReverseDiff, Enzyme, Mooncake
+    # Backends the package tests, derived from `_AD_BACKENDS` (the kit's
+    # single source of truth for the AD infra) at scaffold time; trim to
+    # those the package actually uses.
+    using {{AD_BACKEND_PACKAGES}}
 
     const REG = ADFixtures
 
