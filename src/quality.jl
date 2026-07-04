@@ -3,8 +3,6 @@
 # the only per-package input is the module under test (and an ExplicitImports
 # `ignore` list for unavoidably non-public imports).
 
-using Test: @testset, @test, @test_skip
-
 # Validate that `env` looks like a usable isolated project (a `Project.toml`
 # plus a `runtests.jl`), returning the runner path. Raises a plain
 # `ErrorException` directly — NOT wrapped in `@test`/`@testset` — so a
@@ -126,6 +124,90 @@ function test_explicit_imports(mod::Module; ignore::Tuple = (),
             ignore = ignore) === nothing
         @test Base.invokelatest(
             EI.check_all_explicit_imports_via_owners, mod) === nothing
+    end
+end
+
+# Track the file's current source line as `_scan_scope!` walks a parsed
+# expression tree, so a flagged `using`/`import` can report where it lives.
+# `expr` shares the file's own top-level (module) scope when it is a bare
+# `using`/`import`, or one of the wrapper forms (`:toplevel`, `:block`,
+# `:if`, `:macrocall`) that do NOT introduce a new Julia scope — a
+# `using`/`import` nested in an `if`/`begin`/`@static` still lands in the
+# enclosing module. A `module`/`baremodule` node DOES start a fresh scope
+# (that submodule's own top-level), so it is left un-recursed: its own
+# `using`/`import` is exempt (that submodule body IS its "module file").
+# Anything else (`function`, `for`, `while`, `let`, `try`, `do`,
+# comprehensions...) cannot lexically contain `using`/`import` at all —
+# Julia rejects that at parse time — so there is nothing left to find there.
+function _scan_scope!(violations::Vector{Tuple{Int, String}}, expr,
+        line::Base.RefValue{Int})
+    if expr isa LineNumberNode
+        line[] = expr.line
+        return violations
+    end
+    expr isa Expr || return violations
+    if expr.head in (:using, :import)
+        push!(violations, (line[], string(expr)))
+    elseif expr.head in (:toplevel, :block, :if, :macrocall)
+        for a in expr.args
+            _scan_scope!(violations, a, line)
+        end
+    end
+    return violations
+end
+
+# `(line, statement text)` for every `using`/`import` in `path` that sits in
+# the file's own top-level (module) scope — see `_scan_scope!`.
+function _toplevel_import_violations(path::AbstractString)
+    parsed = Meta.parseall(read(path, String); filename = path)
+    violations = Tuple{Int, String}[]
+    _scan_scope!(violations, parsed, Ref(0))
+    return violations
+end
+
+"""
+    test_import_centralisation(mod::Module)
+
+Assert every genuine `using`/`import` in `mod`'s package sits in the
+top-level module file, not scattered across `include`d source files (kit
+issue #105).
+
+Walks every `.jl` file under `mod`'s package `src/` directory (as located
+via `pathof(mod)`) and parses it looking for a `using`/`import` that shares
+the file's own top-level scope — exactly the scope an `include`d file's
+statements run in once spliced into the parent module. The main module
+file itself is exempt (that is precisely where imports should live). A
+nested `module`/`baremodule` block defined inside an included file (e.g. a
+`Benchmarks`- or `DocsBuild`-style helper submodule) starts its own fresh
+scope, so its own top-level `using`/`import` is exempt too.
+
+Lazy, call-time dependency loads (`_require_pkg(...)`, `Base.require(...)`
+inside a function body) are ordinary function calls, not `using`/`import`
+syntax — and Julia disallows `using`/`import` inside a function entirely —
+so they never trigger this check.
+"""
+function test_import_centralisation(mod::Module)
+    main_file = pathof(mod)
+    return @testset "Import centralisation: $(nameof(mod))" begin
+        if main_file === nothing
+            @test_skip "no source file for $(nameof(mod)) (pathof === nothing)"
+            return nothing
+        end
+        root = dirname(main_file)
+        for (dirpath, _, files) in walkdir(root)
+            for f in files
+                endswith(f, ".jl") || continue
+                path = joinpath(dirpath, f)
+                path == main_file && continue
+                offenders = _toplevel_import_violations(path)
+                if !isempty(offenders)
+                    for (line, text) in offenders
+                        @error "Scattered top-level import (#105)" path line text
+                    end
+                end
+                @test isempty(offenders)
+            end
+        end
     end
 end
 
