@@ -434,6 +434,28 @@ end
 # `.jl` source name).
 _tutorial_md_name(jl_file) = string(splitext(jl_file)[1], ".md")
 
+# The tutorial-processing step of `build_docs`, split out so it can be unit
+# tested directly (`build_docs` itself is an integration point, exercised by
+# each package's own docs build rather than by the kit's own test suite).
+# Under `skip_notebooks`, light tutorials still render in-process (they are
+# cheap); only the heavy tutorials — the ones the flag exists to skip — fall
+# back to `tutorial_stubs` heading stubs.
+function _render_tutorials(docs_dir, tutorials_dir, skip_notebooks::Bool,
+        light, heavy, stubs)
+    if !skip_notebooks
+        _process_tutorials(docs_dir, tutorials_dir, light, heavy)
+    else
+        println("Fast docs build: rendering light tutorials in-process, " *
+                "stubbing heavy tutorials (--skip-notebooks or " *
+                "SKIP_NOTEBOOKS=true)")
+        _process_tutorials(docs_dir, tutorials_dir, light, String[])
+        heavy_md = Set(_tutorial_md_name(f) for f in heavy)
+        heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
+        _write_tutorial_stubs(tutorials_dir, heavy_stubs)
+    end
+    return nothing
+end
+
 # Fast-build stubs: a lightweight `.md` for each tutorial so the nav resolves
 # and cross-references still anchor without running the heavy pipeline.
 function _write_tutorial_stubs(tutorials_dir, stubs)
@@ -564,22 +586,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     tutorials_dir = joinpath(src_dir, tutorials_subdir)
 
     # --- tutorials ---------------------------------------------------------
-    if !skip_notebooks
-        _process_tutorials(docs_dir, tutorials_dir, light_tutorials,
-            heavy_tutorials)
-    else
-        # Selective fast build (--skip-notebooks or SKIP_NOTEBOOKS=true):
-        # light tutorials are cheap (seconds, in-process) so they still render
-        # with executed content; only the heavy tutorials (the ones the flag
-        # exists to skip) fall back to heading stubs.
-        println("Fast docs build: rendering light tutorials in-process, " *
-                "stubbing heavy tutorials (--skip-notebooks or " *
-                "SKIP_NOTEBOOKS=true)")
-        _process_tutorials(docs_dir, tutorials_dir, light_tutorials, String[])
-        heavy_md = Set(_tutorial_md_name(f) for f in heavy_tutorials)
-        heavy_stubs = filter(p -> first(p) in heavy_md, tutorial_stubs)
-        _write_tutorial_stubs(tutorials_dir, heavy_stubs)
-    end
+    _render_tutorials(docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
+        heavy_tutorials, tutorial_stubs)
 
     # --- generated pages ---------------------------------------------------
     build_index(; readme = joinpath(project_root, "README.md"),

@@ -275,9 +275,10 @@
         end
     end
 
-    @testset "selective skip_notebooks: light renders, heavy stubs" begin
-        # Reproduces the `build_docs` skip_notebooks branch directly (rather
-        # than the full makedocs pipeline): light tutorials still run through
+    @testset "_render_tutorials: skip_notebooks stubs only heavy" begin
+        # Calls the exact `build_docs` tutorial step (`_render_tutorials`)
+        # directly, rather than the full makedocs pipeline: under
+        # `skip_notebooks`, light tutorials still run through
         # `_process_tutorials` (executed in-process by Literate), and only
         # heavy tutorials fall back to `_write_tutorial_stubs`.
         mktempdir() do dir
@@ -298,10 +299,8 @@
                 "heavy.md" => "# A heavy tutorial"
             ]
 
-            DB._process_tutorials(docs_dir, tutorials_dir, light, String[])
-            heavy_md = Set(DB._tutorial_md_name(f) for f in heavy)
-            heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
-            DB._write_tutorial_stubs(tutorials_dir, heavy_stubs)
+            DB._render_tutorials(docs_dir, tutorials_dir, true, light, heavy,
+                stubs)
 
             light_out = read(joinpath(tutorials_dir, "light.md"), String)
             heavy_out = read(joinpath(tutorials_dir, "heavy.md"), String)
@@ -315,6 +314,31 @@
             @test occursin("# A heavy tutorial", heavy_out)
             @test occursin("fast documentation", heavy_out)
             @test !occursin("x = 1 + 1", heavy_out)
+        end
+    end
+
+    @testset "_render_tutorials: !skip_notebooks delegates through" begin
+        # With skip_notebooks=false, no stubbing/filtering happens at all —
+        # `_render_tutorials` is a thin pass-through to `_process_tutorials`.
+        # `heavy` is empty here so the (separately tested) subprocess runner
+        # path is not exercised by this call.
+        mktempdir() do dir
+            docs_dir = joinpath(dir, "docs")
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            mkpath(tutorials_dir)
+            write(joinpath(tutorials_dir, "light.jl"),
+                """
+                # # A light tutorial
+
+                x = 1 + 1
+                """)
+
+            DB._render_tutorials(docs_dir, tutorials_dir, false,
+                ["light.jl"], String[], Pair{String, String}[])
+
+            light_out = read(joinpath(tutorials_dir, "light.md"), String)
+            @test occursin("x = 1 + 1", light_out)
+            @test !occursin("fast documentation", light_out)
         end
     end
 
