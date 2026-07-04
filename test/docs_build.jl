@@ -342,10 +342,50 @@
         end
     end
 
-    @testset "_tutorial_md_name maps .jl sources to Literate .md output" begin
+    @testset "_render_tutorials: force_stub stubs named heavy tutorials" begin
+        # `force_stub` stubs the named heavy tutorials independent of
+        # `skip_notebooks` — here under `!skip_notebooks`, where every other
+        # heavy tutorial would otherwise execute for real. `heavy` is
+        # entirely force-stubbed in this call, so no subprocess is spawned
+        # (a heavy tutorial NOT force-stubbed still executes via
+        # `_process_tutorials`'s subprocess path — not re-exercised here, per
+        # the kit's stated test philosophy: that pipeline is
+        # integration-tested by each package's own docs build).
+        mktempdir() do dir
+            docs_dir = joinpath(dir, "docs")
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            mkpath(tutorials_dir)
+            write(joinpath(tutorials_dir, "light.jl"),
+                """
+                # # A light tutorial
+
+                x = 1 + 1
+                """)
+
+            stubs = Pair{String, String}[
+                "light.md" => "# A light tutorial",
+                "heavy.md" => "# A heavy tutorial"
+            ]
+
+            DB._render_tutorials(docs_dir, tutorials_dir, false, ["light.jl"],
+                ["heavy.jl"], stubs; force_stub = ["heavy.jl"])
+
+            light_out = read(joinpath(tutorials_dir, "light.md"), String)
+            heavy_out = read(joinpath(tutorials_dir, "heavy.md"), String)
+
+            # Light still renders for real; force-stubbed heavy never runs.
+            @test occursin("x = 1 + 1", light_out)
+            @test occursin("# A heavy tutorial", heavy_out)
+            @test occursin("fast documentation", heavy_out)
+        end
+    end
+
+    @testset "_tutorial_md_name(s) map .jl sources to Literate .md output" begin
         @test DB._tutorial_md_name("ad-backends.jl") == "ad-backends.md"
         @test DB._tutorial_md_name("composer-toolkit.jl") ==
               "composer-toolkit.md"
+        @test DB._tutorial_md_names(["a.jl", "b.jl"]) ==
+              Set(["a.md", "b.md"])
     end
 
     @testset "_copy_tutorial_data copies data/*-data dirs, skips others" begin

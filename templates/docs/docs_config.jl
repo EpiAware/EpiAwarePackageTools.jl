@@ -27,6 +27,14 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # resolve in a fast build.
 const TUTORIAL_STUBS = Pair{String, String}[]
 
+# Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
+# never execute, independent of `--skip-notebooks` — the escape hatch for a
+# heavy tutorial with a problem of its own (e.g. a model that does not
+# terminate in reasonable time), so it need not block its siblings from
+# running for real. Leave empty; every heavy tutorial with no such problem
+# should execute.
+const FORCE_STUB_TUTORIALS = String[]
+
 # Regexes for URLs to skip during the (full-build) linkcheck, e.g. a page
 # published by a separate workflow that is not yet live.
 const LINKCHECK_IGNORE = Regex[]
