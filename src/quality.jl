@@ -32,9 +32,14 @@ end
 function _run_isolated_env(env::AbstractString, runner::AbstractString)
     Pkg = _require_pkg("44cfe95a-1eb2-52ea-b672-e2afdf69b78f", "Pkg")
     current = Base.active_project()
-    Pkg.activate(env)
-    Pkg.instantiate()
-    Pkg.activate(current)
+    # See `test_aqua` for why this goes through `invokelatest`: `Pkg` is
+    # lazily loaded above, so its methods live in a world age newer than
+    # this function unless a caller happened to load Pkg earlier in the
+    # same process (masking the bug locally while it still reproduces on
+    # a clean process/CI run — see #58's hotfix).
+    Base.invokelatest(Pkg.activate, env)
+    Base.invokelatest(Pkg.instantiate)
+    Base.invokelatest(Pkg.activate, current)
     result = run(
         pipeline(`$(Base.julia_cmd()) --project=$env $runner`,
             stdout = stdout, stderr = stderr);
