@@ -514,6 +514,14 @@ function scaffold_inputs(target_dir::AbstractString;
     dependabot_reviewers = has_reviewer ?
                            string("    reviewers:\n      - \"", resolved_reviewer,
         "\"\n") : ""
+    # The increment-version composite action's `assignee` default. It must be a
+    # user/bot handle (or empty), never the bare org: GitHub rejects assigning
+    # an org, and the update-existing-PR path fails hard with
+    # `replaceActorsForAssignable` (#122). So it mirrors CODEOWNERS/Dependabot —
+    # the handle when one is set, empty otherwise (the action then skips the
+    # `--assignee` flag) — rather than falling back to `{{REVIEWER}}`, which is
+    # the org placeholder when no reviewer was given.
+    assignee_default = has_reviewer ? resolved_reviewer : ""
     yr = year === nothing ? Dates.year(Dates.now()) : year
     uuid = _project_string(proj, "uuid")
     # A fresh UUID for the seeded ADFixtures registry skeleton (a new path
@@ -582,6 +590,7 @@ function scaffold_inputs(target_dir::AbstractString;
         AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
+        ASSIGNEE_DEFAULT = assignee_default,
         KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
         JULIAFORMATTER_VERSION = _JULIAFORMATTER_VERSION,
