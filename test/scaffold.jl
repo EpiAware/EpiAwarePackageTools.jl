@@ -325,6 +325,51 @@
             end
         end
 
+        @testset "update preserves docs_subdomain without re-passing it (#123)" begin
+            # A subdomain-hosted package is not reverted to project-pages when a
+            # resync (the scheduled template-sync's `update`) omits the kwarg.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; docs_subdomain = true)
+                mk = joinpath(dir, "docs/make.jl")
+                @test occursin("deploy_url = \"wombat.epiaware.org\"",
+                    read(mk, String))
+                # The common maintenance call: no docs_subdomain kwarg.
+                update(dir)
+                @test occursin("deploy_url = \"wombat.epiaware.org\"",
+                    read(mk, String))
+                @test !occursin("deploy_url = nothing", read(mk, String))
+                # The README badges stay on the subdomain host too.
+                @test occursin("wombat.epiaware.org/stable/",
+                    read(joinpath(dir, "README.md"), String))
+            end
+            # A project-pages package stays project-pages across a resync.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)  # default: project-pages
+                mk = joinpath(dir, "docs/make.jl")
+                @test occursin("deploy_url = nothing", read(mk, String))
+                update(dir)
+                @test occursin("deploy_url = nothing", read(mk, String))
+            end
+        end
+
+        @testset "_detect_docs_subdomain reads the committed deploy_url" begin
+            using EpiAwarePackageTools: _detect_docs_subdomain
+            mktempdir() do dir
+                # No docs/make.jl yet -> :missing (fall back to the default).
+                @test _detect_docs_subdomain(dir) === :missing
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; docs_subdomain = "docs.example.org")
+                @test _detect_docs_subdomain(dir) == "docs.example.org"
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)  # project-pages
+                @test _detect_docs_subdomain(dir) === nothing
+            end
+        end
+
         @testset "kit dogfoods its own subdomain by default" begin
             mktempdir() do dir
                 # The kit's own subdomain is DNS-wired, so with no explicit

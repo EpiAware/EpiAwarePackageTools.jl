@@ -426,6 +426,34 @@ function _detect_reviewer(target_dir::AbstractString)
 end
 
 """
+    _detect_docs_subdomain(target_dir)
+
+Recover the docs-hosting choice from an already-scaffolded repo so a
+resync (`update` with no `docs_subdomain` kwarg) keeps it instead of
+silently reverting a subdomain-hosted package to project-pages (#123).
+
+The managed `docs/make.jl` carries the resolved `deploy_url` literal,
+which is the source of truth: a quoted host means the custom-subdomain
+path, a bare `nothing` means project-pages. Returns the host string,
+`nothing` (explicit project-pages), or `:missing` when `docs/make.jl`
+is absent or carries no `deploy_url` (a never-scaffolded target, so
+the caller falls back to the scaffold default). Mirrors
+`_detect_reviewer`/`_detect_benchmarks`: the destination is read back
+so a scheduled sync — which never re-passes `docs_subdomain` — stays
+idempotent, and a package that has drifted to the wrong base self-heals
+on the next `update`.
+"""
+function _detect_docs_subdomain(target_dir::AbstractString)
+    mk = joinpath(target_dir, "docs", "make.jl")
+    isfile(mk) || return :missing
+    m = match(r"deploy_url\s*=\s*(nothing|\"([^\"]*)\")", read(mk, String))
+    m === nothing && return :missing
+    m.captures[2] === nothing && return nothing  # `deploy_url = nothing`
+    host = String(something(m.captures[2]))
+    return isempty(host) ? nothing : host
+end
+
+"""
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
         reviewer = nothing, year = <current year>,
@@ -530,12 +558,21 @@ function scaffold_inputs(target_dir::AbstractString;
     # `DOCS_DEPLOY_URL` is the `deploy_url` Julia literal substituted into
     # `docs/make.jl`; `DOCS_URL` is the bare host(+path) for the README badges.
     #
-    # The kit itself dogfoods the opt-in path: its custom subdomain
-    # (`epiawarepackagetools.epiaware.org`) is DNS-wired, so when no explicit
-    # choice is passed and the adopting package is the kit, default to the
-    # subdomain. This keeps the kit's own deploy on base `/` (correct at the
-    # subdomain root) while every other package still defaults to project-pages.
-    ds = docs_subdomain === nothing && pkg == KIT_NAME ? true : docs_subdomain
+    # When no explicit `docs_subdomain` is passed, recover the choice the repo
+    # already committed (its `docs/make.jl` `deploy_url`) so a resync keeps a
+    # subdomain-hosted package instead of silently reverting it to project-pages
+    # and serving a CSS-less site (#123) — the same read-back-the-destination
+    # idempotency `_detect_reviewer`/`_detect_benchmarks` provide. Only a
+    # never-scaffolded target (`:missing`) falls back to the scaffold default:
+    # the kit dogfoods its DNS-wired custom subdomain
+    # (`epiawarepackagetools.epiaware.org`), so it defaults to the subdomain and
+    # every other package to project-pages.
+    ds = if docs_subdomain !== nothing
+        docs_subdomain
+    else
+        detected = _detect_docs_subdomain(target_dir)
+        detected === :missing ? (pkg == KIT_NAME ? true : nothing) : detected
+    end
     docs_sub = _resolve_docs_subdomain(ds, pkg)
     docs_deploy_url = _docs_deploy_url(docs_sub)
     docs_url = _docs_url(rp, docs_sub)
@@ -1488,8 +1525,12 @@ this sets `deploy_url` to that host and points the README docs badges at it. A
 custom subdomain also needs a DNS record for the host and the repo's GitHub
 Pages custom domain set (which writes the gh-pages `CNAME`); until both exist
 the site will not resolve, so the project-pages default is preferred unless
-that wiring is in place. The kit itself dogfoods the opt-in path: with no
-explicit choice it defaults to its own DNS-wired subdomain
+that wiring is in place. When no explicit choice is passed, the hosting is
+recovered from the repo's existing `docs/make.jl` `deploy_url`, so
+[`update`](@ref) preserves a subdomain-hosted package (and self-heals a
+drifted one) without the maintainer re-supplying `docs_subdomain` on every
+sync (#123). Only a never-scaffolded target falls back to the default: the kit
+itself dogfoods the opt-in path, defaulting to its own DNS-wired subdomain
 (`epiawarepackagetools.epiaware.org`), so its dogfood `update` stays stable.
 
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
