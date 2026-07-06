@@ -532,6 +532,18 @@
                 co = read(joinpath(dir, ".github/CODEOWNERS"), String)
                 @test !occursin(r"^\* @", co)  # no active owner line
                 @test !occursin("{{CODEOWNERS_LINE}}", co)
+                # The increment-version assignee default must be empty (never
+                # the bare org) so a bump PR does not fail with
+                # `replaceActorsForAssignable` on the update path (#122). The
+                # action skips the `--assignee` flag when empty.
+                act = read(
+                    joinpath(dir,
+                        ".github/actions/increment-version/action.yaml"), String)
+                @test occursin("default: ''", act)
+                @test !occursin("default: 'EpiAware'", act)
+                @test !occursin("{{ASSIGNEE_DEFAULT}}", act)
+                @test !occursin("{{REVIEWER}}", act)
+                @test occursin("ASSIGNEE_ARGS", act)
             end
             # With a `reviewer` handle the same input drives CODEOWNERS, the
             # Dependabot reviewers, the version assignee, and the Claude gate.
@@ -553,6 +565,12 @@
                     joinpath(dir, ".github/workflows/claude-code-review.yml"),
                     String)
                 @test occursin("user.login == 'octocat'", review)
+                # The version-bump assignee default is the handle (a real user
+                # GitHub can assign), not empty.
+                act = read(
+                    joinpath(dir,
+                        ".github/actions/increment-version/action.yaml"), String)
+                @test occursin("default: 'octocat'", act)
             end
         end
 
@@ -1234,7 +1252,8 @@
                 act = read(
                     joinpath(dir, ".github/actions/increment-version/action.yaml"),
                     String)
-                # The hardcoded `seabbs` assignee is replaced by {{REVIEWER}}.
+                # The assignee default resolves to the reviewer handle (never a
+                # hardcoded person or the bare org).
                 @test occursin("octocat", act)
                 @test !occursin("seabbs", act)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
