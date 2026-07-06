@@ -264,6 +264,14 @@
                 pgs = read(joinpath(dir, "docs/pages.jl"), String)
                 @test occursin("getting-started/index.md", pgs)
                 @test occursin("getting-started/infrastructure.md", pgs)
+                # The maintainer-facing infrastructure page sits in its own
+                # top-level Development section, not under Getting started, so a
+                # new user's first section is not maintainer noise (#136).
+                @test occursin("\"Development\"", pgs)
+                dev_at = findfirst("\"Development\"", pgs)
+                infra_at = findfirst("getting-started/infrastructure.md", pgs)
+                @test dev_at !== nothing && infra_at !== nothing &&
+                      first(dev_at) < first(infra_at)
                 # make.jl is a thin caller into the kit's DocsBuild machinery
                 # (DocumenterVitepress/Literate/makedocs all live in the kit
                 # now), and is fully substituted.
