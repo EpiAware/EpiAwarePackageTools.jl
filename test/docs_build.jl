@@ -146,6 +146,26 @@
         @test any(r -> occursin(r, "raw.githubusercontent.com/Org/Pkg.jl/benchmarks"), lc)
     end
 
+    @testset "build_benchmark_page: strips the seed's leading comment" begin
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        prose = joinpath(dir, "benchmarks.md")
+        # The scaffolded seed opens with an HTML authoring-guidance comment.
+        write(prose,
+            "<!-- PACKAGE-OWNED — your benchmark narrative.\n" *
+            "spans multiple lines. -->\n\nReal narrative.\n")
+        dest = joinpath(dir, "src", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir)
+        out = read(dest, String)
+        # The leading comment is gone; the real narrative survives (#145).
+        @test !occursin("<!--", out)
+        @test !occursin("PACKAGE-OWNED", out)
+        @test occursin("Real narrative.", out)
+        # The heading still leads the page (comment did not push it down).
+        @test startswith(out, "# [Benchmarks](@id benchmarks)")
+    end
+
     @testset "build_benchmark_page: renders published history" begin
         dir = mktempdir()
         run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))

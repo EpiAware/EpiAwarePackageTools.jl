@@ -264,7 +264,9 @@ end
 
 Generate `dest` (the benchmark docs page). The managed skeleton is deliberately
 tight: the page heading, the package-owned `prose_file` spliced verbatim (all
-narrative lives there), and a data-driven `## Performance history` section that
+narrative lives there, minus any leading HTML comment, which is stripped so the
+seed's authoring guidance never renders), and a data-driven
+`## Performance history` section that
 renders the timeline published to the repo's `benchmarks` branch (see
 [`_embed_benchmark_history`](@ref)). Returns the list of linkcheck-ignore
 regexes for the history URLs (the branch may not be live yet).
@@ -275,6 +277,12 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         project_root::AbstractString = dirname(dirname(dest)))
     prose = isfile(prose_file) ? rstrip(read(prose_file, String)) :
             "Performance benchmarks for `$package`."
+    # The package-owned prose file opens with an HTML comment that guides the
+    # author (what to write, that the build splices it verbatim). Strip a
+    # leading comment block so Documenter never renders it as literal text on
+    # the Benchmarks page (#145). Splice-side so it holds even though the seed
+    # is package-owned and sync never rewrites it.
+    prose = lstrip(replace(prose, r"^\s*<!--.*?-->"s => ""))
     mkpath(dirname(dest))
     open(dest, "w") do io
         println(io, "# [Benchmarks](@id benchmarks)")
