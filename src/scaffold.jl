@@ -69,7 +69,8 @@ const SCAFFOLD_TEMPLATES = Template[
     # AD/no-AD pair writing to the same destination.
     Template("Taskfile.yml", "Taskfile.yml", true, false, :ad_only),
     Template("Taskfile.noad.yml", "Taskfile.yml", true, false, :noad_only),
-    Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, false),
+    # Substituted for the single-source `{{JULIAFORMATTER_VERSION}}` hook `rev`.
+    Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, true),
     Template(".JuliaFormatter.toml", ".JuliaFormatter.toml", true, false),
     Template(".gitattributes", ".gitattributes", true, false),
     # NOTE: `.gitignore` is not in this list. It is managed between markers
@@ -174,8 +175,9 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("test/jet/Project.toml", "test/jet/Project.toml", true, true),
     Template("test/formatter/runtests.jl",
         "test/formatter/runtests.jl", true, false),
+    # Substituted for the single-source `{{JULIAFORMATTER_VERSION}}` compat pin.
     Template("test/formatter/Project.toml",
-        "test/formatter/Project.toml", true, false),
+        "test/formatter/Project.toml", true, true),
     # The AD harness drivers are opt-in (managed, but only when `ad = true`).
     Template("test/ad/setup.jl", "test/ad/setup.jl", true, true, :ad_only),
     Template("test/ad/runtests.jl", "test/ad/runtests.jl", true, false,
@@ -289,6 +291,16 @@ const SCAFFOLD_TEMPLATES = Template[
 # The default org used to derive `{{ORG}}`/`{{REPO}}` when a caller does not
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
+
+# The single source of truth for the pinned JuliaFormatter version (#114). It
+# feeds three managed files via `{{JULIAFORMATTER_VERSION}}`: the
+# `.pre-commit-config.yaml` hook `rev`, the `test/formatter/Project.toml` exact
+# compat pin, and the `juliaformatter_version` input the `pre-commit.yaml`
+# caller passes to the shared `format-check.yml`. Without that input the shared
+# workflow installs its own (older) default, so CI reformats code the pinned
+# local formatter left intact and the check fails; pinning all three from here
+# keeps the local hook, the isolated formatter env, and CI on one version.
+const _JULIAFORMATTER_VERSION = "2.10.1"
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),
@@ -572,6 +584,7 @@ function scaffold_inputs(target_dir::AbstractString;
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
         KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
+        JULIAFORMATTER_VERSION = _JULIAFORMATTER_VERSION,
         LOGO_INITIAL = _logo_initial(pkg))
 end
 
