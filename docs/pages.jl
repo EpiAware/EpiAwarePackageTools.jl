@@ -5,15 +5,19 @@
 
 pages = [
     "Home" => "index.md",
-    # Authored quickstart + infrastructure guide (package-owned source pages,
-    # distinct from the README-derived home page).
+    # Authored quickstart (package-owned source page, distinct from the
+    # README-derived home page).
     "Getting started" => [
         "Overview" => "getting-started/index.md",
-        "Infrastructure and template sync" => "getting-started/infrastructure.md",
         "Customising your docs" => "getting-started/customising.md"
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
         "Internal API" => "lib/internals.md"
+    ],
+    # Maintainer-facing reference: how the kit keeps itself (and adopters) to
+    # the shared standard. Out of Getting started so it is not user-facing noise.
+    "Development" => [
+        "Infrastructure and template sync" => "getting-started/infrastructure.md"
     ]
 ]
