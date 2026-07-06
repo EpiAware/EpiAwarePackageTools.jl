@@ -145,6 +145,29 @@
             end
         end
 
+        @testset "formatter version is single-sourced (#114)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "FmtPkg")
+                scaffold(dir; ad = false)
+                ver = EpiAwarePackageTools._JULIAFORMATTER_VERSION
+                # The pre-commit CI caller passes the pinned version to the
+                # shared format-check workflow (otherwise CI installs its own
+                # default and reformats code the local hook left intact).
+                pc = read(joinpath(dir, ".github/workflows/pre-commit.yaml"),
+                    String)
+                @test occursin("juliaformatter_version: '$ver'", pc)
+                # No kit placeholder remains (GitHub `${{ }}` expressions stay).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", pc)
+                # The local pre-commit hook `rev` and the isolated formatter
+                # env compat pin agree with the same single source.
+                cfg = read(joinpath(dir, ".pre-commit-config.yaml"), String)
+                @test occursin("rev: v$ver", cfg)
+                fmt = read(joinpath(dir, "test/formatter/Project.toml"), String)
+                @test occursin("JuliaFormatter = \"=$ver\"", fmt)
+                @test !occursin("{{", fmt)
+            end
+        end
+
         @testset "P0 runnability files present" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
