@@ -1123,6 +1123,37 @@
             end
         end
 
+        @testset "update preserves a with: block documented by comments (#117)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                caller = joinpath(dir, ".github/workflows/test.yaml")
+                # A package documents its Julia floor override with a rationale
+                # comment between `uses:` and `with:` (as EpiAwarePrototype.jl
+                # does). #117: comments between the two used to break the
+                # `uses:`->`with:` adjacency and silently drop the override.
+                before = read(caller, String)
+                overridden = replace(before,
+                    r"(uses: \S+/tests\.yml@\S+\r?\n)" =>
+                        s"""\1    # Floor is Julia 1.11 (Turing 0.45 needs it).
+    # Test the floor and the latest release.
+    with:
+      julia_versions: '["1.11", "1", "pre"]'
+""")
+                @test overridden != before
+                write(caller, overridden)
+                update(dir)
+                after = read(caller, String)
+                # Both the override and its rationale comment survive the resync.
+                @test occursin("julia_versions: '[\"1.11\", \"1\", \"pre\"]'",
+                    after)
+                @test occursin("Floor is Julia 1.11", after)
+                # Idempotent on the preserved block.
+                update(dir)
+                @test read(caller, String) == after
+            end
+        end
+
         @testset "scheduled sync is managed; community health not shipped" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

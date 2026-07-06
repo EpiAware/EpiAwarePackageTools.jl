@@ -647,15 +647,22 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
         end)
 end
 
-# A managed CI caller job's reusable `uses:` line, its optional `with:` block,
-# and the following `secrets:` key. Reuses the same workflow-filename capture
-# as `_REUSABLE_USES` to key the block; group 3 is the `with:` block itself
-# (empty when the job has none), group 4 (the `with:` line's own indent) is
-# only used internally, via the `\4` backreference, to require the block's
-# input lines be indented DEEPER than `with:` — which is what stops the match
-# from swallowing the sibling `secrets:` line (indented the same as `with:`).
-# See `_preserve_caller_with_inputs`.
-const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
+# A managed CI caller job's reusable `uses:` line, any interspersed blank/comment
+# lines documenting an override, its optional `with:` block, and the following
+# `secrets:` key. Reuses the same workflow-filename capture as `_REUSABLE_USES`
+# to key the block; group 3 is the preserved region — the interspersed
+# blank/comment lines plus the `with:` block (empty when the job has neither).
+# Group 4 (the `with:` line's own indent) is only used internally, via the `\4`
+# backreference, to require the block's input lines be indented DEEPER than
+# `with:` — which is what stops the match from swallowing the sibling `secrets:`
+# line (indented the same as `with:`). The leading `(?:...comment/blank...)*?`
+# lets a documented override survive even when a rationale comment sits between
+# `uses:` and `with:` (#117): those comment lines fall inside group 3 and are
+# re-emitted with the block, rather than breaking the `uses:`→`with:` adjacency
+# and silently dropping the override. It is lazy so it consumes only as far as
+# the `with:` block / `secrets:` key, never a following job. See
+# `_preserve_caller_with_inputs`.
+const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
 
 # Keep a package-owned `with:` block on a managed CI caller job across
 # `update()` (#73). A package can deliberately override a reusable workflow's
