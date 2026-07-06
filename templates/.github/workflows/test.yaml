@@ -15,8 +15,4 @@ concurrency:
 jobs:
   test:
     uses: {{ORG}}/.github/.github/workflows/tests.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
-    secrets: inherit  # pragma: allowlist secret
-
-  downgrade-compat:
-    uses: {{ORG}}/.github/.github/workflows/downgrade.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
-    secrets: inherit  # pragma: allowlist secret
+    secrets: inherit  # pragma: allowlist secret{{DOWNGRADE_COMPAT_JOB}}
