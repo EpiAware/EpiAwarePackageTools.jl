@@ -285,6 +285,15 @@
                 @test occursin("DocumenterVitepress", dp)
                 @test occursin("Wombat = \"00000000", dp)
                 @test !occursin("{{", dp)
+                # make.jl does `using EpiAwarePackageTools`, so the docs env
+                # must carry the kit as a dep + (until registered) a git source,
+                # or the docs build fails with "package not found" (#115).
+                @test occursin(
+                    "EpiAwarePackageTools = \"7aaea248", dp)
+                @test occursin(
+                    "EpiAwarePackageTools = {url = " *
+                    "\"https://github.com/EpiAware/EpiAwarePackageTools.jl\", " *
+                    "rev = \"main\"}", dp)
                 # The VitePress config keeps the DocumenterVitepress markers and
                 # points social links at the package repo.
                 cfg = read(joinpath(dir, "docs/src/.vitepress/config.mts"),
@@ -1387,22 +1396,23 @@
                 # until the kit is registered. The TOML round-trip above still
                 # runs on every version.
                 if VERSION >= v"1.11"
-                    # Two fully local environments carry no EpiAwarePackageTools
-                    # dependency at all, so instantiating them exercises nothing
-                    # beyond the generated package + registry deps already
-                    # primed by the kit's own test run.
-                    for env in ("test/ADFixtures", "docs")
+                    # The ADFixtures registry skeleton carries no
+                    # EpiAwarePackageTools dependency at all, so instantiating it
+                    # exercises nothing beyond the generated package + registry
+                    # deps already primed by the kit's own test run.
+                    for env in ("test/ADFixtures",)
                         @test _env_instantiates(joinpath(dir, env))
                     end
 
                     # The remaining envs pin EpiAwarePackageTools by git
                     # (`rev = "main"`) so a fresh adopter resolves out of the
                     # box; that network fetch is an extra dependency the kit's
-                    # own tests should not take on. Patch the pin to the local
-                    # kit checkout instead — the same switch the template
-                    # comments themselves suggest for kit development — so the
-                    # rest of each env (every other dep/compat bound) is proven
-                    # to resolve hermetically.
+                    # own tests should not take on. The `docs` env carries the
+                    # same git pin now that `make.jl` uses the kit (#115). Patch
+                    # the pin to the local kit checkout instead — the same switch
+                    # the template comments themselves suggest for kit
+                    # development — so the rest of each env (every other
+                    # dep/compat bound) is proven to resolve hermetically.
                     # Forward-slash the absolute path: a backslashed Windows
                     # path (`C:\...`) in a TOML basic string is an invalid
                     # escape sequence, and Julia/Pkg resolve forward slashes on
@@ -1411,7 +1421,7 @@
                         pkgdir(EpiAwarePackageTools), '\\' => '/')
                     kit_pin = r"EpiAwarePackageTools = \{url = \"[^\"]+\", " *
                               r"rev = \"main\"\}"
-                    for env in ("test", "test/jet")
+                    for env in ("test", "test/jet", "docs")
                         proj = joinpath(dir, env, "Project.toml")
                         txt = read(proj, String)
                         patched = replace(txt,
