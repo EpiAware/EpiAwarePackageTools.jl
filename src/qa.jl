@@ -164,6 +164,20 @@ end
 # string when nothing is documented, so callers test `isempty`.
 function _docstring_content(mod::Module, name::Symbol)
     try
+        # A documented submodule (e.g. a public `TestUtils`) stores its
+        # docstring in its OWN meta keyed by its self-binding, not in the
+        # parent's meta, so look it up there — otherwise the check always
+        # reports the submodule as undocumented and records a permanent
+        # `@test_skip` (#124).
+        val = try
+            getfield(mod, name)
+        catch
+            nothing
+        end
+        if val isa Module
+            mod = val
+            name = nameof(val)
+        end
         binding = Base.Docs.Binding(mod, name)
         meta = Base.Docs.meta(mod)
         haskey(meta, binding) || return ""
