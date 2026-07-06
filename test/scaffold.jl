@@ -1368,6 +1368,17 @@
                 @test occursin("EpiAwarePackageTools", cp)
                 @test occursin("Wombat = \"00000000", cp)
                 @test !occursin("{{", cp)
+                # benchmark-history resolves an unregistered package via --url
+                # and bootstraps before the first tag without a leading-comma
+                # revs list benchpkg rejects (#125).
+                hist = read(
+                    joinpath(dir, ".github/workflows/benchmark-history.yaml"),
+                    String)
+                @test occursin(
+                    "--url=\"https://github.com/\${{ github.repository }}\"",
+                    hist)
+                @test occursin("revs=\${GITHUB_SHA}", hist)
+                @test !occursin(r"\{\{[A-Z_]+\}\}", hist)
             end
         end
 
