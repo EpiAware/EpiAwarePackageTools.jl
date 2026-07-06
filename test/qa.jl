@@ -122,6 +122,23 @@
 
     end # module _ShortDoc
 
+    # A module exporting a documented public submodule (mirroring a package's
+    # public `TestUtils`). A submodule stores its docstring in its OWN meta, so
+    # this exercises the submodule-redirect in `_docstring_content` (#124).
+    module _WithSubmodule
+
+    export SubUtils
+
+    """
+        SubUtils
+
+    A documented public submodule with a meaningful description of its purpose.
+    """
+    module SubUtils
+    end
+
+    end # module _WithSubmodule
+
     # Tiny stand-ins for JET's report structure (`report.vst[end].linfo.
     # specTypes`) and a DynamicPPL-shaped evaluator signature, used to
     # exercise `dynamicppl_model_filter`'s classification branches without a
@@ -175,6 +192,18 @@
             @test EpiAwarePackageTools._docstr_text(ds) == "the real prose here"
             @test !occursin("_TemplateDirective",
                 EpiAwarePackageTools._docstr_text(ds))
+        end
+
+        @testset "_docstring_content reads a submodule's own meta (#124)" begin
+            # A documented public submodule keeps its docstring in its own meta,
+            # not the parent's, so the reader must redirect the lookup. Before
+            # the fix this returned "" and the submodule got a permanent
+            # `@test_skip` in `test_docstring_format`.
+            doc = EpiAwarePackageTools._docstring_content(
+                _WithSubmodule, :SubUtils)
+            @test !isempty(doc)
+            @test occursin("documented public submodule", doc)
+            @test EpiAwarePackageTools._meaningful(doc, :SubUtils)
         end
 
         @testset "_docstring_content joins interpolated fragments" begin
