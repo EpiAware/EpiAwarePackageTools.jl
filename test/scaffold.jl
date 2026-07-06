@@ -1226,6 +1226,49 @@
             end
         end
 
+        @testset "downgrade-compat job opt-out survives sync (#121)" begin
+            using EpiAwarePackageTools: _detect_downgrade_compat
+            # Default: a fresh scaffold keeps the downgrade-compat job.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                tf = joinpath(dir, ".github/workflows/test.yaml")
+                @test occursin("downgrade-compat:", read(tf, String))
+                @test occursin("downgrade.yml", read(tf, String))
+                @test _detect_downgrade_compat(dir)
+                # Exactly one trailing newline (pre-commit end-of-file-fixer).
+                @test endswith(read(tf, String), "secret\n")
+                @test !endswith(read(tf, String), "\n\n")
+            end
+            # Opt out: the job is not emitted, and a resync (no kwarg) keeps it
+            # out instead of unconditionally reintroducing a permanently-red job.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, downgrade_compat = false)
+                tf = joinpath(dir, ".github/workflows/test.yaml")
+                txt = read(tf, String)
+                @test !occursin("downgrade-compat:", txt)
+                @test !occursin("downgrade.yml", txt)
+                # The test job itself is still present and well-formed.
+                @test occursin("tests.yml", txt)
+                @test endswith(txt, "secret\n")
+                @test !endswith(txt, "\n\n")
+                @test !_detect_downgrade_compat(dir)
+                # The common maintenance call: no downgrade_compat kwarg.
+                update(dir; ad = false)
+                @test !occursin("downgrade-compat:", read(tf, String))
+                # Idempotent.
+                after = read(tf, String)
+                update(dir; ad = false)
+                @test read(tf, String) == after
+                # The sync workflow bakes the opt-out into its own update call.
+                sync = read(
+                    joinpath(dir, ".github/workflows/template-sync.yaml"),
+                    String)
+                @test occursin("downgrade_compat = false", sync)
+            end
+        end
+
         @testset "scheduled sync is managed; community health not shipped" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
@@ -1244,16 +1287,19 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `ad` + `benchmarks` values and is fully substituted.
+                # own `ad` + `benchmarks` + `downgrade_compat` values and is
+                # fully substituted (fresh package keeps downgrade-compat).
                 sync = read(
                     joinpath(dir, ".github/workflows/template-sync.yaml"),
                     String)
                 @test occursin(
-                    "update(\".\"; ad = false, benchmarks = false)", sync)
+                    "update(\".\"; ad = false, benchmarks = false, " *
+                    "downgrade_compat = true)", sync)
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{BENCHMARKS}}", sync)
+                @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
                 @test !occursin("{{SYNC_INSTALL}}", sync)
                 # It is managed: an update re-applies it.
                 res = update(dir; ad = false)

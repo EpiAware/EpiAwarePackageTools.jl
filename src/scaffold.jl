@@ -302,6 +302,13 @@ const DEFAULT_ORG = "EpiAware"
 # keeps the local hook, the isolated formatter env, and CI on one version.
 const _JULIAFORMATTER_VERSION = "2.10.1"
 
+# The seed reusable-workflow ref for the opt-in `downgrade-compat` caller job
+# built by `_downgrade_compat_job` (#121). Dependabot bumps the live pin in each
+# adopting repo, and `_preserve_reusable_refs` keeps that bumped ref across
+# `update`, so this seed is only what a first scaffold commits. Kept in step
+# with the `test` job's pin in `templates/.github/workflows/test.yaml`.
+const _DOWNGRADE_SEED_REF = "dc919e0d1674c16d1518df07eda5ee0be09b47e2"  # pragma: allowlist secret
+
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),
 # these are omitted so the env does not depend on / source itself twice.
@@ -1358,29 +1365,78 @@ function _detect_benchmarks(target_dir::AbstractString)
 end
 
 """
-    _apply(target_dir; managed_only, force, ad, benchmarks, inputs)
+    _detect_downgrade_compat(target_dir)
+
+Whether a repo keeps the opt-in `downgrade-compat` CI job, so a resync
+(`update` with no `downgrade_compat` kwarg) preserves a package's
+decision to drop it instead of unconditionally reintroducing a job the
+package deliberately removed (#121).
+
+A package pinned to a Julia floor (or one adopting an unregistered,
+`[sources]`-pinned dependency) can never resolve the
+`julia-downgrade-compat` job, so it disables that job in its managed
+`.github/workflows/test.yaml`. The current template would regenerate it
+on every sync, silently reintroducing a permanently-red job. The
+committed `test.yaml`'s `downgrade.yml` caller is the marker: present
+iff the job is kept. A fresh (never-scaffolded) target has no
+`test.yaml`, so it defaults to keeping the job — the standard for a new
+package.
+"""
+function _detect_downgrade_compat(target_dir::AbstractString)
+    tf = joinpath(target_dir, ".github", "workflows", "test.yaml")
+    isfile(tf) || return true
+    return occursin("downgrade.yml", read(tf, String))
+end
+
+# The opt-in `downgrade-compat` caller job spliced into `test.yaml` directly
+# after the `test` job's `secrets:` line via `{{DOWNGRADE_COMPAT_JOB}}` (#121):
+# the job block (preceded by a blank line) when kept, empty when a package opts
+# out. The template file keeps the single trailing newline the pre-commit
+# end-of-file-fixer requires, so this block carries none of its own — the empty
+# opt-out case leaves just that newline, and the kept case ends on its
+# `secrets:` line with the file's newline after it. Built with the org already
+# interpolated (so no `{{ORG}}` survives into the substituted content) and the
+# seed ref `_DOWNGRADE_SEED_REF`, which `_preserve_reusable_refs` overwrites
+# with the destination's Dependabot-bumped ref on every `update`.
+function _downgrade_compat_job(org::AbstractString, keep::Bool)
+    keep || return ""
+    return string(
+        "\n\n  downgrade-compat:\n",
+        "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
+        _DOWNGRADE_SEED_REF, "\n",
+        "    secrets: inherit  # pragma: allowlist secret")
+end
+
+"""
+    _apply(target_dir; managed_only, force, ad, benchmarks,
+        downgrade_compat, inputs)
 
 Shared worker for `scaffold`/`update`.
 
 `managed_only` restricts to managed templates (the `update` path).
 `force` overwrites package-owned files too (only meaningful for
 `scaffold`). `ad` selects the AD-enabled or AD-disabled standard;
-`benchmarks` gates the opt-in benchmark CI/suite/docs page. Returns a
+`benchmarks` gates the opt-in benchmark CI/suite/docs page;
+`downgrade_compat` gates the opt-in `downgrade-compat` CI job. Returns a
 `(created, updated, preserved)` manifest of destination paths.
 """
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool, inputs::NamedTuple)
+        ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
-    # Expose the AD + benchmarks flags as substitution values so the scheduled
-    # template-sync workflow re-applies the standard with the same `ad` /
-    # `benchmarks` the package adopted. `BENCHMARKS_NAV` is the benchmark docs
+    # Expose the AD + benchmarks + downgrade-compat flags as substitution values
+    # so the scheduled template-sync workflow re-applies the standard with the
+    # same choices the package adopted. `BENCHMARKS_NAV` is the benchmark docs
     # nav entry (present only when enabled); `BENCHMARK_PAGE` the `docs_config`
-    # default the build reads.
+    # default the build reads; `DOWNGRADE_COMPAT_JOB` the `test.yaml` job block
+    # (present only when kept).
     bench_nav = benchmarks ?
                 ",\n    \"Benchmarks\" => \"benchmarks.md\"" : ""
     inputs = merge(inputs,
         (AD = string(ad), BENCHMARKS = string(benchmarks),
-            BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks)))
+            BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
+            DOWNGRADE_COMPAT = string(downgrade_compat),
+            DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
+                inputs.ORG, downgrade_compat)))
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -1514,6 +1570,17 @@ fresh package has none, so the default is opt-out. When disabled, none of the
 benchmark files are written and the docs emit no Benchmarks page. Pass
 `benchmarks = true` to opt in; [`update`](@ref) detects and preserves the state.
 
+`downgrade_compat` controls the opt-in `downgrade-compat` CI job in
+`.github/workflows/test.yaml` (the `julia-downgrade-compat` reusable, which
+resolves the oldest compatible dep versions). A package pinned to a Julia floor
+— or one depending on an unregistered, `[sources]`-pinned package that the
+downgrade resolver cannot see — can never pass that job, so it opts out. It
+defaults to `nothing`, which detects the target's current state from the
+committed `test.yaml` so a resync preserves the choice; a fresh package keeps
+the job (the standard). Pass `downgrade_compat = false` to drop it (#121); the
+`test`/`downgrade` `julia_versions` inputs are separately preserved as a
+package-owned `with:` override (see `_preserve_caller_with_inputs`).
+
 The README body is package-owned, but the standard badge set is managed: a block
 between `$(BADGES_START)` / `$(BADGES_END)` markers carries the docs/CI/coverage/
 quality/license badges (plus per-backend AD CI + coverage badges when
@@ -1563,15 +1630,19 @@ or `:skipped` when no logo file exists yet).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
+        downgrade_compat::Union{Nothing, Bool} = nothing,
         kwargs...)
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
+    dg = downgrade_compat === nothing ?
+         _detect_downgrade_compat(target_dir) : downgrade_compat
     return _apply(target_dir; managed_only = false, force = force, ad = ad,
-        benchmarks = bench, inputs = inputs)
+        benchmarks = bench, downgrade_compat = dg, inputs = inputs)
 end
 
 """
-    update(target_dir; ad = true, benchmarks = nothing, kwargs...)
+    update(target_dir; ad = true, benchmarks = nothing,
+        downgrade_compat = nothing, kwargs...)
 
 Re-apply only the managed standard files to an already-adopted package and
 report the drift.
@@ -1599,6 +1670,12 @@ adopted value into its own `update` call, but a repo scaffolded before this flag
 re-passes nothing, so detection is what keeps that first sync idempotent. Pass
 `benchmarks = true`/`false` to force enable/disable.
 
+`downgrade_compat` controls the opt-in `downgrade-compat` CI job the same way:
+it defaults to `nothing`, detecting the job's presence in the committed
+`test.yaml` so a resync preserves a package's decision to drop it (#121) rather
+than reintroducing a job it deliberately removed. Pass
+`downgrade_compat = true`/`false` to force keep/drop.
+
 The README's managed badge block is also refreshed: `update` injects it when the
 `$(BADGES_START)` / `$(BADGES_END)` markers are absent and re-renders it from the
 current placeholders when present, so a package gets and keeps the standard
@@ -1618,11 +1695,14 @@ logo)` named tuple: managed files newly added, managed files rewritten,
 `.gitignore` managed-block action, and the README logo-title action.
 """
 function update(target_dir::AbstractString; ad::Bool = true,
-        benchmarks::Union{Nothing, Bool} = nothing, kwargs...)
+        benchmarks::Union{Nothing, Bool} = nothing,
+        downgrade_compat::Union{Nothing, Bool} = nothing, kwargs...)
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
+    dg = downgrade_compat === nothing ?
+         _detect_downgrade_compat(target_dir) : downgrade_compat
     return _apply(target_dir; managed_only = true, force = false, ad = ad,
-        benchmarks = bench, inputs = inputs)
+        benchmarks = bench, downgrade_compat = dg, inputs = inputs)
 end
 
 # Write a minimal package skeleton (Project.toml + src/<Package>.jl) into
