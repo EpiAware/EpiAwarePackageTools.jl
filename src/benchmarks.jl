@@ -16,6 +16,14 @@
 #     [`run_suite`]). [`compare_comment`] reads both via BenchmarkTools and
 #     builds a comment with a bucketed summary.
 #
+# The scaffolded benchmark CI uses the BenchmarkTools path: `benchmark.yaml`
+# posts its PR comment via `benchmark/compare.jl` -> [`compare_comment`], and
+# `benchmark-history.yaml` renders the timeline with AirspeedVelocity's own
+# `benchpkgtable`/`benchpkgplot`. The ASV comment path ([`flatten_asv`] +
+# [`asv_comment`]) is a self-contained reporting utility a package can wire up
+# against AirspeedVelocity result JSON, but it is not called by the default
+# scaffolded workflows (#126).
+#
 # The AD-gradients special-casing keys off the `"AD gradients/"` group name
 # that the shared AD harness (`ad_harness.jl`) and every package's benchmark
 # suite use, so the per-(scenario x backend) AD rows stay legible instead of
@@ -35,10 +43,13 @@ which distributions or models a package benchmarks. Two result shapes are
 supported:
 
   - AirspeedVelocity `results_<pkg>@<rev>.json` files, read by
-    [`flatten_asv`](@ref) and compared by [`asv_comment`](@ref).
+    [`flatten_asv`](@ref) and compared by [`asv_comment`](@ref). This is a
+    self-contained reporting path a package can wire up; the default scaffolded
+    benchmark CI does not call it (it uses the BenchmarkTools path below).
   - A pair of in-process BenchmarkTools result files, compared by
     [`compare_comment`](@ref). [`run_suite`](@ref) runs a package's `SUITE` and
-    saves such a file.
+    saves such a file. The scaffolded `benchmark.yaml` posts its PR comment via
+    this path (`benchmark/compare.jl`).
 
 Per-(scenario x backend) AD-gradient rows are folded into a compact matrix via
 the shared `"AD gradients/"` group convention; set the relevant `ad_prefix`

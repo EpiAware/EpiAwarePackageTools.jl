@@ -41,7 +41,7 @@
 #
 #   - `:always`     — emitted regardless of the `benchmarks` flag.
 #   - `:bench_only` — emitted only when `benchmarks = true` (the benchmark CI
-#                     callers, the `benchmark/` suite + comment harness, and the
+#                     callers, the `benchmark/` suite + compare script, and the
 #                     package-owned benchmark docs prose hook).
 struct Template
     src::String
@@ -141,8 +141,10 @@ const SCAFFOLD_TEMPLATES = Template[
     # --- benchmark CI (managed, opt-in via `benchmarks = true`) ---
     # The PR base-vs-head comparison comment (`benchmark.yaml`) and the
     # persistent history timeline (`benchmark-history.yaml`), reproducing the
-    # CensoredDistributions.jl benchmark CI. Both call AirspeedVelocity and build
-    # the comment via the shared `Benchmarks` harness (see `benchmark/comment`).
+    # CensoredDistributions.jl benchmark CI. `benchmark.yaml` builds its PR
+    # comment from `benchmark/compare.jl` (the BenchmarkTools `compare_comment`
+    # path); `benchmark-history.yaml` renders the timeline with
+    # AirspeedVelocity's `benchpkgtable`/`benchpkgplot`.
     Template(".github/workflows/benchmark.yaml",
         ".github/workflows/benchmark.yaml", true, true, :always, :bench_only),
     Template(".github/workflows/benchmark-history.yaml",
@@ -188,12 +190,6 @@ const SCAFFOLD_TEMPLATES = Template[
         :bench_only),
     Template("benchmark/compare.jl", "benchmark/compare.jl", true, false,
         :always, :bench_only),
-    # The benchmark-comment job's thin script + isolated env (it calls
-    # `Benchmarks.asv_comment`); used by `benchmark.yaml`.
-    Template("benchmark/comment/comment.jl",
-        "benchmark/comment/comment.jl", true, false, :always, :bench_only),
-    Template("benchmark/comment/Project.toml",
-        "benchmark/comment/Project.toml", true, true, :always, :bench_only),
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
     # The standard org docs build (mirrors CensoredDistributions.jl). `make.jl`
@@ -1562,7 +1558,7 @@ deps). Pass the same `ad` value to [`update`](@ref) to keep the standard stable.
 
 `benchmarks` controls the opt-in benchmark suite: the benchmark CI callers
 (`.github/workflows/benchmark.yaml`, `benchmark-history.yaml`), the `benchmark/`
-suite + comment harness, and the docs benchmark page (its nav entry and the
+suite + compare script, and the docs benchmark page (its nav entry and the
 package-owned `docs/benchmarks.md` prose hook, gated by `docs_config`'s
 `BENCHMARK_PAGE`). It defaults to `nothing`, which detects the target's current
 state from the benchmark workflows so re-scaffolding preserves an opt-in; a

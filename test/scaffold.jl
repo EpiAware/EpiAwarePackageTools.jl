@@ -1332,16 +1332,18 @@
             end
         end
 
-        @testset "benchmark CI workflows + comment env present" begin
+        @testset "benchmark CI workflows present, no comment env" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
                 for f in (".github/workflows/benchmark.yaml",
-                    ".github/workflows/benchmark-history.yaml",
-                    "benchmark/comment/comment.jl",
-                    "benchmark/comment/Project.toml")
+                    ".github/workflows/benchmark-history.yaml")
                     @test isfile(joinpath(dir, f))
                 end
+                # The unwired asv_comment env is not scaffolded (#126): the PR
+                # comment comes from the BenchmarkTools `benchmark/compare.jl`
+                # path, and the history workflow renders via benchpkg directly.
+                @test !ispath(joinpath(dir, "benchmark/comment"))
                 bench = read(joinpath(dir, ".github/workflows/benchmark.yaml"),
                     String)
                 # `pull_request` (not `pull_request_target`): the comparison
@@ -1367,15 +1369,6 @@
                 @test occursin("benchmark/compare.jl", bench)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", bench)
-                # The comment script uses the shared kit harness.
-                cj = read(joinpath(dir, "benchmark/comment/comment.jl"), String)
-                @test occursin("EpiAwarePackageTools.Benchmarks", cj)
-                cp = read(joinpath(dir, "benchmark/comment/Project.toml"),
-                    String)
-                @test occursin("JSON3", cp)
-                @test occursin("EpiAwarePackageTools", cp)
-                @test occursin("Wombat = \"00000000", cp)
-                @test !occursin("{{", cp)
                 # benchmark-history resolves an unregistered package via --url
                 # and bootstraps before the first tag without a leading-comma
                 # revs list benchpkg rejects (#125).

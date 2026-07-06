@@ -25,8 +25,6 @@
         ".github/workflows/benchmark-history.yaml",
         "benchmark/run.jl",
         "benchmark/compare.jl",
-        "benchmark/comment/comment.jl",
-        "benchmark/comment/Project.toml",
         "benchmark/Project.toml",
         "benchmark/benchmarks.jl",
         "docs/benchmarks.md"]
