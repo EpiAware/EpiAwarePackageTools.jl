@@ -1272,10 +1272,11 @@
                 @test occursin("EpiAware/Fresh.jl", txt)
                 # Authors threaded from Project.toml as CFF author entries.
                 @test occursin("- name: \"Ada Lovelace\"", txt)
-                # No placeholder DOI: the doi field is omitted until a real one
-                # is known, never seeded as `XXXXXXX` (release-prep, #67).
-                @test !occursin("XXXXXXX", txt)
+                # No placeholder DOI: the doi field is omitted entirely until a
+                # real one is known, never a fake/commented value (release-prep,
+                # #67). Asserting the field is absent covers this fully.
                 @test !occursin("doi:", txt)
+                @test !occursin("zenodo.", txt)
 
                 # When a DOI is known it is written as a real doi field.
                 mktempdir() do d2
@@ -1284,7 +1285,6 @@
                         zenodo_badge = "1046740844")
                     ctxt = read(joinpath(d2, "CITATION.cff"), String)
                     @test occursin("doi: \"10.5281/zenodo.18474651\"", ctxt)
-                    @test !occursin("XXXXXXX", ctxt)
                 end
 
                 # A hand-edited CITATION.cff survives update untouched.
