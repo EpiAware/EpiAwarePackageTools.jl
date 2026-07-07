@@ -19,12 +19,16 @@ Every file the kit writes is one of two kinds.
   header; do not edit them by hand.
 - Package-owned files are written once and never overwritten: the package's
   unit tests, its QA config values, the navigation tree (`docs/pages.jl`), the
-  README body, `LICENSE`, and the docs source pages such as this one.
+  README body, `LICENSE`, `CITATION.cff` (your citation metadata), and the docs
+  source pages such as this one.
   These are yours to edit.
 
-The README badge block and the `.gitignore` standard rules are a hybrid: they
-are managed between markers, so the badges and ignore rules stay current while
-anything you add outside the markers is preserved.
+The README badge block, the README standard sections (Contributing, How to
+cite, Code of conduct), and the `.gitignore` standard rules are a hybrid: they
+are managed between markers, so their wording and the ignore rules stay current
+while anything you add outside the markers is preserved. The managed "How to
+cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
+"Cite this repository" widget and the citation content stays yours to edit.
 
 ## Staying in sync
 

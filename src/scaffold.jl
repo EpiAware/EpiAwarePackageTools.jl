@@ -1134,60 +1134,19 @@ end
 # where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
 # the file content changed.
 # A starter README body for a package that has none yet, following the standard
-# EpiAware section structure (Why / Getting started / Where to learn more /
-# Contributing / Supporting and citing / Code of conduct — the order
-# `STANDARD_README_SECTIONS` in `quality.jl` requires), parameterised from the
-# repo slug, package name, and docs host. The "Supporting and citing" section
-# carries a BibTeX + DOI citation skeleton (package-owned content). Only seeded
-# when no README exists; thereafter the body is package-owned and only the badge
-# block is managed.
-# The BibTeX `author = {A and B}` field from the kit's comma-joined author
-# display names. Package-owned content: seeded once as a starting citation and
-# never rewritten, since each package cites itself with its own author list.
-function _bibtex_authors(authors::Union{Nothing, AbstractString})
-    (authors === nothing || isempty(strip(authors))) &&
-        return "Author One and Author Two"
-    return join((strip(a) for a in split(authors, ',') if !isempty(strip(a))),
-        " and ")
-end
-
-# A BibTeX `@software` entry for the package, mirroring CensoredDistributions.jl.
-# `doi` fills the `doi` field when known; otherwise a placeholder marks where the
-# Zenodo DOI goes once the package is released. The citation is package-owned
-# (seeded once), so the author list and DOI are a starting point to edit.
-function _citation_block(repo::AbstractString, pkg::AbstractString,
-        authors::Union{Nothing, AbstractString},
-        year::Union{Nothing, AbstractString},
-        doi::Union{Nothing, AbstractString})
-    key = replace(pkg, r"[^A-Za-z0-9]" => "_") * "_jl"
-    yr = year === nothing ? string(Dates.year(Dates.now())) : year
-    doi_line = doi === nothing ?
-               "  doi          = {10.5281/zenodo.XXXXXXX}," *
-               " # replace once released\n" :
-               "  doi          = {" * doi * "},\n"
-    return string(
-        "```bibtex\n",
-        "@software{", key, ",\n",
-        "  author       = {", _bibtex_authors(authors), "},\n",
-        "  title        = {", pkg, ".jl},\n",
-        "  year         = {", yr, "},\n",
-        doi_line,
-        "  url          = {https://github.com/", repo, "}\n",
-        "}\n```\n\n")
-end
-
+# EpiAware section structure (Why / Getting started / Where to learn more). The
+# managed standard-sections block (`_apply_standard_sections`) then appends
+# Contributing / How to cite / Code of conduct in the order
+# `STANDARD_README_SECTIONS` in `quality.jl` requires. Parameterised from the
+# repo slug, package name, and docs host. Only seeded when no README exists;
+# thereafter this body is package-owned and only the badge block and the managed
+# standard sections are refreshed on update.
 function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
-        docs_url::Union{Nothing, AbstractString};
-        authors::Union{Nothing, AbstractString} = nothing,
-        year::Union{Nothing, AbstractString} = nothing,
-        doi::Union{Nothing, AbstractString} = nothing)
+        docs_url::Union{Nothing, AbstractString})
     host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
-    org = first(split(repo, '/'))
     stable = host === nothing ? nothing : "https://" * host * "/stable/"
     docs_link = stable === nothing ? "the documentation" :
                 "[documentation](" * stable * ")"
-    coc = "https://github.com/" * org *
-          "/.github/blob/main/CODE_OF_CONDUCT.md"
     return string(
         "_One-line description of $pkg._\n\n",
         "## Why $pkg?\n\n",
@@ -1197,35 +1156,19 @@ function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         "```julia\nusing $pkg\n```\n\n",
         "## Where to learn more\n\n",
         "- [GitHub Discussions](https://github.com/$repo/discussions)\n",
-        "- [GitHub Repository](https://github.com/$repo)\n\n",
-        "## Contributing\n\n",
-        "We welcome contributions and new contributors! This package ",
-        "follows [ColPrac](https://github.com/SciML/ColPrac) and the ",
-        "[SciML style](https://github.com/SciML/SciMLStyle).\n\n",
-        "## Supporting and citing\n\n",
-        "If you would like to support $pkg, please star the repository — ",
-        "such metrics help secure future funding.\n\n",
-        "If you use $pkg in your work, please cite it:\n\n",
-        _citation_block(repo, pkg, authors, year, doi),
-        "## Code of conduct\n\n",
-        "Please note that the $pkg project is released with a ",
-        "[Contributor Code of Conduct]($coc). By contributing, you agree ",
-        "to abide by its terms.\n")
+        "- [GitHub Repository](https://github.com/$repo)\n")
 end
 
 function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
         docs_url::Union{Nothing, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
-        zenodo_badge::Union{Nothing, AbstractString} = nothing,
-        authors::Union{Nothing, AbstractString} = nothing,
-        year::Union{Nothing, AbstractString} = nothing)
+        zenodo_badge::Union{Nothing, AbstractString} = nothing)
     badges = _render_badges(repo, pkg; ad = ad, license = license,
         docs_url = docs_url, doi = doi, zenodo_badge = zenodo_badge)
     block = BADGES_START * "\n" * badges * "\n" * BADGES_END
     if !isfile(readme)
-        body = _seed_readme_body(repo, pkg, docs_url;
-            authors = authors, year = year, doi = doi)
+        body = _seed_readme_body(repo, pkg, docs_url)
         write(readme, "# " * pkg * "\n\n" * block * "\n\n" * body)
         return (:created, true)
     end
@@ -1286,6 +1229,167 @@ function _apply_logo_title(target_dir::AbstractString, pkg::AbstractString)
     write(readme, replace(text, title => title * " " * _logo_img_tag(pkg);
         count = 1))
     return :injected
+end
+
+# --- managed README standard sections --------------------------------------
+#
+# The README body is package-owned, but three standard sections are managed so
+# their wording stays consistent across adopters and updates centrally:
+# Contributing, How to cite, and Code of conduct. They live between the markers
+# below and are re-rendered on every scaffold/update, exactly like the badge
+# block. The citation *content* stays package-owned in `CITATION.cff` (seeded
+# once, never clobbered); the managed "How to cite" section only points at it
+# (#67).
+
+const STANDARD_SECTIONS_START = "<!-- standard-sections:start -->"
+const STANDARD_SECTIONS_END = "<!-- standard-sections:end -->"
+
+# The managed-block header written just inside the start marker, so it is part
+# of the refreshed region (like the `.gitignore` header) and never duplicated on
+# the preserved side of the file.
+const _STANDARD_SECTIONS_HEADER = string(
+    "<!-- MANAGED by EpiAwarePackageTools.scaffold — do not edit between the\n",
+    "     markers. These standard sections are re-rendered on every update;\n",
+    "     edit the package-owned sections outside them, or CITATION.cff. -->")
+
+# The org Code of Conduct URL, served from the org's shared `.github` repo.
+function _coc_url(org::AbstractString)
+    "https://github.com/" * org * "/.github/blob/main/CODE_OF_CONDUCT.md"
+end
+
+# Render the managed standard sections (Contributing / How to cite / Code of
+# conduct) without the markers, parameterised by package/org/repo. `doi` adds a
+# version-DOI line to the citation pointer when known (the value persisted in
+# the README DOI badge); otherwise the section points only at `CITATION.cff`.
+function _render_standard_sections(pkg::AbstractString, org::AbstractString,
+        repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing)
+    doi_line = doi === nothing ? "" :
+               string("A version-specific DOI is available at ",
+        "[https://doi.org/", doi, "](https://doi.org/", doi, ").\n")
+    return string(
+        "## Contributing\n\n",
+        "We welcome contributions and new contributors! Please open an issue ",
+        "or pull request on [GitHub](https://github.com/", repo, "). This ",
+        "package follows [ColPrac](https://github.com/SciML/ColPrac) and the ",
+        "[SciML style](https://github.com/SciML/SciMLStyle).\n\n",
+        "## How to cite\n\n",
+        "If you use ", pkg, " in your work, please cite it. Citation metadata ",
+        "lives in [`CITATION.cff`](CITATION.cff), which GitHub renders as a ",
+        "\"Cite this repository\" button on the repository page.\n",
+        doi_line,
+        "\n",
+        "## Code of conduct\n\n",
+        "Please note that the ", pkg, " project is released with a ",
+        "[Contributor Code of Conduct](", _coc_url(org), "). By contributing, ",
+        "you agree to abide by its terms.\n")
+end
+
+# Whether `text` already carries one of the managed standard section headings
+# (Contributing / Code of conduct / a citation section), used to leave a
+# marker-less README that has bespoke prose alone rather than duplicating them.
+function _has_managed_section_heading(text::AbstractString)
+    return occursin(r"(?mi)^#{2,6}\s+contributing\b", text) ||
+           occursin(r"(?mi)^#{2,6}\s+code of conduct\b", text) ||
+           occursin(
+               r"(?mi)^#{2,6}\s+(how to cite|citation|citing|supporting)\b", text)
+end
+
+"""
+    _apply_standard_sections(target_dir, inputs)
+
+Inject or refresh the managed README standard-sections block.
+
+Returns `(action, changed)` where action is `:refreshed` (markers present),
+`:injected` (appended to a README that carries none of these sections yet), or
+`:skipped` (no README, missing inputs, or a marker-less README that already has
+a bespoke Contributing/Code-of-conduct/citation section — migrating that to the
+managed block is a deliberate, maintainer-signed per-repo wording change, #67).
+Mirrors `_apply_badges`/`_apply_gitignore`: only the marked region is rewritten.
+"""
+function _apply_standard_sections(
+        target_dir::AbstractString, inputs::NamedTuple)
+    readme = joinpath(target_dir, "README.md")
+    isfile(readme) || return (:skipped, false)
+    pkg = inputs.PACKAGE
+    org = inputs.ORG
+    repo = inputs.REPO
+    (pkg === nothing || org === nothing || repo === nothing) &&
+        return (:skipped, false)
+    body = _render_standard_sections(String(pkg), String(org), String(repo);
+        doi = inputs.DOI)
+    block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *
+            "\n\n" * body * STANDARD_SECTIONS_END
+    text = read(readme, String)
+    si = findfirst(STANDARD_SECTIONS_START, text)
+    ei = findlast(STANDARD_SECTIONS_END, text)
+    if si !== nothing && ei !== nothing && first(ei) > last(si)
+        new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
+        new == text && return (:refreshed, false)
+        write(readme, new)
+        return (:refreshed, true)
+    end
+    # No markers. Append the block only when the README carries none of these
+    # standard sections yet (a freshly seeded body). A README with bespoke
+    # Contributing/citation/CoC prose is left untouched — migrating it to the
+    # managed block is a deliberate wording change signed off per repo (#67).
+    _has_managed_section_heading(text) && return (:skipped, false)
+    endswith(text, "\n") || (text *= "\n")
+    write(readme, text * "\n" * block * "\n")
+    return (:injected, true)
+end
+
+# --- package-owned CITATION.cff --------------------------------------------
+#
+# A Citation File Format (https://citation-file-format.github.io) seed so GitHub
+# renders a "Cite this repository" widget and the managed "How to cite" README
+# section has a file to point at. Package-owned and write-once like `LICENSE`:
+# scaffold seeds it, `update` never rewrites it, so a package's real author
+# list, DOI, and version are preserved (#67).
+
+# The CFF `authors:` list from the kit's author display names (comma- or
+# `and`-separated), one `- name:` entity entry each — a valid CFF starting point
+# the package refines into person `family-names`/`given-names`.
+function _cff_authors(authors::Union{Nothing, AbstractString})
+    names = authors === nothing ? String[] :
+            [String(strip(a))
+             for a in split(authors, r",|\band\b") if !isempty(strip(a))]
+    isempty(names) && (names = ["Author One", "Author Two"])
+    return join(("  - name: \"" * n * "\"" for n in names), "\n")
+end
+
+# Render a package-owned CITATION.cff seed. `doi` fills the `doi:` field when
+# known (the value persisted in the README DOI badge); otherwise a commented
+# placeholder marks where the Zenodo DOI goes once the package is released.
+function _render_citation_cff(pkg::AbstractString, repo::AbstractString,
+        authors::Union{Nothing, AbstractString},
+        doi::Union{Nothing, AbstractString})
+    doi_line = doi === nothing ?
+               "# doi: 10.5281/zenodo.XXXXXXX  # add once released on Zenodo\n" :
+               "doi: \"" * doi * "\"\n"
+    return string(
+        "cff-version: 1.2.0\n",
+        "message: \"If you use this software, please cite it using these ",
+        "metadata.\"\n",
+        "title: \"", pkg, ".jl\"\n",
+        "type: software\n",
+        "authors:\n", _cff_authors(authors), "\n",
+        "repository-code: \"https://github.com/", repo, "\"\n",
+        "url: \"https://github.com/", repo, "\"\n",
+        doi_line)
+end
+
+# Seed a package-owned CITATION.cff, write-once (like `_apply_license`): returns
+# `:preserved` when one already exists, `:skipped` when the inputs are unknown,
+# `:created` when freshly written.
+function _apply_citation_cff(target_dir::AbstractString, inputs::NamedTuple)
+    dest = joinpath(target_dir, "CITATION.cff")
+    isfile(dest) && return :preserved
+    pkg = inputs.PACKAGE
+    repo = inputs.REPO
+    (pkg === nothing || repo === nothing) && return :skipped
+    write(dest, _render_citation_cff(String(pkg), String(repo),
+        inputs.AUTHORS, inputs.DOI))
+    return :created
 end
 
 # --- managed [workspace] stanza in the root Project.toml -------------------
@@ -1622,13 +1726,24 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         readme_action = first(
             _apply_badges(readme, repo, pkg; ad = ad, license = lic,
             docs_url = inputs.DOCS_URL, doi = inputs.DOI,
-            zenodo_badge = inputs.ZENODO_BADGE,
-            authors = inputs.AUTHORS, year = inputs.YEAR))
+            zenodo_badge = inputs.ZENODO_BADGE))
     end
     # The README title's inline logo tag is managed the same way as the badge
     # block: added once a `docs/src/assets/logo.svg` exists, left alone
     # otherwise. Reported separately for the same reason as `readme` above.
     logo_action = pkg === nothing ? :skipped : _apply_logo_title(target_dir, pkg)
+    # The standard sections (Contributing / How to cite / Code of conduct) are
+    # managed between markers, like the badge block: refreshed on every sync but
+    # only within the markers, so a package's own body sections are preserved.
+    # Reported separately (`standard_sections`) for the same reason as `readme`.
+    sections_action = first(_apply_standard_sections(target_dir, inputs))
+    # CITATION.cff is package-owned and write-once (like LICENSE): only
+    # `scaffold`/`generate` (`managed_only = false`) seed it, and only when
+    # absent. `update` (`managed_only = true`) never touches it, so a package's
+    # real citation metadata (authors, DOI, version) is preserved. Reported
+    # separately (`citation`) so the template manifest stays template-driven.
+    citation_action = managed_only ? :skipped :
+                      _apply_citation_cff(target_dir, inputs)
     # LICENSE is package-owned and write-once: only `scaffold`/`generate`
     # (`managed_only = false`) may write it, and only when absent. `update`
     # (`managed_only = true`) never touches it, so a deliberate licence stands.
@@ -1647,7 +1762,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     return (created = created, updated = updated, preserved = preserved,
         readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
-        logo = logo_action)
+        logo = logo_action, standard_sections = sections_action,
+        citation = citation_action)
 end
 
 """
@@ -1678,9 +1794,18 @@ adopts the whole kit in one call. Two kinds of file are written:
     see the `logo` return value below), `test/ad/scenarios.jl` +
     `test/ad/Project.toml`, an `ADFixtures` registry skeleton implementing the
     `ADRegistry` contract (`test/ADFixtures/Project.toml` +
-    `src/ADFixtures.jl`), and `benchmark/benchmarks.jl` (the `SUITE`). These
-    are where a package's own unit tests, AD scenarios, registry, and config
-    values live.
+    `src/ADFixtures.jl`), `benchmark/benchmarks.jl` (the `SUITE`), and
+    `CITATION.cff` (the citation metadata the managed "How to cite" README
+    section points at — see the `citation` return value below). These
+    are where a package's own unit tests, AD scenarios, registry, citation, and
+    config values live.
+
+The README body is package-owned, but three standard sections — Contributing,
+How to cite, and Code of conduct — are managed between the
+`<!-- standard-sections:start -->`/`:end` markers and refreshed on every sync
+(like the badge block), so their wording stays consistent across adopters. The
+citation *content* stays package-owned in `CITATION.cff`; the managed "How to
+cite" section only points at it.
 
 Placeholders (`{{PACKAGE}}`, `{{AUTHORS}}`, `{{HOLDER}}`, `{{ORG}}`, `{{REPO}}`,
 `{{REVIEWER}}`, `{{YEAR}}`) are filled by [`scaffold_inputs`](@ref): each
@@ -1767,17 +1892,29 @@ sync (#123). Only a never-scaffolded target falls back to the default: the kit
 itself dogfoods the opt-in path, defaulting to its own DNS-wired subdomain
 (`epiawarepackagetools.epiaware.org`), so its dogfood `update` stays stable.
 
+The three managed README sections (Contributing, How to cite, Code of conduct)
+follow the same managed-block pattern between
+`$(STANDARD_SECTIONS_START)` / `$(STANDARD_SECTIONS_END)` markers: appended to a
+freshly seeded README and refreshed in place thereafter. A marker-less README
+that already carries a bespoke Contributing/citation/Code-of-conduct section is
+left untouched — migrating it to the managed block is a deliberate per-repo
+wording change (#67). `CITATION.cff` is package-owned and write-once, seeded
+from `{{PACKAGE}}`/`{{AUTHORS}}`/`{{REPO}}` (and the DOI when known); `update`
+never rewrites it, so the real author list and DOI stand.
+
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`update`](@ref) to re-apply only the managed files later.
 
 Returns a `(created, updated, preserved, readme, license, workspace, gitignore,
-logo)` named tuple: destination paths newly written, managed files
-overwritten, package-owned files left in place, the README badge action
-(`:created`, `:injected`, `:refreshed`, or `:skipped`), the `LICENSE` action,
-the root `[workspace]` stanza action (`:injected`, `:preserved`, or
-`:skipped`), the `.gitignore` managed-block action (`:created`, `:injected`,
-or `:refreshed`), and the README logo-title action (`:injected`, `:preserved`,
-or `:skipped` when no logo file exists yet).
+logo, standard_sections, citation)` named tuple: destination paths newly
+written, managed files overwritten, package-owned files left in place, the
+README badge action (`:created`, `:injected`, `:refreshed`, or `:skipped`), the
+`LICENSE` action, the root `[workspace]` stanza action (`:injected`,
+`:preserved`, or `:skipped`), the `.gitignore` managed-block action
+(`:created`, `:injected`, or `:refreshed`), the README logo-title action
+(`:injected`, `:preserved`, or `:skipped` when no logo file exists yet), the
+managed standard-sections action (`:refreshed`, `:injected`, or `:skipped`),
+and the `CITATION.cff` action (`:created`, `:preserved`, or `:skipped`).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
