@@ -18,6 +18,9 @@ pages = [
     # Maintainer-facing reference: how the kit keeps itself (and adopters) to
     # the shared standard. Out of Getting started so it is not user-facing noise.
     "Development" => [
-        "Infrastructure and template sync" => "getting-started/infrastructure.md"
+        "Infrastructure and template sync" => "getting-started/infrastructure.md",
+        "Test infrastructure" => "getting-started/test-infrastructure.md",
+        "Benchmarking" => "getting-started/benchmarking.md",
+        "AD tooling" => "getting-started/ad-tooling.md"
     ]
 ]
