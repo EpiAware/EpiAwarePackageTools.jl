@@ -497,5 +497,9 @@ end
     DB.build_api_pages(Pkg160, lib)
     pub = read(joinpath(lib, "public.md"), String)
     @test occursin("Pkg160.owned_reexport", pub)
-    @test occursin("Pkg160.dep_public", pub)
+    if VERSION >= v"1.11"
+        # `dep_public` is only public where the `public` keyword parses (>=1.11),
+        # so it appears as a documented public binding on the API page only there.
+        @test occursin("Pkg160.dep_public", pub)
+    end
 end
