@@ -5,6 +5,9 @@ infrastructure once (`scaffold`), and it keeps that infrastructure current
 afterwards (`update`, driven on a schedule).
 This page explains the sync machinery and how the kit applies it to itself on
 its own repository.
+For what that infrastructure actually contains, see the reference pages on the
+[test infrastructure](@ref test-infrastructure), [benchmarking](@ref
+benchmarking), and [AD tooling](@ref ad-tooling).
 
 ## Managed and package-owned files
 
