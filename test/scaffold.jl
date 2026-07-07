@@ -342,6 +342,44 @@
             end
         end
 
+        @testset "managed docs/quality tolerate unseeded config (#163)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # Simulate an adopter predating the build_docs / readme-field
+                # migrations: the package-owned config is absent, but update()
+                # (managed_only) re-emits the managed make.jl/quality.jl.
+                rm(joinpath(dir, "docs/docs_config.jl"))
+                rm(joinpath(dir, "docs/pages.jl"))
+                update(dir)
+                # make.jl no longer hard-includes the missing config; the
+                # include is guarded and pages falls back to a default.
+                mk = read(joinpath(dir, "docs/make.jl"), String)
+                @test occursin("isfile(joinpath(@__DIR__, _f))", mk)
+                @test !occursin("\ninclude(\"docs_config.jl\")", mk)
+                @test !occursin("\ninclude(\"pages.jl\")", mk)
+                @test occursin("_cfg(:pages,", mk)
+                # The guarded prelude actually loads with the config absent and
+                # returns defaults rather than erroring on the missing files.
+                prelude = joinpath(dir, "docs", "_prelude163.jl")
+                write(prelude,
+                    "for _f in (\"pages.jl\", \"docs_config.jl\")\n" *
+                    "    isfile(joinpath(@__DIR__, _f)) &&\n" *
+                    "        include(joinpath(@__DIR__, _f))\n" *
+                    "end\n" *
+                    "_cfg(sym, default) = isdefined(@__MODULE__, sym) ?\n" *
+                    "                     getfield(@__MODULE__, sym) : default\n")
+                m = Module()
+                Base.include(m, prelude)
+                @test Base.invokelatest(
+                    getproperty(m, :_cfg), :pages, ["Home" => "index.md"]) ==
+                      ["Home" => "index.md"]
+                # quality.jl defaults a missing QA_CONFIG.readme field.
+                ql = read(joinpath(dir, "test/package/quality.jl"), String)
+                @test occursin("hasproperty(QA_CONFIG, :readme)", ql)
+            end
+        end
+
         @testset "update preserves docs_subdomain without re-passing it (#123)" begin
             # A subdomain-hosted package is not reverted to project-pages when a
             # resync (the scheduled template-sync's `update`) omits the kwarg.
@@ -1503,8 +1541,11 @@
                 # lives in the kit (tested in the DocsBuild testitem).
                 mk = read(joinpath(dir, "docs/make.jl"), String)
                 @test occursin("build_docs(", mk)
-                @test occursin("include(\"pages.jl\")", mk)
-                @test occursin("include(\"docs_config.jl\")", mk)
+                # The package-owned config is wired in via a guarded include so
+                # a missing file falls back to defaults rather than erroring
+                # (#163); both files are still referenced.
+                @test occursin("(\"pages.jl\", \"docs_config.jl\")", mk)
+                @test occursin("isfile(joinpath(@__DIR__, _f))", mk)
                 @test occursin("benchmark_page", mk)
                 @test !occursin("{{", mk)
                 # The docs env still carries the citation + Literate deps (the
