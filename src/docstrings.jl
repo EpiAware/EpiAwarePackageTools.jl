@@ -14,7 +14,7 @@
 #     end
 #
 # Add DocStringExtensions to the package `[deps]` (this file imports from it,
-# via the `using` centralised in the main module file). `generate` wires both
+# via the `using` centralised in the main module file). `scaffold_generate` wires both
 # for a fresh package automatically. It pairs with `test_docstring_format`
 # (which checks the rendered docstrings) and the Documenter +
 # DocumenterVitepress build in `docs/make.jl`.

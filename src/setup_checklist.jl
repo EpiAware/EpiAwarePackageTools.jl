@@ -1,4 +1,4 @@
-# A `usethis`-style manual-setup checklist: `scaffold`/`generate` write every
+# A `usethis`-style manual-setup checklist: `scaffold`/`scaffold_generate` write every
 # file-based standard, but a handful of one-off steps need a human with
 # dashboard access (Codecov, GitHub Pages, branch protection, the first
 # registration) and no file-writer can do them. `setup_checklist` prints that
@@ -22,7 +22,7 @@ function _setup_checklist_steps(pkg::AbstractString, repo::AbstractString)
         string("Enable GitHub Pages for ", pkg, "'s `gh-pages` branch ",
             "(Settings -> Pages) so the docs site deploys."),
         string("If ", pkg, " uses a custom docs subdomain (the ",
-            "`docs_subdomain` input to `scaffold`/`update`), add a DNS ",
+            "`docs_subdomain` input to `scaffold`/`scaffold_update`), add a DNS ",
             "CNAME for it and set it as the custom domain in Settings -> ",
             "Pages; the default project-pages URL needs no DNS."),
         string("Protect ", pkg, "'s `main` branch (Settings -> Branches): ",
@@ -41,7 +41,7 @@ function _setup_checklist_issue_body(
         pkg::AbstractString, steps::AbstractVector{<:AbstractString})
     lines = String["# Manual setup for $pkg", "",
         string("Tracking issue for the one-off setup steps `scaffold`/",
-            "`generate` cannot do on their own (each needs dashboard ",
+            "`scaffold_generate` cannot do on their own (each needs dashboard ",
             "access). Check each off as it is done."),
         ""]
     for step in steps
@@ -56,7 +56,7 @@ end
     setup_checklist(target_dir = "."; package = nothing, repo = nothing,
         org = $(repr(DEFAULT_ORG)), io = stdout)
 
-Print the manual setup steps left after [`scaffold`](@ref)/[`generate`](@ref).
+Print the manual setup steps left after [`scaffold`](@ref)/[`scaffold_generate`](@ref).
 
 `scaffold` writes every file-based standard, but a handful of one-off steps
 need a human with dashboard access and no file-writer can do them for us:

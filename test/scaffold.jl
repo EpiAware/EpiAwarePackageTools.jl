@@ -1,8 +1,8 @@
 # Scaffolding into a fresh temp package writes every managed standard file plus
-# the package-owned skeletons; `update` re-applies only the managed files and is
+# the package-owned skeletons; `scaffold_update` re-applies only the managed files and is
 # idempotent, never touching package-owned files.
 
-@testitem "scaffold + update (logic)" begin
+@testitem "scaffold + scaffold_update (logic)" begin
     using Test
     using Pkg
     using EpiAwarePackageTools
@@ -61,7 +61,7 @@
     const MANAGED_DESTS = [t.dest for t in _selected(true, true) if t.managed]
     const OWNED_DESTS = [t.dest for t in _selected(true, true) if !t.managed]
 
-    @testset "scaffold + update" begin
+    @testset "scaffold + scaffold_update" begin
         @testset "scaffold writes managed + owned" begin
             mktempdir() do dir
                 _fake_pkg(dir)
@@ -347,11 +347,11 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
                 # Simulate an adopter predating the build_docs / readme-field
-                # migrations: the package-owned config is absent, but update()
+                # migrations: the package-owned config is absent, but scaffold_update()
                 # (managed_only) re-emits the managed make.jl/quality.jl.
                 rm(joinpath(dir, "docs/docs_config.jl"))
                 rm(joinpath(dir, "docs/pages.jl"))
-                update(dir)
+                scaffold_update(dir)
                 # make.jl no longer hard-includes the missing config; the
                 # include is guarded and pages falls back to a default.
                 mk = read(joinpath(dir, "docs/make.jl"), String)
@@ -380,9 +380,9 @@
             end
         end
 
-        @testset "update preserves docs_subdomain without re-passing it (#123)" begin
+        @testset "scaffold_update preserves docs_subdomain without re-passing it (#123)" begin
             # A subdomain-hosted package is not reverted to project-pages when a
-            # resync (the scheduled template-sync's `update`) omits the kwarg.
+            # resync (the scheduled template-sync's `scaffold_update`) omits the kwarg.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; docs_subdomain = true)
@@ -390,7 +390,7 @@
                 @test occursin("deploy_url = \"wombat.epiaware.org\"",
                     read(mk, String))
                 # The common maintenance call: no docs_subdomain kwarg.
-                update(dir)
+                scaffold_update(dir)
                 @test occursin("deploy_url = \"wombat.epiaware.org\"",
                     read(mk, String))
                 @test !occursin("deploy_url = nothing", read(mk, String))
@@ -404,7 +404,7 @@
                 scaffold(dir)  # default: project-pages
                 mk = joinpath(dir, "docs/make.jl")
                 @test occursin("deploy_url = nothing", read(mk, String))
-                update(dir)
+                scaffold_update(dir)
                 @test occursin("deploy_url = nothing", read(mk, String))
             end
         end
@@ -444,16 +444,16 @@
             end
         end
 
-        @testset "update preserves an adopter's DOI badge (#161)" begin
+        @testset "scaffold_update preserves an adopter's DOI badge (#161)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; doi = "10.5281/zenodo.18474651",
                     zenodo_badge = "862539324")
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("zenodo.org/badge/862539324.svg", txt)
-                # A bare update (as the scheduled template-sync runs) must not
+                # A bare scaffold_update (as the scheduled template-sync runs) must not
                 # strip the DOI badge.
-                update(dir)
+                scaffold_update(dir)
                 txt2 = read(joinpath(dir, "README.md"), String)
                 @test occursin("zenodo.org/badge/862539324.svg", txt2)
                 @test occursin("doi.org/10.5281/zenodo.18474651", txt2)
@@ -501,13 +501,13 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
                 # docs_config.jl is package-owned; rewrite TUTORIALS_SUBDIR and
-                # re-run update — the managed .gitignore must follow the new path.
+                # re-run scaffold_update — the managed .gitignore must follow the new path.
                 cfg = joinpath(dir, "docs", "docs_config.jl")
                 write(cfg,
                     replace(read(cfg, String),
                         "const TUTORIALS_SUBDIR = " *
                         "joinpath(\"getting-started\", \"tutorials\")" => "const TUTORIALS_SUBDIR = \"how-to/walkthroughs\""))
-                update(dir)
+                scaffold_update(dir)
                 txt = read(joinpath(dir, ".gitignore"), String)
                 @test occursin("docs/src/how-to/walkthroughs/*.md", txt)
                 @test !occursin(
@@ -515,7 +515,7 @@
             end
         end
 
-        @testset ".gitignore package-owned tail survives update (#65)" begin
+        @testset ".gitignore package-owned tail survives scaffold_update (#65)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 res = scaffold(dir)
@@ -524,16 +524,16 @@
                 # A package adds its own ignore rule after the managed block.
                 keep = "!docs/src/getting-started/tutorials/data/**"
                 write(gi, read(gi, String) * "\n# Keep bundled data.\n" * keep * "\n")
-                res2 = update(dir)
+                res2 = scaffold_update(dir)
                 @test res2.gitignore === :refreshed
                 txt = read(gi, String)
                 @test occursin(keep, txt)
                 # The managed block is still correctly refreshed alongside it.
                 @test occursin("Manifest.toml", txt)
-                # A further no-op update changes nothing (idempotent with a
+                # A further no-op scaffold_update changes nothing (idempotent with a
                 # package-owned tail present).
                 before = read(gi, String)
-                res3 = update(dir)
+                res3 = scaffold_update(dir)
                 @test res3.gitignore === :refreshed
                 @test read(gi, String) == before
             end
@@ -553,7 +553,7 @@
                     "docs/src/getting-started/tutorials/*.md\n" *
                     "# Keep the bundled tutorial data (redistributed with the docs).\n" *
                     keep * "\n")
-                res = update(dir)
+                res = scaffold_update(dir)
                 @test res.gitignore === :injected
                 txt = read(joinpath(dir, ".gitignore"), String)
                 @test occursin(keep, txt)
@@ -561,7 +561,7 @@
                 @test occursin("# managed:end", txt)
                 # Idempotent once markers exist.
                 before = txt
-                update(dir)
+                scaffold_update(dir)
                 @test read(joinpath(dir, ".gitignore"), String) == before
             end
         end
@@ -669,7 +669,7 @@
                 @test !occursin("{{CODEOWNERS_LINE}}", co)
                 # The increment-version assignee default must be empty (never
                 # the bare org) so a bump PR does not fail with
-                # `replaceActorsForAssignable` on the update path (#122). The
+                # `replaceActorsForAssignable` on the scaffold_update path (#122). The
                 # action skips the `--assignee` flag when empty.
                 act = read(
                     joinpath(dir,
@@ -754,7 +754,7 @@
             end
         end
 
-        @testset "update re-applies only managed files, idempotently" begin
+        @testset "scaffold_update re-applies only managed files, idempotently" begin
             mktempdir() do dir
                 _fake_pkg(dir)
                 scaffold(dir; benchmarks = true)
@@ -766,7 +766,7 @@
                 write(owned, owned_marker * read(owned, String))
                 write(managed, "# drifted\n")
 
-                res = update(dir; benchmarks = true)
+                res = scaffold_update(dir; benchmarks = true)
                 # Only managed files are touched; all of them already existed, so
                 # they are `updated`, none `created`, none `preserved`.
                 @test isempty(res.created)
@@ -776,17 +776,17 @@
 
                 # The managed file's drift was overwritten back to the template.
                 @test occursin("Quality: Aqua", read(managed, String))
-                # The package-owned file's edit was preserved (update skips it).
+                # The package-owned file's edit was preserved (scaffold_update skips it).
                 @test occursin(owned_marker, read(owned, String))
-                # No package-owned file appears in the update manifest at all.
+                # No package-owned file appears in the scaffold_update manifest at all.
                 for d in OWNED_DESTS
                     @test joinpath(dir, d) ∉ res.updated
                 end
 
-                # Idempotent: a second update produces no content change.
+                # Idempotent: a second scaffold_update produces no content change.
                 before = Dict(f => read(joinpath(dir, f), String)
                 for f in MANAGED_DESTS)
-                update(dir; benchmarks = true)
+                scaffold_update(dir; benchmarks = true)
                 for (f, c) in before
                     @test read(joinpath(dir, f), String) == c
                 end
@@ -811,8 +811,8 @@
                 # A scheduled resync does not re-pass `reviewer`; the handle must
                 # be recovered from the destination (#72), not reverted to the org
                 # placeholder. Two updates confirm it stays put.
-                update(dir)
-                update(dir)
+                scaffold_update(dir)
+                scaffold_update(dir)
 
                 co = read(codeowners, String)
                 dep = read(dependabot, String)
@@ -924,17 +924,17 @@
                 setup = joinpath(dir, "test/ad/setup.jl")
                 # A freshly scaffolded driver is managed, not opted out.
                 @test !_detect_ad_setup_owned(dir)
-                # A bare update() force-overwrites the managed driver.
+                # A bare scaffold_update() force-overwrites the managed driver.
                 write(setup, "# hand-edited, no marker\n")
-                res = update(dir)
+                res = scaffold_update(dir)
                 @test setup in res.updated
                 @test occursin("test_working_backend", read(setup, String))
-                # Marking the driver package-owned makes update() preserve it.
+                # Marking the driver package-owned makes scaffold_update() preserve it.
                 owned = "# $(_AD_SETUP_OWNED_MARKER): keep this driver\n" *
                         "@testsnippet ADHelpers begin\n    # legacy driver\nend\n"
                 write(setup, owned)
                 @test _detect_ad_setup_owned(dir)
-                res2 = update(dir)
+                res2 = scaffold_update(dir)
                 @test setup in res2.preserved
                 @test read(setup, String) == owned
                 # scaffold(force = true) still re-lays the managed driver.
@@ -1015,9 +1015,9 @@
                 @test length(EpiAwarePackageTools._AD_BACKENDS) == n
             end
 
-            @testset "update() refreshes an already-adopted package" begin
+            @testset "scaffold_update() refreshes an already-adopted package" begin
                 # A package scaffolds against the current backend set, then a
-                # 7th backend is added and `update()` is run again — the
+                # 7th backend is added and `scaffold_update()` is run again — the
                 # managed `ad.yaml` `with: backends:` block must refresh to
                 # 7, not freeze at whatever `scaffold` first wrote (the #73
                 # with:-preservation mechanism must not treat this
@@ -1035,7 +1035,7 @@
                             slug = "ad-fakead", tag = "fakead",
                             pkg = "FakeADPkg"))
                     try
-                        update(dir)
+                        scaffold_update(dir)
                         adyaml2 = read(
                             joinpath(dir, ".github/workflows/ad.yaml"),
                             String)
@@ -1051,12 +1051,12 @@
             end
         end
 
-        @testset "update respects ad = false" begin
+        @testset "scaffold_update respects ad = false" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Tooly")
                 scaffold(dir; ad = false)
-                res = update(dir; ad = false)
-                # No AD managed file appears in the update manifest.
+                res = scaffold_update(dir; ad = false)
+                # No AD managed file appears in the scaffold_update manifest.
                 @test !any(p -> occursin("workflows/ad.yaml", p), res.updated)
                 @test !any(p -> occursin("test/ad/", p), res.updated)
                 # The no-AD codecov is re-applied (not the AD-flagged one).
@@ -1065,10 +1065,10 @@
             end
         end
 
-        @testset "generate makes a fresh package then scaffolds it" begin
+        @testset "scaffold_generate makes a fresh package then scaffolds it" begin
             mktempdir() do base
                 dir = joinpath(base, "FreshPkg")
-                res = generate(dir, "FreshPkg"; authors = ["Ada Lovelace"])
+                res = scaffold_generate(dir, "FreshPkg"; authors = ["Ada Lovelace"])
                 # The package skeleton is laid down.
                 @test isfile(joinpath(dir, "Project.toml"))
                 @test isfile(joinpath(dir, "src", "FreshPkg.jl"))
@@ -1083,10 +1083,10 @@
             end
         end
 
-        @testset "generate with ad = false opts out" begin
+        @testset "scaffold_generate with ad = false opts out" begin
             mktempdir() do base
                 dir = joinpath(base, "ToolPkg")
-                generate(dir, "ToolPkg"; authors = ["Ada"], ad = false)
+                scaffold_generate(dir, "ToolPkg"; authors = ["Ada"], ad = false)
                 @test isfile(joinpath(dir, "src", "ToolPkg.jl"))
                 @test !isfile(joinpath(dir, ".github/workflows/ad.yaml"))
                 @test !isdir(joinpath(dir, "test/ad"))
@@ -1100,9 +1100,9 @@
                 readme = joinpath(dir, "README.md")
                 write(readme, body)
 
-                # First update injects the marker block after the title and
+                # First scaffold_update injects the marker block after the title and
                 # leaves the body untouched.
-                res = update(dir; ad = false)
+                res = scaffold_update(dir; ad = false)
                 @test res.readme === :injected
                 txt = read(readme, String)
                 @test occursin("<!-- badges:start -->", txt)
@@ -1124,9 +1124,9 @@
                 @test !occursin("AD ForwardDiff", txt)
                 @test !occursin("ad-forwarddiff", txt)
 
-                # A second update is idempotent (refresh, no content change).
+                # A second scaffold_update is idempotent (refresh, no content change).
                 before = read(readme, String)
-                res2 = update(dir; ad = false)
+                res2 = scaffold_update(dir; ad = false)
                 @test res2.readme === :refreshed
                 @test read(readme, String) == before
 
@@ -1135,7 +1135,7 @@
                 edited = replace(read(readme, String),
                     "Intro paragraph." => "Edited intro.")
                 write(readme, edited * "\n\nNew trailing section.\n")
-                update(dir; ad = false)
+                scaffold_update(dir; ad = false)
                 final = read(readme, String)
                 @test occursin("Edited intro.", final)
                 @test occursin("New trailing section.", final)
@@ -1147,7 +1147,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")
                 write(joinpath(dir, "README.md"), "# Numeric\n\nbody\n")
-                update(dir; ad = true)
+                scaffold_update(dir; ad = true)
                 txt = read(joinpath(dir, "README.md"), String)
                 # One aggregate AD status badge in Build Status (we ship a single
                 # `ad.yaml`, not six per-backend workflows).
@@ -1212,9 +1212,9 @@
                 # ad = false and no DOI passed: no version-DOI line.
                 @test !occursin("doi.org", txt)
 
-                # A second update refreshes the block in place, idempotently.
+                # A second scaffold_update refreshes the block in place, idempotently.
                 before = read(joinpath(dir, "README.md"), String)
-                ures = update(dir; ad = false)
+                ures = scaffold_update(dir; ad = false)
                 @test ures.standard_sections === :refreshed
                 @test read(joinpath(dir, "README.md"), String) == before
                 @test count("<!-- standard-sections:start -->", before) == 1
@@ -1223,7 +1223,7 @@
                 edited = replace(before, "## Why Fresh?" => "## Why Fresh?!")
                 write(joinpath(dir, "README.md"),
                     edited * "\n\n## Extra package section\n")
-                update(dir; ad = false)
+                scaffold_update(dir; ad = false)
                 final = read(joinpath(dir, "README.md"), String)
                 @test occursin("## Why Fresh?!", final)
                 @test occursin("## Extra package section", final)
@@ -1240,7 +1240,7 @@
                 # The How-to-cite section references the version DOI, recovered
                 # from the README DOI badge on the next sync.
                 @test occursin("https://doi.org/10.5281/zenodo.18474651", txt)
-                update(dir; ad = false)  # no doi re-passed -> read back
+                scaffold_update(dir; ad = false)  # no doi re-passed -> read back
                 @test occursin("https://doi.org/10.5281/zenodo.18474651",
                     read(joinpath(dir, "README.md"), String))
             end
@@ -1254,7 +1254,7 @@
                 # deliberate per-repo change, #67).
                 body = "# Fresh\n\nIntro.\n\n## Contributing\n\nOur own prose.\n"
                 write(joinpath(dir, "README.md"), body)
-                res = update(dir; ad = false)
+                res = scaffold_update(dir; ad = false)
                 @test res.standard_sections === :skipped
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("Our own prose.", txt)
@@ -1291,10 +1291,10 @@
                     @test !occursin("XXXXXXX", ctxt)
                 end
 
-                # A hand-edited CITATION.cff survives update untouched.
+                # A hand-edited CITATION.cff survives scaffold_update untouched.
                 custom = txt * "\nversion: 1.2.3\n"
                 write(cff, custom)
-                ures = update(dir; ad = false)
+                ures = scaffold_update(dir; ad = false)
                 @test ures.citation === :skipped
                 @test read(cff, String) == custom
 
@@ -1321,10 +1321,10 @@
                 @test !occursin("{{HOLDER}}", txt)
                 @test !occursin("{{YEAR}}", txt)
 
-                # A deliberate licence change must not be reverted by update.
+                # A deliberate licence change must not be reverted by scaffold_update.
                 custom = "Custom proprietary licence — all rights reserved.\n"
                 write(lic, custom)
-                ures = update(dir)
+                ures = scaffold_update(dir)
                 @test ures.license === :skipped
                 @test read(lic, String) == custom
 
@@ -1358,10 +1358,10 @@
             end
         end
 
-        @testset "generate writes the license too" begin
+        @testset "scaffold_generate writes the license too" begin
             mktempdir() do base
                 dir = joinpath(base, "GenPkg")
-                res = generate(dir, "GenPkg"; authors = ["Ada"],
+                res = scaffold_generate(dir, "GenPkg"; authors = ["Ada"],
                     license = "Apache-2.0")
                 @test res.license === :created
                 @test occursin("Apache License",
@@ -1369,7 +1369,7 @@
             end
         end
 
-        @testset "update preserves a Dependabot-bumped reusable ref" begin
+        @testset "scaffold_update preserves a Dependabot-bumped reusable ref" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
@@ -1380,19 +1380,19 @@
                     r"(tests\.yml@)\S+" =>
                         s"\1deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
                 write(caller, bumped)
-                update(dir)
+                scaffold_update(dir)
                 after = read(caller, String)
-                # update keeps the bumped ref (never reverts Dependabot) ...
+                # scaffold_update keeps the bumped ref (never reverts Dependabot) ...
                 @test occursin(
                     "tests.yml@deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", after)
                 # ... the rest of the caller is still re-applied managed, and a
-                # second update is idempotent on the preserved ref.
-                update(dir)
+                # second scaffold_update is idempotent on the preserved ref.
+                scaffold_update(dir)
                 @test read(caller, String) == after
             end
         end
 
-        @testset "update preserves a package-owned with: input (#73)" begin
+        @testset "scaffold_update preserves a package-owned with: input (#73)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
@@ -1408,14 +1408,14 @@
                         s"\1    with:\n      julia_version: '1.11'\n")
                 @test overridden != before
                 write(caller, overridden)
-                update(dir)
+                scaffold_update(dir)
                 after = read(caller, String)
                 # The `with:` overrides survive the resync ...
                 @test occursin("julia_versions: '[\"1.11\", \"1\"]'", after)
                 @test occursin("julia_version: '1.11'", after)
                 # ... the rest of the caller is still managed and re-applied,
-                # and a second update is idempotent on the preserved inputs.
-                update(dir)
+                # and a second scaffold_update is idempotent on the preserved inputs.
+                scaffold_update(dir)
                 @test read(caller, String) == after
             end
         end
@@ -1438,12 +1438,12 @@
                 @test occursin("timeout_minutes: 120", txt)
                 # A bare resync (never re-passes docs_timeout) preserves it via
                 # the package-owned with:-block mechanism (#73).
-                update(dir)
+                scaffold_update(dir)
                 @test occursin("timeout_minutes: 120", read(doc, String))
             end
         end
 
-        @testset "update preserves a with: block documented by comments (#117)" begin
+        @testset "scaffold_update preserves a with: block documented by comments (#117)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
@@ -1462,14 +1462,14 @@
 """)
                 @test overridden != before
                 write(caller, overridden)
-                update(dir)
+                scaffold_update(dir)
                 after = read(caller, String)
                 # Both the override and its rationale comment survive the resync.
                 @test occursin("julia_versions: '[\"1.11\", \"1\", \"pre\"]'",
                     after)
                 @test occursin("Floor is Julia 1.11", after)
                 # Idempotent on the preserved block.
-                update(dir)
+                scaffold_update(dir)
                 @test read(caller, String) == after
             end
         end
@@ -1503,13 +1503,13 @@
                 @test !endswith(txt, "\n\n")
                 @test !_detect_downgrade_compat(dir)
                 # The common maintenance call: no downgrade_compat kwarg.
-                update(dir; ad = false)
+                scaffold_update(dir; ad = false)
                 @test !occursin("downgrade-compat:", read(tf, String))
                 # Idempotent.
                 after = read(tf, String)
-                update(dir; ad = false)
+                scaffold_update(dir; ad = false)
                 @test read(tf, String) == after
-                # The sync workflow bakes the opt-out into its own update call.
+                # The sync workflow bakes the opt-out into its own scaffold_update call.
                 sync = read(
                     joinpath(dir, ".github/workflows/template-sync.yaml"),
                     String)
@@ -1541,7 +1541,7 @@
                     joinpath(dir, ".github/workflows/template-sync.yaml"),
                     String)
                 @test occursin(
-                    "update(\".\"; ad = false, benchmarks = false, " *
+                    "scaffold_update(\".\"; ad = false, benchmarks = false, " *
                     "downgrade_compat = true)", sync)
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
@@ -1549,8 +1549,8 @@
                 @test !occursin("{{BENCHMARKS}}", sync)
                 @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
                 @test !occursin("{{SYNC_INSTALL}}", sync)
-                # It is managed: an update re-applies it.
-                res = update(dir; ad = false)
+                # It is managed: a scaffold_update re-applies it.
+                res = scaffold_update(dir; ad = false)
                 @test joinpath(dir, ".github/workflows/template-sync.yaml") in
                       res.updated
             end
@@ -1564,9 +1564,9 @@
                 proj = read(joinpath(dir, "Project.toml"), String)
                 @test occursin("[workspace]", proj)
                 @test occursin("projects = [\"test\", \"docs\"]", proj)
-                # Injected once; a later update preserves it (a package may
+                # Injected once; a later scaffold_update preserves it (a package may
                 # extend `projects`, so it is never reverted).
-                res2 = update(dir; ad = false)
+                res2 = scaffold_update(dir; ad = false)
                 @test res2.workspace === :preserved
                 @test read(joinpath(dir, "Project.toml"), String) == proj
             end
@@ -1718,7 +1718,7 @@
             end
         end
 
-        @testset "docstrings template shipped + wired by generate" begin
+        @testset "docstrings template shipped + wired by scaffold_generate" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
@@ -1742,14 +1742,14 @@
             end
             mktempdir() do base
                 dir = joinpath(base, "FreshPkg")
-                generate(dir, "FreshPkg"; authors = ["Ada"], ad = false)
-                # generate wires the dep + include automatically.
+                scaffold_generate(dir, "FreshPkg"; authors = ["Ada"], ad = false)
+                # scaffold_generate wires the dep + include automatically.
                 proj = read(joinpath(dir, "Project.toml"), String)
                 @test occursin("DocStringExtensions", proj)
                 mod = read(joinpath(dir, "src/FreshPkg.jl"), String)
                 @test occursin("include(\"docstrings.jl\")", mod)
                 @test isfile(joinpath(dir, "src/docstrings.jl"))
-                # generate wires the `using` into the module's own import
+                # scaffold_generate wires the `using` into the module's own import
                 # block, before the docstrings.jl include (#105).
                 @test occursin("using DocStringExtensions", mod)
                 using_idx = findfirst("using DocStringExtensions", mod)
@@ -1763,7 +1763,7 @@
         @testset "generated environments actually resolve" begin
             mktempdir() do base
                 dir = joinpath(base, "EnvPkg")
-                generate(dir, "EnvPkg"; authors = ["Ada Lovelace"])
+                scaffold_generate(dir, "EnvPkg"; authors = ["Ada Lovelace"])
 
                 # Every emitted Project.toml must round-trip through a real
                 # TOML parser: a duplicate key, an unbalanced `[sources]`
@@ -1854,8 +1854,8 @@
                 @test occursin(r"(?m)^\s*contents:\s*write\s*$", txt)
                 @test occursin(r"(?m)^\s*issues:\s*write\s*$", txt)
                 @test !occursin(r"(?m)^\s*contents:\s*read\s*$", txt)
-                # Managed: `update` re-applies it (not merely preserved).
-                res = update(dir)
+                # Managed: `scaffold_update` re-applies it (not merely preserved).
+                res = scaffold_update(dir)
                 @test joinpath(dir, ".github/workflows/Register.yml") in
                       res.updated
             end
@@ -1869,9 +1869,9 @@
                 @test isfile(news)
                 @test news in res.created
                 @test occursin("Unreleased", read(news, String))
-                # Package-owned: a caller's own entry survives `update`.
+                # Package-owned: a caller's own entry survives `scaffold_update`.
                 write(news, "## v1.0.0\n\nFirst release.\n")
-                res2 = update(dir)
+                res2 = scaffold_update(dir)
                 @test news ∉ res2.updated
                 @test read(news, String) == "## v1.0.0\n\nFirst release.\n"
             end
@@ -1888,9 +1888,9 @@
                 @test occursin("Wombat", txt)
                 @test !occursin("{{", txt)
                 # Package-owned: a real logo the caller drops in survives
-                # `update`.
+                # `scaffold_update`.
                 write(logo, "<svg><!-- real logo --></svg>\n")
-                update(dir)
+                scaffold_update(dir)
                 @test occursin("real logo", read(logo, String))
             end
         end
@@ -1900,9 +1900,9 @@
                 mktempdir() do dir
                     _fake_pkg(dir; name = "Wombat")
                     write(joinpath(dir, "README.md"), "# Wombat\n\nbody\n")
-                    # `update` never writes package-owned files (including the
+                    # `scaffold_update` never writes package-owned files (including the
                     # logo), so this exercises the no-logo-yet path directly.
-                    res = update(dir)
+                    res = scaffold_update(dir)
                     @test res.logo === :skipped
                     txt = read(joinpath(dir, "README.md"), String)
                     @test !occursin("<img", txt)
@@ -1934,12 +1934,12 @@
                     write(joinpath(dir, "README.md"),
                         "# Wombat <img src=\"docs/src/assets/logo.svg\" " *
                         "width=\"50\">\n\nbody\n")
-                    res = update(dir)
+                    res = scaffold_update(dir)
                     @test res.logo === :preserved
                     txt = read(joinpath(dir, "README.md"), String)
                     @test occursin("width=\"50\"", txt)
                 end
             end
         end
-    end # @testset "scaffold + update"
-end # @testitem "scaffold + update (logic)"
+    end # @testset "scaffold + scaffold_update"
+end # @testitem "scaffold + scaffold_update (logic)"

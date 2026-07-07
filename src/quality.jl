@@ -238,7 +238,7 @@ CensoredDistributions gold standard and used as the default `required` set by
 
 Each entry is a tuple of accepted `##`-heading texts (case-insensitive,
 substring match), and the check passes if any variant is present; the H1 title
-and the badge block (between the markers, refreshed by `update`) precede these
+and the badge block (between the markers, refreshed by `scaffold_update`) precede these
 and are checked separately. A package may title the equivalent section
 differently (e.g. "Getting started" vs "Usage"), so a tuple lists the accepted
 alternatives. Extend or relax it per package via the `required` keyword of

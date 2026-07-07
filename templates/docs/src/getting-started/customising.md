@@ -6,7 +6,7 @@ This page explains which files are yours to rewrite and where to start.
 
 ## What's package-owned here
 
-`update` never rewrites these, no matter how many times it runs:
+`scaffold_update` never rewrites these, no matter how many times it runs:
 
 - `getting-started/index.md` — the quickstart a new user lands on
   first.
@@ -39,6 +39,6 @@ full managed-versus-package-owned breakdown.
 - The API reference pages, generated fresh from `{{PACKAGE}}`'s
   docstrings on every build rather than stored as source.
 
-Editing a managed file directly works until the next `update` or
+Editing a managed file directly works until the next `scaffold_update` or
 template-sync run reverts it — put customisation in the package-owned
 files above instead.

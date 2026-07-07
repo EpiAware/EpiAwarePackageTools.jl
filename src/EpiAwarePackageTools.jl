@@ -25,18 +25,18 @@ Two groups are provided.
 A [`scaffold`](@ref) helper writes the shipped standard configuration and test
 infrastructure into a package — root dev config, CI caller workflows +
 dependabot, and the QA/AD/benchmark test-infra drivers that call these
-helpers — so a package adopts the whole kit at once. [`generate`](@ref) does the
+helpers — so a package adopts the whole kit at once. [`scaffold_generate`](@ref) does the
 same for a brand-new package, laying down its `Project.toml` and source module
-first. [`update`](@ref) re-applies the managed standard files (the scheduled
+first. [`scaffold_update`](@ref) re-applies the managed standard files (the scheduled
 template-sync entry point), leaving package-owned tests, AD scenarios, and QA
 config values untouched.
 
 [`setup_checklist`](@ref) prints the handful of manual, dashboard-only setup
-steps `scaffold`/`generate` cannot do for us (Codecov, GitHub Pages, branch
+steps `scaffold`/`scaffold_generate` cannot do for us (Codecov, GitHub Pages, branch
 protection, the first registry registration), plus a ready-to-paste tracking
 issue body.
 
-The AD harness + AD CI are opt-in: `scaffold`/`generate`/`update` take an
+The AD harness + AD CI are opt-in: `scaffold`/`scaffold_generate`/`scaffold_update` take an
 `ad::Bool` keyword (default `true`). A numerical package keeps `ad = true`; a
 tooling/non-numerical package passes `ad = false` to scaffold none of the AD
 infrastructure. The kit manages its own repo with `ad = false`.
@@ -107,7 +107,7 @@ export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
-export scaffold, update, generate, scaffold_inputs, setup_checklist
+export scaffold, scaffold_update, scaffold_generate, scaffold_inputs, setup_checklist
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export build_docs
 

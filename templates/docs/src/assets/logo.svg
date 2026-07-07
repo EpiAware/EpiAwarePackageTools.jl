@@ -1,5 +1,5 @@
 <!-- Placeholder logo for {{PACKAGE}}.jl, seeded once by `scaffold` and never
-     touched again by `update` (package-owned, like LICENSE). Replace this
+     touched again by `scaffold_update` (package-owned, like LICENSE). Replace this
      file with a real logo; the README title and docs build already point at
      this exact path (see docs/make.jl's README -> index.md step), so no
      other wiring changes are needed when it is swapped out. -->

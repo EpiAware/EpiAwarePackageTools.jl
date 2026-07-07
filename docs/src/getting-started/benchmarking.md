@@ -10,7 +10,7 @@ managed-versus-package-owned split.
 
 ## Opting in
 
-Pass `benchmarks = true` to `scaffold` (or `update`).
+Pass `benchmarks = true` to `scaffold` (or `scaffold_update`).
 
 ```julia
 scaffold(pkgdir(MyPackage); benchmarks = true)
