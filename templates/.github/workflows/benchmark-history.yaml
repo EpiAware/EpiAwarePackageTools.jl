@@ -9,10 +9,7 @@ name: Benchmark history
 # `benchmark.yaml` (push/tags here vs pull_request there), so the two
 # never run on the same event.
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  workflow_dispatch:
+{{BENCHMARK_HISTORY_TRIGGERS}}
 
 # `contents: write` lets JamesIves/github-pages-deploy-action push the
 # generated plots to the `benchmarks` branch.

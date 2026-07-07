@@ -1404,6 +1404,50 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
 end
 
 """
+    _detect_benchmark_history_parked(target_dir)
+
+Whether a package has parked `benchmark-history.yaml`'s push/tag triggers, so
+a resync (`update`) preserves that state instead of re-enabling a permanently
+failing `history` run (#153).
+
+AirspeedVelocity/benchpkg installs the package into a temp environment where a
+`[sources]` pin does not apply, so an unregistered `[sources]`-pinned dependency
+(currently every adopter, via the unregistered kit itself) can never resolve
+there and every push/tag-triggered `history` run fails. The fix is to park the
+workflow — drop the `push`/`tags` triggers, keeping only `workflow_dispatch` —
+until the package is registered. The committed `on:` block is the marker:
+parked iff it carries no `push:` trigger. A fresh (never-scaffolded) target has
+no file, so it defaults to the full triggers — the standard once a package is
+registered, mirroring `_detect_downgrade_compat`.
+"""
+function _detect_benchmark_history_parked(target_dir::AbstractString)
+    f = joinpath(target_dir, ".github", "workflows", "benchmark-history.yaml")
+    isfile(f) || return false
+    return !occursin(r"(?m)^  push:", read(f, String))
+end
+
+# The `benchmark-history.yaml` `on:` trigger block spliced via
+# `{{BENCHMARK_HISTORY_TRIGGERS}}` (#153): the full push/tags/dispatch triggers
+# by default, or a parked `workflow_dispatch`-only block (push/tags dropped)
+# when the package has parked the workflow for an unregistered `[sources]` dep.
+# The parked form self-heals to the full triggers once the package removes the
+# park (registers), the same detect-and-preserve idempotency as
+# `_downgrade_compat_job`.
+function _benchmark_history_triggers(parked::Bool)
+    parked && return string(
+        "  # push/tags parked until this package is registered: an\n",
+        "  # unregistered `[sources]`-pinned dependency never resolves in\n",
+        "  # benchpkg's temp environment, so a push/tag `history` run always\n",
+        "  # fails (#153). Restore the push/tags triggers once registered.\n",
+        "  workflow_dispatch:")
+    return string(
+        "  push:\n",
+        "    branches: [main]\n",
+        "    tags: ['v*']\n",
+        "  workflow_dispatch:")
+end
+
+"""
     _apply(target_dir; managed_only, force, ad, benchmarks,
         downgrade_compat, inputs)
 
@@ -1427,12 +1471,18 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # (present only when kept).
     bench_nav = benchmarks ?
                 ",\n    \"Benchmarks\" => \"benchmarks.md\"" : ""
+    # The `benchmark-history.yaml` `on:` triggers preserve a package's parked
+    # state (push/tags dropped for an unregistered `[sources]` dep) across a
+    # resync (#153), detected from the committed workflow — a fresh target
+    # defaults to the full triggers.
     inputs = merge(inputs,
         (AD = string(ad), BENCHMARKS = string(benchmarks),
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
             DOWNGRADE_COMPAT = string(downgrade_compat),
             DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
-                inputs.ORG, downgrade_compat)))
+                inputs.ORG, downgrade_compat),
+            BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
+                _detect_benchmark_history_parked(target_dir))))
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
