@@ -134,4 +134,42 @@
         # A non-benchmark tree is returned unchanged in shape.
         @test out[1] == ("Home" => "index.md")
     end
+
+    @testset "benchmark-history parked triggers survive sync (#153)" begin
+        using EpiAwarePackageTools: _detect_benchmark_history_parked
+        hist = ".github/workflows/benchmark-history.yaml"
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; benchmarks = true)
+            wf = joinpath(dir, hist)
+            # A fresh scaffold ships the full push/tags/dispatch triggers.
+            @test !_detect_benchmark_history_parked(dir)
+            txt = read(wf, String)
+            @test occursin("push:", txt)
+            @test occursin("tags: ['v*']", txt)
+
+            # Park the workflow (as an unregistered adopter does): drop the
+            # push/tags triggers, keeping only workflow_dispatch.
+            parked = replace(txt,
+                r"on:\n.*?\n  workflow_dispatch:"s => "on:\n  workflow_dispatch:")
+            write(wf, parked)
+            @test _detect_benchmark_history_parked(dir)
+
+            # A bare resync must preserve the parked state, not re-enable the
+            # permanently-failing push/tag history run.
+            update(dir)
+            synced = read(wf, String)
+            @test _detect_benchmark_history_parked(dir)
+            @test !occursin(r"(?m)^  push:", synced)
+            @test occursin("workflow_dispatch:", synced)
+            @test occursin("parked until this package is registered", synced)
+
+            # Self-heal: once the package removes the park (restores push), the
+            # next sync keeps the full triggers.
+            write(wf, txt)
+            update(dir)
+            @test !_detect_benchmark_history_parked(dir)
+            @test occursin(r"(?m)^  push:", read(wf, String))
+        end
+    end
 end
