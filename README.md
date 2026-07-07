@@ -79,7 +79,7 @@ We welcome contributions and new contributors! Please open an issue or pull requ
 
 ## How to cite
 
-If you use EpiAwarePackageTools in your work, please cite it. Citation metadata lives in [`CITATION.cff`](CITATION.cff), which GitHub renders as a "Cite this repository" button on the repository page.
+If you use EpiAwarePackageTools in your work, please cite it. Citation metadata lives in [`CITATION.cff`](https://github.com/EpiAware/EpiAwarePackageTools.jl/blob/main/CITATION.cff), which GitHub renders as a "Cite this repository" button on the repository page.
 
 ## Code of conduct
 
