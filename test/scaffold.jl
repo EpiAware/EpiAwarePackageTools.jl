@@ -877,6 +877,34 @@
             end
         end
 
+        @testset "ad setup opt-out preserves a package-owned driver (#162)" begin
+            using EpiAwarePackageTools: _detect_ad_setup_owned,
+                                        _AD_SETUP_OWNED_MARKER
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric")
+                scaffold(dir)  # default ad = true, managed driver
+                setup = joinpath(dir, "test/ad/setup.jl")
+                # A freshly scaffolded driver is managed, not opted out.
+                @test !_detect_ad_setup_owned(dir)
+                # A bare update() force-overwrites the managed driver.
+                write(setup, "# hand-edited, no marker\n")
+                res = update(dir)
+                @test setup in res.updated
+                @test occursin("test_working_backend", read(setup, String))
+                # Marking the driver package-owned makes update() preserve it.
+                owned = "# $(_AD_SETUP_OWNED_MARKER): keep this driver\n" *
+                        "@testsnippet ADHelpers begin\n    # legacy driver\nend\n"
+                write(setup, owned)
+                @test _detect_ad_setup_owned(dir)
+                res2 = update(dir)
+                @test setup in res2.preserved
+                @test read(setup, String) == owned
+                # scaffold(force = true) still re-lays the managed driver.
+                scaffold(dir; force = true)
+                @test occursin("test_working_backend", read(setup, String))
+            end
+        end
+
         @testset "AD backends single source of truth (#821)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")

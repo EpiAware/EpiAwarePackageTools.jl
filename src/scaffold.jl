@@ -1425,6 +1425,34 @@ function _detect_downgrade_compat(target_dir::AbstractString)
     return occursin("downgrade.yml", read(tf, String))
 end
 
+# The managed AD-harness driver (`test/ad/setup.jl`) and the opt-out marker a
+# package writes into its own copy to keep a package-owned driver (#162).
+const _AD_SETUP_DEST = "test/ad/setup.jl"
+const _AD_SETUP_OWNED_MARKER = "EPIAWARE_AD_SETUP_OWNED"
+
+"""
+    _detect_ad_setup_owned(target_dir)
+
+Whether a package has opted its AD-harness driver (`test/ad/setup.jl`) out
+of kit management by marking it package-owned (#162).
+
+`test/ad/setup.jl` is force-managed: `update()` overwrites it with the
+generic driver that assumes the package's `ADFixtures` registry satisfies the
+current `ADRegistry` contract (its `scenarios` accepts a `category` keyword).
+A package whose `ADFixtures` predates that contract cannot run the generic
+driver (it would `MethodError` on `category=`), so it must keep a package-owned
+driver while it migrates. Adding the marker `$(_AD_SETUP_OWNED_MARKER)` to the
+committed `test/ad/setup.jl` (in a comment) tells `update()` to preserve the
+file instead of clobbering it — the same detect-from-the-destination idempotency
+as `_detect_downgrade_compat` (#121). A never-scaffolded or unmarked file is
+managed as before, so the opt-out is explicit and self-documenting.
+"""
+function _detect_ad_setup_owned(target_dir::AbstractString)
+    f = joinpath(target_dir, _AD_SETUP_DEST)
+    isfile(f) || return false
+    return occursin(_AD_SETUP_OWNED_MARKER, read(f, String))
+end
+
 # The opt-in `downgrade-compat` caller job spliced into `test.yaml` directly
 # after the `test` job's `secrets:` line via `{{DOWNGRADE_COMPAT_JOB}}` (#121):
 # the job block (preceded by a blank line) when kept, empty when a package opts
@@ -1486,6 +1514,19 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         isfile(from) || error("missing bundled template $(t.src) at $from")
         to = joinpath(target_dir, t.dest)
         exists = isfile(to)
+        # A package mid-migration can opt its AD-harness driver out of
+        # management (#162): the generic `test/ad/setup.jl` assumes the
+        # package's ADFixtures registry satisfies the current `ADRegistry`
+        # contract (`scenarios(; category=)`), so force-clobbering a
+        # pre-contract adopter's hand-kept driver would `MethodError` every AD
+        # test. When the committed file carries the opt-out marker, preserve it
+        # rather than overwriting — `scaffold`/`generate` (`force = true`) still
+        # (re)lays it down so a fresh package starts managed.
+        if exists && !force && t.dest == _AD_SETUP_DEST &&
+           _detect_ad_setup_owned(target_dir)
+            push!(preserved, to)
+            continue
+        end
         # Package-owned files are written once and never overwritten (unless
         # `force`); managed files are always (re)written to remove drift.
         if exists && !t.managed && !force
@@ -1724,6 +1765,17 @@ package-owned tail after the block left untouched.
 
 The README logo title (see `scaffold`) is also (re)checked: once a package has
 a `docs/src/assets/logo.svg`, the tag is added to the title if missing.
+
+The force-managed AD-harness driver `test/ad/setup.jl` has a package-owned
+opt-out (#162): the generic driver assumes the package's `ADFixtures` registry
+satisfies the current `ADRegistry` contract (its `scenarios` accepts a
+`category` keyword), so a package whose registry predates that contract would
+`MethodError` on every AD test if the driver were force-overwritten. Adding a
+comment containing the marker `$(_AD_SETUP_OWNED_MARKER)` to the committed
+`test/ad/setup.jl` tells `update()` to preserve the file (leaving it in
+`preserved`) instead of clobbering it, so a package can keep a hand-written
+driver while it migrates; remove the marker to hand management back to the kit.
+`scaffold`/`generate` (`force = true`) still (re)lay the managed driver down.
 
 Returns a `(created, updated, preserved, readme, license, workspace, gitignore,
 logo)` named tuple: managed files newly added, managed files rewritten,
