@@ -1198,8 +1198,12 @@
                 # STANDARD_README_SECTIONS requires).
                 @test findfirst("## Contributing", txt)[1] <
                       findfirst("## How to cite", txt)[1]
-                # How to cite points at CITATION.cff; CoC at the org COC.
-                @test occursin("[`CITATION.cff`](CITATION.cff)", txt)
+                # How to cite points at CITATION.cff via its GitHub URL (a bare
+                # relative `CITATION.cff` link fails Documenter linkcheck); CoC
+                # at the org COC.
+                @test occursin(
+                    "[`CITATION.cff`](https://github.com/EpiAware/Fresh.jl" *
+                    "/blob/main/CITATION.cff)", txt)
                 @test occursin("CODE_OF_CONDUCT.md", txt)
                 # Parameterised, no hardcoded owner/repo.
                 @test occursin("EpiAware/Fresh.jl", txt)
