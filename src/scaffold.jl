@@ -457,6 +457,33 @@ function _detect_docs_subdomain(target_dir::AbstractString)
 end
 
 """
+    _detect_doi(target_dir)
+
+Recover a persisted Zenodo DOI and badge id from an already-scaffolded
+repo so a resync (`update` with no `doi`/`zenodo_badge` kwargs) keeps an
+adopter's DOI badge instead of stripping it (#161).
+
+The README "License & DOI" badge cell is fully managed and re-rendered
+on every sync, but `doi`/`zenodo_badge` default to `nothing` and the
+scheduled template-sync never re-passes them, so the values must be read
+back from the destination — exactly as `_detect_reviewer` recovers the
+code-owner handle. Reads the managed DOI badge the kit renders
+(`[![DOI](https://zenodo.org/badge/<id>.svg)](https://doi.org/<doi>)`)
+back from the existing README and returns the `(doi, zenodo_badge)`
+pair, or `(nothing, nothing)` when the README is absent or carries no
+DOI badge (so a never-configured repo stays unconfigured).
+"""
+function _detect_doi(target_dir::AbstractString)
+    readme = joinpath(target_dir, "README.md")
+    isfile(readme) || return (nothing, nothing)
+    m = match(
+        r"\[!\[DOI\]\(https://zenodo\.org/badge/([^)]+?)\.svg\)\]\(https://doi\.org/([^)]+?)\)",
+        read(readme, String))
+    m === nothing && return (nothing, nothing)
+    return (String(something(m.captures[2])), String(something(m.captures[1])))
+end
+
+"""
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
         reviewer = nothing, year = <current year>,
@@ -491,7 +518,10 @@ into a template:
     licence is never reverted.
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
     given a DOI badge is added to the README "License & DOI" cell (mirroring
-    CensoredDistributions.jl). Default `nothing` (no DOI badge).
+    CensoredDistributions.jl). Both default to `nothing`, in which case any DOI
+    badge already committed to the README is recovered and preserved (`#161`),
+    so a bare `update`/template-sync keeps an adopter's DOI instead of stripping
+    it. Passing either explicitly supplies or overrides the DOI on demand.
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -587,6 +617,17 @@ function scaffold_inputs(target_dir::AbstractString;
     docs_sub = _resolve_docs_subdomain(ds, pkg)
     docs_deploy_url = _docs_deploy_url(docs_sub)
     docs_url = _docs_url(rp, docs_sub)
+    # When neither `doi` nor `zenodo_badge` is passed, recover any Zenodo DOI a
+    # previous scaffold/update persisted in the README badge block, so a
+    # scheduled resync keeps an adopter's DOI badge instead of stripping it
+    # (#161) — the same read-back-the-destination idempotency `_detect_reviewer`
+    # provides. Passing either explicitly skips detection, so a caller can still
+    # supply or override a DOI on demand.
+    resolved_doi, resolved_zenodo = if doi === nothing && zenodo_badge === nothing
+        _detect_doi(target_dir)
+    else
+        (doi, zenodo_badge)
+    end
     # The managed JET env depends on EpiAwarePackageTools (for its report
     # filter). The kit dogfoods itself, so when the adopting package is the kit
     # the `{{PACKAGE}}` dep/source already cover it — adding a second
@@ -622,7 +663,7 @@ function scaffold_inputs(target_dir::AbstractString;
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
-        DOI = doi, ZENODO_BADGE = zenodo_badge,
+        DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(),
         AD_BACKENDS_JSON = _ad_backends_json(),
