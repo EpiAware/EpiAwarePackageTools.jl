@@ -387,6 +387,41 @@
             end
         end
 
+        @testset "_detect_doi recovers a committed DOI badge (#161)" begin
+            using EpiAwarePackageTools: _detect_doi
+            # No README yet -> nothing/nothing (a never-configured repo).
+            mktempdir() do dir
+                @test _detect_doi(dir) === (nothing, nothing)
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)  # no doi passed -> no DOI badge
+                @test _detect_doi(dir) === (nothing, nothing)
+            end
+            # A DOI-bearing README reads back the (doi, zenodo_badge) pair.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; doi = "10.5281/zenodo.18474651",
+                    zenodo_badge = "862539324")
+                @test _detect_doi(dir) ==
+                      ("10.5281/zenodo.18474651", "862539324")
+            end
+        end
+
+        @testset "update preserves an adopter's DOI badge (#161)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; doi = "10.5281/zenodo.18474651",
+                    zenodo_badge = "862539324")
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("zenodo.org/badge/862539324.svg", txt)
+                # A bare update (as the scheduled template-sync runs) must not
+                # strip the DOI badge.
+                update(dir)
+                txt2 = read(joinpath(dir, "README.md"), String)
+                @test occursin("zenodo.org/badge/862539324.svg", txt2)
+                @test occursin("doi.org/10.5281/zenodo.18474651", txt2)
+            end
+        end
+
         @testset "kit dogfoods its own subdomain by default" begin
             mktempdir() do dir
                 # The kit's own subdomain is DNS-wired, so with no explicit
