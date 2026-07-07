@@ -18,4 +18,4 @@ concurrency:
 jobs:
   Documenter:
     uses: {{ORG}}/.github/.github/workflows/documentation.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
-    secrets: inherit  # pragma: allowlist secret
+{{DOCS_TIMEOUT_WITH}}    secrets: inherit  # pragma: allowlist secret

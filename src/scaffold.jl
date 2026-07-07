@@ -522,6 +522,12 @@ into a template:
     badge already committed to the README is recovered and preserved (`#161`),
     so a bare `update`/template-sync keeps an adopter's DOI instead of stripping
     it. Passing either explicitly supplies or overrides the DOI on demand.
+  - `docs_timeout` — an optional docs-build job timeout in minutes for the
+    managed `document.yaml` Documenter caller. Default `nothing`, which renders
+    no `with:` block so the reusable `documentation.yml`'s own default (45 min)
+    applies; pass a positive integer to cap a slow docs build. A package-owned
+    `with:` block hand-added to `document.yaml` is preserved across `update()`
+    (see `_preserve_caller_with_inputs`), so a set timeout survives a resync.
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -537,7 +543,8 @@ function scaffold_inputs(target_dir::AbstractString;
         license::AbstractString = DEFAULT_LICENSE,
         docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
-        zenodo_badge::Union{Nothing, AbstractString} = nothing)
+        zenodo_badge::Union{Nothing, AbstractString} = nothing,
+        docs_timeout::Union{Nothing, Integer} = nothing)
     license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
         join(repr.(SUPPORTED_LICENSES), ", "))
@@ -663,6 +670,7 @@ function scaffold_inputs(target_dir::AbstractString;
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
+        DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
         DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(),
@@ -992,6 +1000,21 @@ _docs_url(repo::Nothing, sub) = sub === nothing ? nothing : String(sub)
 function _docs_url(repo::AbstractString, sub)
     sub === nothing || return String(sub)
     return DOCS_PAGES_APEX * "/" * last(split(repo, '/'))
+end
+
+# The optional `with: timeout_minutes:` override on the managed `document.yaml`
+# Documenter caller (#154), spliced via `{{DOCS_TIMEOUT_WITH}}`. Empty by
+# default, so the reusable `documentation.yml` applies its own default (45 min);
+# a set `docs_timeout` renders the block to cap a slow docs build. A package can
+# equally hand-add the block and `_preserve_caller_with_inputs` keeps it across
+# `update()` (#73), so the scheduled sync — which never re-passes `docs_timeout`
+# — never reverts a package-owned timeout.
+function _docs_timeout_with(docs_timeout::Union{Nothing, Integer})
+    docs_timeout === nothing && return ""
+    docs_timeout > 0 || error(
+        "docs_timeout must be a positive integer (minutes), got " *
+        repr(docs_timeout))
+    return string("    with:\n      timeout_minutes: ", docs_timeout, "\n")
 end
 
 # A license-badge cell for an SPDX identifier (label, shields colour, and the

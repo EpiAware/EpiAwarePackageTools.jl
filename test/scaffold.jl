@@ -1266,6 +1266,29 @@
             end
         end
 
+        @testset "docs_timeout sets the Documenter build timeout (#154)" begin
+            using EpiAwarePackageTools: _docs_timeout_with
+            # No timeout -> no `with:` block (reusable's own 45-min default).
+            @test _docs_timeout_with(nothing) == ""
+            @test occursin("timeout_minutes: 90", _docs_timeout_with(90))
+            @test_throws ErrorException _docs_timeout_with(0)
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)  # default: no explicit timeout
+                doc = joinpath(dir, ".github/workflows/document.yaml")
+                @test !occursin("timeout_minutes", read(doc, String))
+                # Setting docs_timeout renders the with: block on the caller.
+                scaffold(dir; force = true, docs_timeout = 120)
+                txt = read(doc, String)
+                @test occursin("with:", txt)
+                @test occursin("timeout_minutes: 120", txt)
+                # A bare resync (never re-passes docs_timeout) preserves it via
+                # the package-owned with:-block mechanism (#73).
+                update(dir)
+                @test occursin("timeout_minutes: 120", read(doc, String))
+            end
+        end
+
         @testset "update preserves a with: block documented by comments (#117)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
