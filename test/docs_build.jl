@@ -432,3 +432,58 @@
         end
     end
 end
+
+@testitem "api_bindings covers re-exports + public-only (#160)" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # A dependency owning the docstrings, and a package that re-exports part
+    # of that surface and declares its own public-but-unexported binding —
+    # the shape that produced broken @refs (EpiAware/ComposedDistributions#72).
+    module Dep
+    export owned_reexport
+    "owned_reexport docstring"
+    owned_reexport
+    owned_reexport(x) = x
+    "dep_public docstring"
+    dep_public
+    dep_public(x) = x
+    end
+
+    module Pkg160
+    using ..Dep: owned_reexport, dep_public
+    export owned_reexport            # re-export a dep-owned binding
+    public dep_public               # surface a dep-owned binding as public
+    "native docstring"
+    native
+    native() = 1
+    export native
+    "guts docstring"
+    guts
+    guts() = 2                       # documented, unexported -> internal
+    undoc_public() = 3               # public but carries no docstring
+    public undoc_public             # -> must be dropped from @docs
+    end
+
+    pubs, privs = DB.api_bindings(Pkg160)
+    # Re-exported and public-only dep-owned bindings now appear (were missed).
+    @test :owned_reexport in pubs
+    @test :dep_public in pubs
+    @test :native in pubs
+    # Documented-but-unexported bindings stay internal.
+    @test :guts in privs
+    # A public name with no resolvable docstring is dropped (keeps @docs safe).
+    @test !(:undoc_public in pubs)
+    @test !(:undoc_public in privs)
+    @test isempty(intersect(pubs, privs))
+
+    # The rendered @docs block lists the re-exported binding, so its @ref
+    # resolves instead of producing a broken link.
+    dir = mktempdir()
+    lib = joinpath(dir, "lib")
+    DB.build_api_pages(Pkg160, lib)
+    pub = read(joinpath(lib, "public.md"), String)
+    @test occursin("Pkg160.owned_reexport", pub)
+    @test occursin("Pkg160.dep_public", pub)
+end
