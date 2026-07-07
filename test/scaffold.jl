@@ -1172,20 +1172,132 @@
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("# Fresh", txt)
                 @test occursin("<!-- badges:start -->", txt)
-                # The seeded body follows CD's section structure.
+                # The package-owned seed carries the body sections.
                 @test occursin("## Why Fresh?", txt)
+                @test occursin("## Getting started", txt)
+                @test occursin("## Where to learn more", txt)
+                # The BibTeX citation is no longer inlined in the seed — the
+                # citation content lives in CITATION.cff (#67).
+                @test !occursin("```bibtex", txt)
+            end
+        end
+
+        @testset "scaffold appends the managed standard sections" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Fresh")
+                res = scaffold(dir; ad = false)
+                @test res.standard_sections === :injected
+                txt = read(joinpath(dir, "README.md"), String)
+                # The three managed sections sit between the markers.
+                @test occursin("<!-- standard-sections:start -->", txt)
+                @test occursin("<!-- standard-sections:end -->", txt)
                 @test occursin("## Contributing", txt)
+                @test occursin("## How to cite", txt)
                 @test occursin("## Code of conduct", txt)
+                # Contributing precedes the citation section (the order
+                # STANDARD_README_SECTIONS requires).
+                @test findfirst("## Contributing", txt)[1] <
+                      findfirst("## How to cite", txt)[1]
+                # How to cite points at CITATION.cff; CoC at the org COC.
+                @test occursin("[`CITATION.cff`](CITATION.cff)", txt)
                 @test occursin("CODE_OF_CONDUCT.md", txt)
-                # The seeded "Supporting and citing" carries a BibTeX block +
-                # DOI placeholder (package-owned citation content, #67/#80).
-                @test occursin("## Supporting and citing", txt)
-                @test occursin("```bibtex", txt)
-                @test occursin("@software{Fresh_jl", txt)
-                @test occursin("title        = {Fresh.jl}", txt)
-                @test occursin("10.5281/zenodo", txt)
-                # Authors are threaded from Project.toml into the BibTeX entry.
-                @test occursin("Ada Lovelace", txt)
+                # Parameterised, no hardcoded owner/repo.
+                @test occursin("EpiAware/Fresh.jl", txt)
+                @test occursin("EpiAware/.github/blob/main/CODE_OF_CONDUCT.md",
+                    txt)
+                # ad = false and no DOI passed: no version-DOI line.
+                @test !occursin("doi.org", txt)
+
+                # A second update refreshes the block in place, idempotently.
+                before = read(joinpath(dir, "README.md"), String)
+                ures = update(dir; ad = false)
+                @test ures.standard_sections === :refreshed
+                @test read(joinpath(dir, "README.md"), String) == before
+                @test count("<!-- standard-sections:start -->", before) == 1
+
+                # An edit outside the markers survives the refresh.
+                edited = replace(before, "## Why Fresh?" => "## Why Fresh?!")
+                write(joinpath(dir, "README.md"),
+                    edited * "\n\n## Extra package section\n")
+                update(dir; ad = false)
+                final = read(joinpath(dir, "README.md"), String)
+                @test occursin("## Why Fresh?!", final)
+                @test occursin("## Extra package section", final)
+                @test count("<!-- standard-sections:start -->", final) == 1
+            end
+        end
+
+        @testset "standard-sections DOI line follows a persisted DOI" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Fresh")
+                scaffold(dir; ad = false, doi = "10.5281/zenodo.18474651",
+                    zenodo_badge = "1046740844")
+                txt = read(joinpath(dir, "README.md"), String)
+                # The How-to-cite section references the version DOI, recovered
+                # from the README DOI badge on the next sync.
+                @test occursin("https://doi.org/10.5281/zenodo.18474651", txt)
+                update(dir; ad = false)  # no doi re-passed -> read back
+                @test occursin("https://doi.org/10.5281/zenodo.18474651",
+                    read(joinpath(dir, "README.md"), String))
+            end
+        end
+
+        @testset "standard sections skip a bespoke marker-less README" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Fresh")
+                # An adopter with its own Contributing prose and no markers: the
+                # managed block must not be injected (a wording migration is a
+                # deliberate per-repo change, #67).
+                body = "# Fresh\n\nIntro.\n\n## Contributing\n\nOur own prose.\n"
+                write(joinpath(dir, "README.md"), body)
+                res = update(dir; ad = false)
+                @test res.standard_sections === :skipped
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("Our own prose.", txt)
+                @test !occursin("<!-- standard-sections:start -->", txt)
+                @test count("## Contributing", txt) == 1
+            end
+        end
+
+        @testset "CITATION.cff is package-owned and write-once (#67)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Fresh")
+                res = scaffold(dir; ad = false)
+                @test res.citation === :created
+                cff = joinpath(dir, "CITATION.cff")
+                @test isfile(cff)
+                txt = read(cff, String)
+                @test occursin("cff-version: 1.2.0", txt)
+                @test occursin("title: \"Fresh.jl\"", txt)
+                @test occursin("EpiAware/Fresh.jl", txt)
+                # Authors threaded from Project.toml as CFF author entries.
+                @test occursin("- name: \"Ada Lovelace\"", txt)
+                # No placeholder DOI: the doi field is omitted until a real one
+                # is known, never seeded as `XXXXXXX` (release-prep, #67).
+                @test !occursin("XXXXXXX", txt)
+                @test !occursin("doi:", txt)
+
+                # When a DOI is known it is written as a real doi field.
+                mktempdir() do d2
+                    _fake_pkg(d2; name = "Cited")
+                    scaffold(d2; ad = false, doi = "10.5281/zenodo.18474651",
+                        zenodo_badge = "1046740844")
+                    ctxt = read(joinpath(d2, "CITATION.cff"), String)
+                    @test occursin("doi: \"10.5281/zenodo.18474651\"", ctxt)
+                    @test !occursin("XXXXXXX", ctxt)
+                end
+
+                # A hand-edited CITATION.cff survives update untouched.
+                custom = txt * "\nversion: 1.2.3\n"
+                write(cff, custom)
+                ures = update(dir; ad = false)
+                @test ures.citation === :skipped
+                @test read(cff, String) == custom
+
+                # A second scaffold preserves it too.
+                sres = scaffold(dir; ad = false)
+                @test sres.citation === :preserved
+                @test read(cff, String) == custom
             end
         end
 

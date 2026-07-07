@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+title: "EpiAwarePackageTools.jl"
+type: software
+authors:
+  - name: "Sam Abbott"
+  - name: "EpiAware contributors"
+repository-code: "https://github.com/EpiAware/EpiAwarePackageTools.jl"
+url: "https://github.com/EpiAware/EpiAwarePackageTools.jl"

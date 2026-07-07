@@ -14,8 +14,12 @@ This page explains which files are yours to rewrite and where to start.
   `docs/src/`.
 - `docs/pages.jl` — the navigation tree; add, remove, or reorder
   entries freely.
-- The README body (only the badge block between the managed markers is
-  rewritten on sync; everything else is package-owned).
+- The README body (the badge block and the standard sections between
+  their managed markers are rewritten on sync; everything else is
+  package-owned).
+- `CITATION.cff` — your citation metadata (authors, DOI, version).
+  Seeded once so GitHub renders a "Cite this repository" widget, then
+  never rewritten; edit it as the package is released.
 
 See [Infrastructure and template sync](@ref infrastructure) for the
 full managed-versus-package-owned breakdown.
@@ -43,6 +47,10 @@ package's docs would be.
   `docs/src/.vitepress/` and `docs/src/components/`.
 - The API reference pages, generated fresh from the module's
   docstrings on every build rather than stored as source.
+- The README standard sections (Contributing, How to cite, Code of
+  conduct) between the `standard-sections` markers, so their wording
+  stays consistent across adopters. Put package-specific prose outside
+  the markers, and your citation details in `CITATION.cff`.
 
 Editing a managed file directly works until the next `update` or
 template-sync run reverts it — put customisation in the package-owned

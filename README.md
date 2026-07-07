@@ -54,16 +54,6 @@ using Pkg
 Pkg.add("EpiAwarePackageTools")
 ```
 
-### Until registered / development
-
-The package is not yet registered in the General registry. Until it is,
-depend on it from a test environment via a `[sources]` git pin:
-
-```toml
-[sources]
-EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
-```
-
 ## Where to learn more
 
 - Want to get started? See the
@@ -78,29 +68,23 @@ EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.
 - Want to see the code or report a problem? Check out the
   [GitHub repository](https://github.com/EpiAware/EpiAwarePackageTools.jl).
 
+<!-- standard-sections:start -->
+<!-- MANAGED by EpiAwarePackageTools.scaffold — do not edit between the
+     markers. These standard sections are re-rendered on every update;
+     edit the package-owned sections outside them, or CITATION.cff. -->
+
 ## Contributing
 
-This package follows [ColPrac](https://github.com/SciML/ColPrac) and the
-[SciML style](https://github.com/SciML/SciMLStyle).
+We welcome contributions and new contributors! Please open an issue or pull request on [GitHub](https://github.com/EpiAware/EpiAwarePackageTools.jl). This package follows [ColPrac](https://github.com/SciML/ColPrac) and the [SciML style](https://github.com/SciML/SciMLStyle).
 
-## Supporting and citing
+## How to cite
 
-If you would like to support EpiAwarePackageTools, please star the repository —
-such metrics help secure future funding.
+If you use EpiAwarePackageTools in your work, please cite it. Citation metadata lives in [`CITATION.cff`](CITATION.cff), which GitHub renders as a "Cite this repository" button on the repository page.
 
-If you use EpiAwarePackageTools in your work, please cite it:
+## Code of conduct
 
-```bibtex
-@software{EpiAwarePackageTools_jl,
-  author       = {Abbott, Sam and EpiAware contributors},
-  title        = {EpiAwarePackageTools.jl},
-  year         = {2025},
-  doi          = {10.5281/zenodo.XXXXXXX},
-  url          = {https://github.com/EpiAware/EpiAwarePackageTools.jl}
-}
-```
-
-The DOI is a placeholder until the package is released to Zenodo.
+Please note that the EpiAwarePackageTools project is released with a [Contributor Code of Conduct](https://github.com/EpiAware/.github/blob/main/CODE_OF_CONDUCT.md). By contributing, you agree to abide by its terms.
+<!-- standard-sections:end -->
 
 ## License
 
