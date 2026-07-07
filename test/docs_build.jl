@@ -503,3 +503,99 @@ end
         @test occursin("Pkg160.dep_public", pub)
     end
 end
+
+@testitem "re-exports resolve without checkdocs flooding (#175)" begin
+    using Test
+    using Logging
+    using Documenter
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # A dependency that owns docstrings, one of which (`dep_only`) the package
+    # never surfaces, and a package re-exporting part of the dep (the
+    # ComposedDistributions <- ConvolvedDistributions shape from #175).
+    module Dep175
+    export owned_reexport
+    "owned_reexport docstring"
+    owned_reexport
+    owned_reexport(x) = x
+    "dep_only docstring — documented in the dep, never surfaced by the pkg"
+    dep_only
+    dep_only(x) = x
+    end
+
+    # Re-export a dep-owned binding: its docstring stays in `Dep175`, so
+    # resolving the pkg's `@docs` entry for it needs `Dep175` in makedocs'
+    # `modules` — the crux of #175. (No `public` keyword here, so the fixture
+    # parses on lts (1.10) as a plain module.)
+    module Pkg175
+    using ..Dep175: owned_reexport
+    export owned_reexport
+    "native docstring"
+    native
+    native() = 1
+    export native
+    end
+
+    # Auto-discovery finds the dep as the owner of the re-exported docstring,
+    # and never lists the package itself.
+    owners = DB.api_owning_modules(Pkg175)
+    @test Dep175 in owners
+    @test !(Pkg175 in owners)
+    # Same-package submodules are already reachable from `mod`, so they are not
+    # reported as external owners. Otherwise a package that re-exports from its
+    # own submodule (as the kit does from `DocsBuild`) would needlessly flip its
+    # own checkdocs off. The kit re-exports `build_docs` from `DocsBuild`.
+    @test isempty(DB.api_owning_modules(EpiAwarePackageTools))
+
+    # Mirror build_docs' module widening + checkdocs scoping so the test guards
+    # the exact resolution/completeness behaviour makedocs runs with.
+    doc_modules = Module[Pkg175]
+    append!(doc_modules, collect(owners))
+    checkdocs = length(doc_modules) > 1 ? :none : :all
+    @test checkdocs === :none
+
+    # Build the API pages (the @docs blocks listing the re-export) and run a
+    # real makedocs pass, collecting its warnings.
+    function makedocs_warnings(modules; checkdocs = :all)
+        dir = mktempdir()
+        src = joinpath(dir, "src")
+        DB.build_api_pages(Pkg175, joinpath(src, "lib"))
+        write(joinpath(src, "index.md"), "# Home\n\nHome.\n")
+        pages = ["Home" => "index.md",
+            "Public" => "lib/public.md", "Internals" => "lib/internals.md"]
+        logger = Test.TestLogger(; min_level = Logging.Debug)
+        Logging.with_logger(logger) do
+            Documenter.makedocs(; root = dir, sitename = "Pkg175",
+                modules = modules, pages = pages, remotes = nothing,
+                doctest = false, warnonly = true, checkdocs = checkdocs,
+                format = Documenter.HTML())
+        end
+        return [string(r.message) for r in logger.logs
+                if r.level >= Logging.Warn]
+    end
+
+    nodocs(msgs) = count(m -> occursin("no docs found", m), msgs)
+    missingdocs(msgs) = count(
+        m -> occursin("not included in the manual", m), msgs)
+
+    # Control: the un-widened build reproduces the #175 bug — the re-exported
+    # @docs entry raises "no docs found" (a broken @ref in the built HTML).
+    narrow = makedocs_warnings(Module[Pkg175])
+    @test nodocs(narrow) > 0
+
+    # The fix: widening resolution to the owning modules resolves the re-export
+    # (no "no docs found")...
+    widened = makedocs_warnings(doc_modules; checkdocs = checkdocs)
+    @test nodocs(widened) == 0
+    # ...and disabling the (redundant) completeness check keeps the package off
+    # the hook for the dependency's own missing docstring (`Dep175.dep_only`).
+    @test missingdocs(widened) == 0
+
+    # Guard the scoping decision: widening *without* the checkdocs relaxation
+    # would flood the package's log with the dependency's own hygiene — the
+    # exact failure the :none scoping prevents.
+    widened_checked = makedocs_warnings(doc_modules; checkdocs = :all)
+    @test nodocs(widened_checked) == 0
+    @test any(m -> occursin("Dep175.dep_only", m), widened_checked)
+end
