@@ -54,16 +54,6 @@ using Pkg
 Pkg.add("EpiAwarePackageTools")
 ```
 
-### Until registered / development
-
-The package is not yet registered in the General registry. Until it is,
-depend on it from a test environment via a `[sources]` git pin:
-
-```toml
-[sources]
-EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
-```
-
 ## Where to learn more
 
 - Want to get started? See the

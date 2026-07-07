@@ -1358,14 +1358,13 @@ function _cff_authors(authors::Union{Nothing, AbstractString})
 end
 
 # Render a package-owned CITATION.cff seed. `doi` fills the `doi:` field when
-# known (the value persisted in the README DOI badge); otherwise a commented
-# placeholder marks where the Zenodo DOI goes once the package is released.
+# known (the value persisted in the README DOI badge); otherwise the field is
+# omitted entirely (a valid CFF) — add a real `doi:` line once released, rather
+# than carrying a placeholder value.
 function _render_citation_cff(pkg::AbstractString, repo::AbstractString,
         authors::Union{Nothing, AbstractString},
         doi::Union{Nothing, AbstractString})
-    doi_line = doi === nothing ?
-               "# doi: 10.5281/zenodo.XXXXXXX  # add once released on Zenodo\n" :
-               "doi: \"" * doi * "\"\n"
+    doi_line = doi === nothing ? "" : "doi: \"" * doi * "\"\n"
     return string(
         "cff-version: 1.2.0\n",
         "message: \"If you use this software, please cite it using these ",

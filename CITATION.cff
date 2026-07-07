@@ -7,4 +7,3 @@ authors:
   - name: "EpiAware contributors"
 repository-code: "https://github.com/EpiAware/EpiAwarePackageTools.jl"
 url: "https://github.com/EpiAware/EpiAwarePackageTools.jl"
-# doi: 10.5281/zenodo.XXXXXXX  # add once released on Zenodo
