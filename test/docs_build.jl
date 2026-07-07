@@ -451,10 +451,17 @@ end
     dep_public(x) = x
     end
 
+    # `public` is a Julia >=1.11 parse feature, so build the fixture module from
+    # a string (parsed only at eval time) and drop the `public` lines on older
+    # Julia — otherwise the whole testitem is a parse error on lts (1.10). The
+    # re-export / native / internal cases run on every version; the public-only
+    # binding is asserted only where `public` parses.
+    _pub(name) = VERSION >= v"1.11" ? "public $name" : ""
+    Base.include_string(@__MODULE__, """
     module Pkg160
     using ..Dep: owned_reexport, dep_public
     export owned_reexport            # re-export a dep-owned binding
-    public dep_public               # surface a dep-owned binding as public
+    $(_pub("dep_public"))            # surface a dep-owned binding as public (>=1.11)
     "native docstring"
     native
     native() = 1
@@ -463,13 +470,13 @@ end
     guts
     guts() = 2                       # documented, unexported -> internal
     undoc_public() = 3               # public but carries no docstring
-    public undoc_public             # -> must be dropped from @docs
+    $(_pub("undoc_public"))          # -> must be dropped from @docs (>=1.11)
     end
+    """)
 
     pubs, privs = DB.api_bindings(Pkg160)
-    # Re-exported and public-only dep-owned bindings now appear (were missed).
+    # Re-exported and native bindings now appear in the public API (were missed).
     @test :owned_reexport in pubs
-    @test :dep_public in pubs
     @test :native in pubs
     # Documented-but-unexported bindings stay internal.
     @test :guts in privs
@@ -477,6 +484,11 @@ end
     @test !(:undoc_public in pubs)
     @test !(:undoc_public in privs)
     @test isempty(intersect(pubs, privs))
+    if VERSION >= v"1.11"
+        # A public-but-unexported dep-owned binding surfaces only where `public`
+        # parses (>=1.11).
+        @test :dep_public in pubs
+    end
 
     # The rendered @docs block lists the re-exported binding, so its @ref
     # resolves instead of producing a broken link.
