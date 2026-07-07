@@ -319,20 +319,49 @@ function _is_public(mod::Module, sym::Symbol)
     end
 end
 
+# Whether `mod.sym` resolves to a documented binding, following re-export
+# aliases to the owning module (#160). A binding re-exported from another
+# module (or declared `public`/exported from a submodule) keeps its docstring
+# in the module that *defines* it, not in `Base.Docs.meta(mod)`, so a scan of
+# `mod`'s own meta alone misses it and the generated `@docs` block omits it —
+# leaving every `@ref` to that name a broken link in the built HTML. `aliasof`
+# walks the alias to the canonical binding; the docstring is present iff that
+# binding's own module records it.
+function _is_documented(mod::Module, sym::Symbol)
+    isdefined(mod, sym) || return false
+    b = Base.Docs.aliasof(Base.Docs.Binding(mod, sym))
+    return haskey(Base.Docs.meta(b.mod), b)
+end
+
 """
     api_bindings(mod) -> (public, private)
 
 The bindings `mod` documents, split into public and private symbol vectors.
 Each binding is listed once (not once per method signature, as `@autodocs`
 would), so the rendered `@index` has one entry per function.
+
+The scan covers both the docstrings defined directly in `mod` and the names
+`mod` exports or declares `public` — including bindings re-exported from
+another module or a submodule, whose docstrings live in the defining module
+rather than `mod`'s own metadata (#160). A public/exported name is only
+included when it actually resolves to a documented binding, so the generated
+`@docs` block never lists an undocumented name (which Documenter would reject).
 """
 function api_bindings(mod::Module)
-    meta = Base.Docs.meta(mod)
-    vars = sort!([b.var for b in keys(meta)]; by = string)
+    # `mod`'s own documented bindings (public + private) plus every name it
+    # exports or declares `public` (`names` returns exported + public names,
+    # re-exports included). De-duplicate by symbol.
+    own = Set(b.var for b in keys(Base.Docs.meta(mod)))
+    surface = Set(names(mod; all = false))
+    candidates = sort!(collect(union(own, surface)); by = string)
     public = Symbol[]
     private = Symbol[]
-    for v in vars
+    for v in candidates
         v === nameof(mod) && continue  # skip the module's own docstring
+        # A re-exported / `public` name that carries no docstring is dropped so
+        # the emitted `@docs` block stays render-safe; `mod`'s own meta entries
+        # are documented by construction.
+        (v in own || _is_documented(mod, v)) || continue
         push!(_is_public(mod, v) ? public : private, v)
     end
     return public, private
