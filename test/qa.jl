@@ -328,7 +328,7 @@
             test_readme_sections(root)
 
             # A missing README skips rather than erroring (e.g. a
-            # freshly-`generate`d package with no README yet); the function
+            # freshly-`scaffold_generate`d package with no README yet); the function
             # returns early with `nothing` rather than a testset.
             mktempdir() do dir
                 @test test_readme_sections(

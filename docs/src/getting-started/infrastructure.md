@@ -2,7 +2,7 @@
 
 The kit does two jobs for an adopting package: it writes the standard
 infrastructure once (`scaffold`), and it keeps that infrastructure current
-afterwards (`update`, driven on a schedule).
+afterwards (`scaffold_update`, driven on a schedule).
 This page explains the sync machinery and how the kit applies it to itself on
 its own repository.
 For what that infrastructure actually contains, see the reference pages on the
@@ -16,7 +16,7 @@ Every file the kit writes is one of two kinds.
 - Managed files are the standard infrastructure: the CI caller workflows, the
   documentation build (`docs/make.jl` and the VitePress theme, config, and
   components), the formatter and pre-commit config, and the coverage config.
-  `update` rewrites them from the bundled templates on every sync, so drift is
+  `scaffold_update` rewrites them from the bundled templates on every sync, so drift is
   removed automatically.
   Each managed file carries a `MANAGED by EpiAwarePackageTools.scaffold`
   header; do not edit them by hand.
@@ -38,7 +38,7 @@ cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
 Two workflows keep an adopting package aligned with the kit.
 
 - The scheduled template-sync workflow
-  (`.github/workflows/template-sync.yaml`) re-runs `update` against the
+  (`.github/workflows/template-sync.yaml`) re-runs `scaffold_update` against the
   repository on a schedule and on Dependabot updates, then opens or refreshes a
   pull request whenever the committed infrastructure has drifted from the
   current standard.
@@ -55,7 +55,7 @@ The kit manages its own repository the same way an adopter's is managed, with
 one difference: it is a tooling package, so it scaffolds itself with
 `ad = false` (no AD CI or harness).
 
-A `self-drift` CI check runs `update("."; ad = false)` and asserts the result
+A `self-drift` CI check runs `scaffold_update("."; ad = false)` and asserts the result
 is zero drift, proving the committed infrastructure matches what the templates
 currently produce.
 Because the kit is its own first adopter, this documentation site and its
@@ -71,8 +71,8 @@ You can drive the same sync from a Julia session:
 using EpiAwarePackageTools
 
 # Re-apply the managed standard files and report drift.
-update(pkgdir(MyPackage))
+scaffold_update(pkgdir(MyPackage))
 ```
 
-`update` rewrites only the managed files and returns a manifest of what was
+`scaffold_update` rewrites only the managed files and returns a manifest of what was
 created, updated, or preserved; package-owned files are left untouched.

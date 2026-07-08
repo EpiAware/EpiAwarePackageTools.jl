@@ -25,7 +25,7 @@ Files fall into two classes.
 Two pieces keep `{{PACKAGE}}` aligned with the kit.
 
 - A scheduled template-sync workflow (`.github/workflows/template-sync.yaml`)
-  re-runs the kit's `update` against this repository, then opens or refreshes a
+  re-runs the kit's `scaffold_update` against this repository, then opens or refreshes a
   pull request when the committed infrastructure has drifted from the current
   standard.
 - Dependabot (`.github/dependabot.yml`) keeps the pinned reusable-workflow and
@@ -43,10 +43,10 @@ You can also run the kit directly from a Julia session:
 using EpiAwarePackageTools
 
 # Re-apply the managed standard files and report drift.
-update("path/to/{{PACKAGE}}.jl")
+scaffold_update("path/to/{{PACKAGE}}.jl")
 ```
 
-`update` rewrites only the managed files and reports which were changed;
+`scaffold_update` rewrites only the managed files and reports which were changed;
 package-owned files are left untouched.
 See the [EpiAwarePackageTools documentation](https://github.com/EpiAware/EpiAwarePackageTools.jl)
 for the full set of options.

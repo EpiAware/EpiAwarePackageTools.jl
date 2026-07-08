@@ -1,6 +1,6 @@
 <!-- EpiAwarePackageTools.jl logo. A letter-mark in the scaffolded style (the
      green rounded square + initial the kit seeds as a placeholder for every
-     adopting package), using "P" for PackageTools. Package-owned: `update`
+     adopting package), using "P" for PackageTools. Package-owned: `scaffold_update`
      never regenerates it, so editing here is safe. The README title and the
      DocumenterVitepress site logo both resolve this exact path (see
      docs/make.jl's README -> index.md step), so no other wiring is needed. -->
