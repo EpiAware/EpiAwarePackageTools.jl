@@ -1525,6 +1525,103 @@
             end
         end
 
+        @testset "scaffold_update merges a package key into a managed with: block (#183)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # `codecoverage.yaml`'s caller renders its own non-empty `with:`
+                # block from the template, so a package key added alongside it
+                # (ComposedDistributions' `coverage_directories`, counting the
+                # package extension) used to be replaced wholesale on resync.
+                caller = joinpath(dir, ".github/workflows/codecoverage.yaml")
+                before = read(caller, String)
+                @test occursin("with:", before)
+                overridden = replace(before,
+                    r"([ \t]+)(julia_version:[^\r\n]*\r?\n)" =>
+                        s"\1\2\1coverage_directories: 'src,ext'\n")
+                @test overridden != before
+                write(caller, overridden)
+                scaffold_update(dir)
+                after = read(caller, String)
+                # The package key survives ...
+                @test occursin("coverage_directories: 'src,ext'", after)
+                # ... and the kit-rendered keys in the same block are still
+                # managed (the template's value wins on a key collision).
+                @test occursin("julia_version:", after)
+                # Idempotent on the merged block.
+                scaffold_update(dir)
+                @test read(caller, String) == after
+            end
+        end
+
+        @testset "scaffold_update removes retired managed paths (#185)" begin
+            using EpiAwarePackageTools: RETIRED_PATHS
+            # The kit retires managed files (the `benchmark/comment/` env went
+            # with #126/#157). An adopter kept the dead env because
+            # `scaffold_update` only ever wrote files, never removed them.
+            @test "benchmark/comment" in RETIRED_PATHS
+            # No retired path is also a live template destination.
+            dests = Set(t.dest for t in SCAFFOLD_TEMPLATES)
+            for p in RETIRED_PATHS
+                @test !(p in dests)
+                @test !any(startswith(d, p * "/") for d in dests)
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; benchmarks = true)
+                stale = joinpath(dir, "benchmark/comment")
+                mkpath(stale)
+                write(joinpath(stale, "Project.toml"), "name = \"asv_comment\"\n")
+                res = scaffold_update(dir; benchmarks = true)
+                @test !ispath(stale)
+                @test stale in res.removed
+                # Nothing to remove on the next sync: idempotent, and a package
+                # with no retired path reports none.
+                res2 = scaffold_update(dir; benchmarks = true)
+                @test isempty(res2.removed)
+            end
+        end
+
+        @testset "managed files are writable after scaffold_update (#187)" begin
+            # A `Pkg.add`ed kit lives in the read-only depot; copying a template
+            # verbatim used to preserve mode 444, so pre-commit hooks failed
+            # with a PermissionError on the emitted file.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # Simulate the read-only depot: mark an emitted managed file
+                # read-only, then resync it as a `Pkg.add`ed kit would.
+                fmt = joinpath(dir, ".JuliaFormatter.toml")
+                chmod(fmt, 0o444)
+                scaffold_update(dir)
+                for f in (".JuliaFormatter.toml", ".gitattributes",
+                    ".github/workflows/test.yaml", "Taskfile.yml")
+                    path = joinpath(dir, f)
+                    @test isfile(path)
+                    @test filemode(path) & 0o200 != 0
+                end
+            end
+        end
+
+        @testset "reusable-workflow seed refs are single-sourced (#186)" begin
+            using EpiAwarePackageTools: _DOWNGRADE_SEED_REF, _templates_dir
+            # Every template pins the org reusables at the same seed commit, so
+            # a fresh scaffold never starts life behind on some workflows and
+            # current on others (#186: the seed had drifted from `.github` head
+            # on some callers and not others).
+            wf = joinpath(_templates_dir(), ".github", "workflows")
+            pins = String[]
+            for f in readdir(wf; join = true)
+                for m in eachmatch(
+                    r"/\.github/\.github/workflows/[^@\s]+@([0-9a-f]{40})",
+                    read(f, String))
+                    push!(pins, String(m.captures[1]))
+                end
+            end
+            @test !isempty(pins)
+            @test all(==(_DOWNGRADE_SEED_REF), pins)
+        end
+
         @testset "docs_timeout sets the Documenter build timeout (#154)" begin
             using EpiAwarePackageTools: _docs_timeout_with
             # No timeout -> no `with:` block (reusable's own 45-min default).

@@ -8,7 +8,7 @@
 # once and never touched again — the package's unit tests, AD scenarios, and
 # QA config values live here). `scaffold` adopts; `scaffold_update` re-applies only the
 # managed files. Both return a manifest distinguishing what was created,
-# updated, or preserved.
+# updated, preserved, or removed (a managed file the kit has retired).
 #
 # No person, org, or repository name is baked into a template. Every such value
 # is a `{{PLACEHOLDER}}` filled from `scaffold`/`scaffold_update` inputs, which default
@@ -297,6 +297,31 @@ const SCAFFOLD_TEMPLATES = Template[
         :always, :bench_only)
 ]
 
+# Managed paths the kit has retired (#185). `scaffold_update` writes the current
+# standard but used to leave a dropped one behind, so an adopter kept dead infra
+# no workflow invokes: `benchmark/comment/` (the unwired `asv_comment` env) went
+# with #126/#157 and survived on every package that had already adopted it.
+# Retiring is one-way: a path listed here is removed on sync and never written
+# again, so it must not be (or contain) a live template destination — enforced
+# by the scaffold tests. An entry may be a file or a directory.
+const RETIRED_PATHS = String[
+    "benchmark/comment"
+]
+
+# Remove the retired managed paths from `target_dir`, returning those actually
+# deleted. Only paths the kit itself once shipped are listed, so this never
+# reaches package-owned content.
+function _remove_retired(target_dir::AbstractString)
+    removed = String[]
+    for rel in RETIRED_PATHS
+        path = joinpath(target_dir, rel)
+        ispath(path) || continue
+        rm(path; recursive = true, force = true)
+        push!(removed, path)
+    end
+    return removed
+end
+
 # The default org used to derive `{{ORG}}`/`{{REPO}}` when a caller does not
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
@@ -316,7 +341,7 @@ const _JULIAFORMATTER_VERSION = "2.10.1"
 # adopting repo, and `_preserve_reusable_refs` keeps that bumped ref across
 # `scaffold_update`, so this seed is only what a first scaffold commits. Kept in step
 # with the `test` job's pin in `templates/.github/workflows/test.yaml`.
-const _DOWNGRADE_SEED_REF = "dc919e0d1674c16d1518df07eda5ee0be09b47e2"  # pragma: allowlist secret
+const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma: allowlist secret
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),
@@ -788,11 +813,72 @@ const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\
 # from the template; on first adoption (no destination yet) the template's
 # with-less form is used untouched.
 #
-# A job whose TEMPLATE already renders its own non-empty `with:` block (e.g.
-# `ad.yaml`'s `backends:` passthrough, generated from `_AD_BACKENDS`) is a
-# managed value, not a package override: that `seed` always wins, so a
-# `_AD_BACKENDS` change keeps reaching an already-adopted package on the next
-# `scaffold_update()` rather than freezing at whatever was first scaffolded.
+# A job whose template renders its own non-empty `with:` block (e.g. `ad.yaml`'s
+# `backends:` passthrough, generated from `_AD_BACKENDS`) carries managed values,
+# not package overrides, so the two blocks are merged per key (#183): the
+# template wins on a key it renders (a `_AD_BACKENDS` change keeps reaching an
+# adopted package rather than freezing at whatever was first scaffolded), while
+# a key only the package carries (e.g. `coverage_directories`, counting a package
+# extension) is kept. Before #183 the template's block replaced the whole of the
+# destination's, silently dropping such a key on every sync.
+
+# The lines of a caller's preserved region, split into the leading blank/comment
+# lines and the `with:` inputs. `indent` is the `with:` line's indent, or
+# `nothing` when the region carries no `with:` block. Each input is
+# `key => lines`, keeping any deeper continuation lines with their key so a
+# block/list value survives intact.
+function _parse_with_block(chunk::AbstractString)
+    head = String[]
+    inputs = Pair{String, Vector{String}}[]
+    indent = nothing
+    lines = split(chunk, '\n')
+    endswith(chunk, "\n") && !isempty(lines) && pop!(lines)
+    for line in lines
+        if indent === nothing
+            m = match(r"^([ \t]+)with:[ \t]*\r?$", line)
+            if m === nothing
+                push!(head, String(line))
+            else
+                indent = String(m.captures[1])
+            end
+            continue
+        end
+        key = match(r"^[ \t]+([A-Za-z0-9_.-]+):", line)
+        if key === nothing && !isempty(inputs)
+            push!(last(inputs).second, String(line))  # continuation
+        elseif key !== nothing
+            push!(inputs, String(key.captures[1]) => String[String(line)])
+        end
+    end
+    return (head = head, indent = indent, inputs = inputs)
+end
+
+# Render a caller's preserved region back from its parts.
+function _render_with_block(head, indent, inputs)
+    lines = copy(head)
+    push!(lines, indent * "with:")
+    for (_, value) in inputs
+        append!(lines, value)
+    end
+    return join(lines, "\n") * "\n"
+end
+
+# Merge the template's `with:` block (`seed`) with the destination's, keeping
+# every key the template renders and appending the keys only the package carries.
+function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
+    s = _parse_with_block(seed)
+    e = _parse_with_block(existing)
+    e.indent === nothing && return seed
+    # The template renders no `with:` for this job, so the whole block is a
+    # package override: the destination's region stands, rationale comments
+    # included (#73, #117).
+    s.indent === nothing && return existing
+    seeded = Set(first(p) for p in s.inputs)
+    extra = [p for p in e.inputs if !(first(p) in seeded)]
+    isempty(extra) && return seed
+    return _render_with_block(s.head, s.indent, vcat(s.inputs, extra))
+end
+
 function _preserve_caller_with_inputs(content::AbstractString,
         dest::AbstractString)
     occursin(_CALLER_JOB, content) || return content
@@ -812,9 +898,21 @@ function _preserve_caller_with_inputs(content::AbstractString,
             workflow = String(something(m.captures[2]))
             seed = String(something(m.captures[3], ""))
             suffix = String(something(m.captures[5]))
-            replacement = isempty(seed) ? get(existing, workflow, seed) : seed
+            kept = get(existing, workflow, "")
+            replacement = isempty(kept) ? seed : _merge_with_blocks(seed, kept)
             return prefix * replacement * suffix
         end)
+end
+
+# Make an emitted file writable by its owner (#187). A `Pkg.add`ed kit ships its
+# templates in the read-only depot, so `cp` hands the destination mode 444 and
+# the adopting repo cannot edit or `pre-commit` its own managed files. A
+# `Pkg.develop`ed kit never showed this, which is why it went unnoticed.
+function _make_writable(path::AbstractString)
+    isfile(path) || return nothing
+    mode = filemode(path)
+    mode & 0o200 == 0 && chmod(path, mode | 0o200)
+    return nothing
 end
 
 # Copy one template to `to`, substituting placeholders when requested. Managed
@@ -825,6 +923,9 @@ end
 function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         inputs::NamedTuple)
     mkpath(dirname(to))
+    # A previous sync from a read-only depot may have left `to` unwritable, so
+    # restore the write bit before rewriting it (#187).
+    _make_writable(to)
     if substitute
         content = _substitute(read(from, String), inputs, from)
         content = _preserve_reusable_refs(content, to)
@@ -833,6 +934,7 @@ function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
     else
         cp(from, to; force = true)
     end
+    _make_writable(to)
     return nothing
 end
 
@@ -1760,7 +1862,8 @@ Shared worker for `scaffold`/`scaffold_update`.
 `scaffold`). `ad` selects the AD-enabled or AD-disabled standard;
 `benchmarks` gates the opt-in benchmark CI/suite/docs page;
 `downgrade_compat` gates the opt-in `downgrade-compat` CI job. Returns a
-`(created, updated, preserved)` manifest of destination paths.
+`(created, updated, preserved, removed)` manifest of destination paths
+(`removed` being the retired managed paths cleaned up; see `RETIRED_PATHS`).
 """
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
@@ -1874,8 +1977,12 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # the block survive `scaffold_update` (#65). Reported separately for the same
     # reason as `readme`/`license`/`workspace` above.
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
+    # Managed files the kit has retired are deleted, not just left unwritten, so
+    # a sync converges on the current standard rather than accreting dead infra
+    # (#185). Reported as `removed`.
+    removed = _remove_retired(target_dir)
     return (created = created, updated = updated, preserved = preserved,
-        readme = readme_action, license = license_action,
+        removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action)
@@ -2029,9 +2136,10 @@ never rewrites it, so the real author list and DOI stand.
 `force = true` overwrites the package-owned skeletons too. `target_dir` must
 exist. Use [`scaffold_update`](@ref) to re-apply only the managed files later.
 
-Returns a `(created, updated, preserved, readme, license, workspace, gitignore,
-logo, standard_sections, citation)` named tuple: destination paths newly
-written, managed files overwritten, package-owned files left in place, the
+Returns a `(created, updated, preserved, removed, readme, license, workspace,
+gitignore, logo, standard_sections, citation)` named tuple: destination paths
+newly written, managed files overwritten, package-owned files left in place,
+retired managed paths deleted (`RETIRED_PATHS`, #185), the
 README badge action (`:created`, `:injected`, `:refreshed`, or `:skipped`), the
 `LICENSE` action, the root `[workspace]` stanza action (`:injected`,
 `:preserved`, or `:skipped`), the `.gitignore` managed-block action
@@ -2111,11 +2219,14 @@ comment containing the marker `$(_AD_SETUP_OWNED_MARKER)` to the committed
 driver while it migrates; remove the marker to hand management back to the kit.
 `scaffold`/`scaffold_generate` (`force = true`) still (re)lay the managed driver down.
 
-Returns a `(created, updated, preserved, readme, license, workspace, gitignore,
-logo)` named tuple: managed files newly added, managed files rewritten,
-(always empty here) preserved, the README badge action, the `LICENSE` action
-(`:skipped` on scaffold_update), the root `[workspace]` stanza action, the
-`.gitignore` managed-block action, and the README logo-title action.
+Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
+converges on the current standard instead of leaving dead infra behind (#185).
+
+Returns a `(created, updated, preserved, removed, readme, license, workspace,
+gitignore, logo)` named tuple: managed files newly added, managed files
+rewritten, preserved files, retired paths deleted, the README badge action, the
+`LICENSE` action (`:skipped` on scaffold_update), the root `[workspace]` stanza
+action, the `.gitignore` managed-block action, and the README logo-title action.
 """
 function scaffold_update(target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,
