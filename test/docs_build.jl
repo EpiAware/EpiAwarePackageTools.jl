@@ -265,6 +265,175 @@
         @test !occursin("allocations", out)
     end
 
+    @testset "_parse_metric_value: leading number from a table.md cell" begin
+        @test DB._parse_metric_value("1.0") == 1.0
+        @test DB._parse_metric_value("0.112 ± 0.0006 ms") == 0.112
+        @test DB._parse_metric_value("3 ns") == 3.0
+        @test DB._parse_metric_value("—") === nothing
+        @test DB._parse_metric_value("") === nothing
+        @test DB._parse_metric_value("not a number") === nothing
+    end
+
+    @testset "_suite_column_medians: per-column median, skips bad cells" begin
+        subrows = ["a" => ["1.0", "3.0"], "b" => ["3.0", "not a number"]]
+        medians = DB._suite_column_medians(subrows, 2)
+        @test medians[1] == 2.0   # median(1.0, 3.0)
+        @test medians[2] == 3.0   # only "3.0" parses in column 2
+        # A column where nothing parses is `missing`, not zero or NaN.
+        subrows2 = ["a" => ["x", "y"]]
+        @test all(ismissing, DB._suite_column_medians(subrows2, 2))
+    end
+
+    @testset "_suite_ratio_series: normalised to the first finite value" begin
+        @test DB._suite_ratio_series([2.0, 4.0, 1.0]) == [1.0, 2.0, 0.5]
+        # Leading `missing` columns are skipped when picking the baseline.
+        series = DB._suite_ratio_series(
+            Union{Float64, Missing}[missing, 2.0, 4.0])
+        @test ismissing(series[1])
+        @test series[2] == 1.0
+        @test series[3] == 2.0
+        # No finite value at all -> every entry stays `missing`.
+        @test all(ismissing,
+            DB._suite_ratio_series(Vector{Union{Float64, Missing}}(missing, 3)))
+    end
+
+    @testset "_suite_trend_status: arrow + regression flag" begin
+        # A clear regression: doubled since the oldest shown revision.
+        ratio, trend, status = DB._suite_trend_status([1.0, 2.0])
+        @test ratio == 2.0
+        @test trend == "↗"
+        @test status == "⚠ reg"
+        # A clear improvement: halved.
+        ratio, trend, status = DB._suite_trend_status([1.0, 0.5])
+        @test ratio == 0.5
+        @test trend == "↘"
+        @test status == "ok"
+        # Within the flat threshold (2%) counts as unchanged, and below the
+        # regression threshold is "ok" even though it did tick up.
+        ratio, trend, status = DB._suite_trend_status([1.0, 1.01])
+        @test trend == "→"
+        @test status == "ok"
+        # A custom (stricter) regression threshold.
+        _, _, status = DB._suite_trend_status([1.0, 1.06];
+            regression_threshold = 1.05)
+        @test status == "⚠ reg"
+        # Fewer than two finite points -> no signal.
+        ratio, trend, status = DB._suite_trend_status(
+            Vector{Union{Float64, Missing}}([1.0, missing]))
+        @test ismissing(ratio)
+        @test trend == "→"
+        @test status == "n/a"
+    end
+
+    @testset "_write_benchmark_summary: markdown table + legend" begin
+        io = IOBuffer()
+        rows = [
+            (suite = "AD gradients", ratio = 2.0, trend = "↗",
+                status = "⚠ reg"),
+            (suite = "Baseline",
+                ratio = missing, trend = "→", status = "n/a")
+        ]
+        DB._write_benchmark_summary(io, rows)
+        out = String(take!(io))
+        @test occursin("## Benchmark summary (overall)", out)
+        @test occursin("| AD gradients | 2.0 | ↗ | ⚠ reg |", out)
+        @test occursin("| Baseline | n/a | → | n/a |", out)
+        # Empty input still writes the heading + a graceful message.
+        io2 = IOBuffer()
+        DB._write_benchmark_summary(io2, [])
+        @test occursin("## Benchmark summary (overall)", String(take!(io2)))
+    end
+
+    @testset "build_benchmark_page: overall summary table + trend plot" begin
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(`git -C $dir config user.email t@t`)
+        run(`git -C $dir config user.name t`)
+        write(joinpath(dir, "f.txt"), "x")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm init`;
+            stdout = devnull, stderr = devnull))
+        main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
+        run(`git -C $dir checkout -q --orphan benchmarks`)
+        run(pipeline(`git -C $dir reset -q --hard`;
+            stdout = devnull, stderr = devnull))
+        hist = joinpath(dir, "history")
+        mkpath(hist)
+        # Two revisions: "AD gradients" doubles (regression), "Baseline"
+        # halves (improvement), "time_to_load" stays flat.
+        write(joinpath(hist, "table.md"),
+            "|   | aaaa1111...  | bbbb2222...  |\n" *
+            "|:--|:-----------:|:-----------:|\n" *
+            "| AD gradients/Enzyme forward | 1.0 | 2.0 |\n" *
+            "| AD gradients/ForwardDiff | 1.0 | 2.2 |\n" *
+            "| Baseline/allocations | 4.0 | 2.0 |\n" *
+            "| time_to_load | 5.0 | 5.05 |\n")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm hist`;
+            stdout = devnull, stderr = devnull))
+        run(`git -C $dir checkout -q $main`)
+        prose = joinpath(dir, "benchmarks.md")
+        write(prose, "Narrative.\n")
+        dest = joinpath(dir, "src", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir)
+        out = read(dest, String)
+        # The overall summary leads the page, above the collapsed detail.
+        summary_pos = findfirst("## Benchmark summary (overall)", out)
+        detail_pos = findfirst("<summary>Per-suite detail</summary>", out)
+        @test summary_pos !== nothing
+        @test detail_pos !== nothing
+        @test first(summary_pos) < first(detail_pos)
+        @test occursin("| AD gradients | 2.1 | ↗ | ⚠ reg |", out)
+        @test occursin("| Baseline | 0.5 | ↘ | ok |", out)
+        @test occursin("| time_to_load | 1.01 | → | ok |", out)
+        # The existing #196 detail (per-suite tables + collapsed plots) still
+        # renders, now inside the outer `<details>`.
+        @test occursin("### Ratio summary", out)
+        @test occursin("### AD gradients", out)
+        # The combined trend plot was generated and embedded.
+        png = joinpath(dirname(dest), "overall_trend.png")
+        @test isfile(png)
+        @test filesize(png) > 0
+        @test occursin("![Overall benchmark trend](overall_trend.png)", out)
+    end
+
+    @testset "build_benchmark_page: single revision skips the trend plot" begin
+        # Mirrors the existing "renders grouped published history" fixture
+        # (one column) -- fewer than two comparable points means nothing to
+        # plot, so no `Plots` dependency is touched and no PNG is written.
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(`git -C $dir config user.email t@t`)
+        run(`git -C $dir config user.name t`)
+        write(joinpath(dir, "f.txt"), "x")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm init`;
+            stdout = devnull, stderr = devnull))
+        main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
+        run(`git -C $dir checkout -q --orphan benchmarks`)
+        run(pipeline(`git -C $dir reset -q --hard`;
+            stdout = devnull, stderr = devnull))
+        hist = joinpath(dir, "history")
+        mkpath(hist)
+        write(joinpath(hist, "table.md"),
+            "|   | c1 |\n|:--|:--:|\n| Baseline/allocations | 3.0 |\n")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm hist`;
+            stdout = devnull, stderr = devnull))
+        run(`git -C $dir checkout -q $main`)
+        prose = joinpath(dir, "benchmarks.md")
+        write(prose, "Narrative.\n")
+        dest = joinpath(dir, "src", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir)
+        out = read(dest, String)
+        @test occursin("## Benchmark summary (overall)", out)
+        @test occursin("| Baseline | n/a | → | n/a |", out)
+        @test !isfile(joinpath(dirname(dest), "overall_trend.png"))
+        @test !occursin("Overall benchmark trend", out)
+    end
+
     @testset "api_bindings + build_api_pages split public/private" begin
         public, private = DB.api_bindings(EpiAwarePackageTools)
         @test :scaffold in public

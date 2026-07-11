@@ -62,10 +62,14 @@ const README_EXECUTE = true
 const INDEX_STRIP_SECTIONS = String[]
 
 # Whether the build generates the benchmark page (`src/benchmarks.md`): the
-# package-owned `docs/benchmarks.md` prose hook plus the rendered performance
-# history (the timeline published to the repo's `benchmarks` branch). Defaults
-# to the `benchmarks` flag the package was scaffolded with; `false` drops the
-# page and `make.jl` also omits its `pages.jl` nav entry.
+# package-owned `docs/benchmarks.md` prose hook plus an overall summary
+# table + combined trend plot and the per-suite detail, both rendered from
+# the timeline published to the repo's `benchmarks` branch. Defaults to the
+# `benchmarks` flag the package was scaffolded with; `false` drops the page
+# and `make.jl` also omits its `pages.jl` nav entry. The trend plot needs
+# `Plots` in `docs/Project.toml` (lazily loaded, so it degrades to a
+# table-only page with an `@info` note when absent rather than failing the
+# build).
 const BENCHMARK_PAGE = {{BENCHMARK_PAGE}}
 
 # Headline benchmark suites to keep on the performance-history page. A suite is
@@ -74,8 +78,15 @@ const BENCHMARK_PAGE = {{BENCHMARK_PAGE}}
 # name a few here when the full suite list makes the history page too long.
 const HISTORY_SUITES = String[]
 
-# How many of the most-recent revisions (columns) to show in the history ratio
-# table. The published `table.md` can carry every benchmarked release; this caps
-# the rendered table so it stays readable. Columns are relabelled with commit
-# dates.
+# How many of the most-recent revisions (columns) to show in the overall
+# summary and history ratio table. The published `table.md` can carry every
+# benchmarked release; this caps the rendered table (and trend plot) so it
+# stays readable. Columns are relabelled with commit dates.
 const HISTORY_COMMITS = 5
+
+# The overall-summary ratio (a suite's median benchmark value at the most
+# recent shown revision, against its value at the oldest shown revision) at
+# or above which that suite's `Status` flags "⚠ reg". 1.1 == a 10% increase
+# in runtime/memory counts as a regression; raise it for a noisier benchmark
+# suite, lower it for a stricter one.
+const HISTORY_REGRESSION_THRESHOLD = 1.1
