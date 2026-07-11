@@ -839,7 +839,7 @@ function _parse_with_block(chunk::AbstractString)
             if m === nothing
                 push!(head, String(line))
             else
-                indent = String(m.captures[1])
+                indent = String(something(m.captures[1]))
             end
             continue
         end
@@ -847,14 +847,16 @@ function _parse_with_block(chunk::AbstractString)
         if key === nothing && !isempty(inputs)
             push!(last(inputs).second, String(line))  # continuation
         elseif key !== nothing
-            push!(inputs, String(key.captures[1]) => String[String(line)])
+            name = String(something(key.captures[1]))
+            push!(inputs, name => String[String(line)])
         end
     end
     return (head = head, indent = indent, inputs = inputs)
 end
 
 # Render a caller's preserved region back from its parts.
-function _render_with_block(head, indent, inputs)
+function _render_with_block(head::Vector{String}, indent::AbstractString,
+        inputs::Vector{Pair{String, Vector{String}}})
     lines = copy(head)
     push!(lines, indent * "with:")
     for (_, value) in inputs
