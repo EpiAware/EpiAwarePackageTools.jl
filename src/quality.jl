@@ -249,7 +249,7 @@ const STANDARD_README_SECTIONS = [
     ("Getting started", "Usage", "Quickstart", "Quick start"),
     ("Documentation", "Where to learn more", "Learn more"),
     ("Contributing",),
-    ("Citing", "Citation", "License", "Supporting")
+    ("Citing", "Citation", "License", "Supporting", "How to cite")
 ]
 
 # Render one section group as a human-readable label for failure messages.

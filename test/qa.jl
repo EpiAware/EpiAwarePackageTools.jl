@@ -221,6 +221,17 @@
         @testset "test_readme_sections" begin
             badges = EpiAwarePackageTools.BADGES_START * "\n" *
                      EpiAwarePackageTools.BADGES_END
+            # The managed standard-sections block writes a `## How to cite`
+            # heading, so a freshly scaffolded package must pass its own
+            # citation-section gate out of the box (#201).
+            @test "How to cite" in last(STANDARD_README_SECTIONS)
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"),
+                    "# MyPkg\n\n$badges\n\n## Overview\nwhy.\n\n## Usage\nhow.\n\n" *
+                    "## Documentation\nlinks.\n\n## Contributing\nhelp.\n\n" *
+                    "## How to cite\nsee CITATION.cff.\n")
+                test_readme_sections(dir)
+            end
             # A README with the standard sections in standard order passes.
             conforming = """
             # MyPkg
