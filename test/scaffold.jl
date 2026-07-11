@@ -1958,13 +1958,48 @@
                 @test !occursin("{{", bh)
                 @test occursin("benchmarks.md", read(
                     joinpath(dir, "docs/pages.jl"), String))
+                # The "Skipped & broken benchmarks" notes: a second
+                # package-owned hook, seeded with a placeholder (#202).
+                @test isfile(joinpath(dir, "docs/benchmarks_notes.md"))
+                bn = read(joinpath(dir, "docs/benchmarks_notes.md"), String)
+                @test occursin("No known skipped or broken benchmarks", bn)
+                @test !occursin("{{", bn)
+                # The docs env carries the trend-plot dependency (matching the
+                # `[deps]` key line, not just the explanatory comment prose
+                # above it, which also mentions "Plots").
+                @test occursin("Plots =", dp)
                 # The home page strip is package-config driven (no hardcoded
                 # named strip in the managed build), and the benchmark page is
                 # config-gated.
                 dc = read(joinpath(dir, "docs/docs_config.jl"), String)
                 @test occursin("BENCHMARK_PAGE", dc)
+                @test occursin("HISTORY_REGRESSION_THRESHOLD", dc)
                 @test occursin("INDEX_STRIP_SECTIONS", dc)
                 @test !occursin("README_STRIP_TABLES", dc)
+            end
+        end
+
+        @testset "benchmarks_notes.md round-trips scaffold_update (#202)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; benchmarks = true)
+                notes = joinpath(dir, "docs/benchmarks_notes.md")
+                edit = "\n## Known-broken\n\n`slow_path` skipped: see #123.\n"
+                write(notes, read(notes, String) * edit)
+                scaffold_update(dir; benchmarks = true)
+                @test occursin(edit, read(notes, String))
+            end
+            # `benchmarks = false` writes neither benchmark docs seed.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; benchmarks = false)
+                @test !isfile(joinpath(dir, "docs/benchmarks.md"))
+                @test !isfile(joinpath(dir, "docs/benchmarks_notes.md"))
+                # No trend-plot dependency without a benchmark page either
+                # (the `[deps]` key line; the explanatory comment above it
+                # mentions "Plots" regardless of `benchmarks`).
+                @test !occursin("Plots =",
+                    read(joinpath(dir, "docs/Project.toml"), String))
             end
         end
 
