@@ -506,10 +506,12 @@ end
 
 @testitem "re-exports resolve without checkdocs flooding (#175)" begin
     using Test
-    using Logging
     using Documenter
     using EpiAwarePackageTools
     const DB = EpiAwarePackageTools.DocsBuild
+    # `Logging` is not a declared test dep; its API lives in `Base.CoreLogging`
+    # (always loadable), and `TestLogger` comes from `Test`.
+    const CL = Base.CoreLogging
 
     # A dependency that owns docstrings, one of which (`dep_only`) the package
     # never surfaces, and a package re-exporting part of the dep (the
@@ -564,15 +566,15 @@ end
         write(joinpath(src, "index.md"), "# Home\n\nHome.\n")
         pages = ["Home" => "index.md",
             "Public" => "lib/public.md", "Internals" => "lib/internals.md"]
-        logger = Test.TestLogger(; min_level = Logging.Debug)
-        Logging.with_logger(logger) do
+        logger = Test.TestLogger(; min_level = CL.Debug)
+        CL.with_logger(logger) do
             Documenter.makedocs(; root = dir, sitename = "Pkg175",
                 modules = modules, pages = pages, remotes = nothing,
                 doctest = false, warnonly = true, checkdocs = checkdocs,
                 format = Documenter.HTML())
         end
         return [string(r.message) for r in logger.logs
-                if r.level >= Logging.Warn]
+                if r.level >= CL.Warn]
     end
 
     nodocs(msgs) = count(m -> occursin("no docs found", m), msgs)
