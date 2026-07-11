@@ -35,9 +35,17 @@ using {{PACKAGE}}
 # never re-applied by `scaffold_update` — so an adopter predating either file has none.
 # Guard the include so a re-applied managed `make.jl` still loads and falls
 # back to defaults (#163) rather than erroring on a missing file; `_cfg` then
-# defaults every key a missing or older config predates.
+# defaults every key a missing or older config predates. The fallback warns
+# because a build that silently defaults `pages` publishes a Home-only
+# navigation, which a green docs run would otherwise hide (#188).
 for _f in ("pages.jl", "docs_config.jl")
-    isfile(joinpath(@__DIR__, _f)) && include(joinpath(@__DIR__, _f))
+    if isfile(joinpath(@__DIR__, _f))
+        include(joinpath(@__DIR__, _f))
+    else
+        @warn "docs/$(_f) not found; building with defaults " *
+              "(a missing pages.jl leaves the site with a Home-only nav). " *
+              "Write it if this package should own one."
+    end
 end
 
 # Read a package-owned config const, defaulting when a missing or older

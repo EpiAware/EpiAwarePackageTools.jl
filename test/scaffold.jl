@@ -386,6 +386,38 @@
             end
         end
 
+        @testset "guarded config fallbacks warn when they engage (#188)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # The docs fallback is loud: a bad sync that drops `pages.jl`
+                # must not publish a Home-only nav from a green docs build.
+                mk = read(joinpath(dir, "docs/make.jl"), String)
+                @test occursin("@warn", mk)
+                # The QA fallback is loud too: a typoed `readme` key must not
+                # silently revert to the repo-root defaults.
+                ql = read(joinpath(dir, "test/package/quality.jl"), String)
+                @test occursin("@warn", ql)
+
+                # The docs guard actually warns (and still returns the
+                # default) when the package-owned config is absent.
+                rm(joinpath(dir, "docs/pages.jl"))
+                rm(joinpath(dir, "docs/docs_config.jl"))
+                lines = split(mk, "\n")
+                i = findfirst(l -> occursin("for _f in (", l), lines)
+                j = findfirst(
+                    l -> occursin("getfield(@__MODULE__, sym)", l), lines)
+                prelude = joinpath(dir, "docs", "_prelude188.jl")
+                write(prelude, join(lines[i:j], "\n") * "\n")
+                m = Module()
+                @test_logs (:warn,) (:warn,) match_mode=:any Base.include(
+                    m, prelude)
+                @test Base.invokelatest(
+                    getproperty(m, :_cfg), :pages, ["Home" => "index.md"]) ==
+                      ["Home" => "index.md"]
+            end
+        end
+
         @testset "scaffold_update preserves docs_subdomain without re-passing it (#123)" begin
             # A subdomain-hosted package is not reverted to project-pages when a
             # resync (the scheduled template-sync's `scaffold_update`) omits the kwarg.
@@ -935,6 +967,22 @@
                 end
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("ad-forwarddiff", cov)
+            end
+        end
+
+        @testset "ext is flagged under `unit` only (#180)" begin
+            # AD jobs run without the weakdeps loaded, so an `ext` path under
+            # an `ad-*` flag reports 0% and drags the aggregate down; only the
+            # unit job (which loads them) may claim extension coverage.
+            for ad in (true, false)
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    scaffold(dir; ad = ad)
+                    cov = read(joinpath(dir, "codecov.yml"), String)
+                    @test count("      - ext", cov) == 1
+                    unit = split(cov, "  unit:")[2]
+                    @test occursin("- ext", split(unit, "carryforward")[1])
+                end
             end
         end
 
