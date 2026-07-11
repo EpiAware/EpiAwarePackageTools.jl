@@ -8,24 +8,21 @@
 # benchmarks gets no entry and no page. The Tutorials entry is written only
 # with `ad = true` (the AD_TUTORIALS_NAV substitution): it carries the
 # kit-managed AD-backends page.
+#
+# Every entry must resolve to a page the package writes or `make.jl` generates.
+# Docs about the kit itself (customising the generated site, how template sync
+# keeps a repo current) live on the kit's own site, not on a package's (#194).
 
 pages = [
     "Home" => "index.md",
-    # Authored quickstart (package-owned source pages, distinct from the
+    # Authored quickstart (a package-owned source page, distinct from the
     # README-derived home page). Add tutorials under `getting-started/` as the
     # package grows.
     "Getting started" => [
-        "Overview" => "getting-started/index.md",{{AD_TUTORIALS_NAV}}
-        "Customising your docs" => "getting-started/customising.md"
+        "Overview" => "getting-started/index.md"{{AD_TUTORIALS_NAV}}
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
         "Internal API" => "lib/internals.md"
-    ],
-    # Maintainer-facing reference: how the kit's managed infrastructure and
-    # template sync keep this repository to the shared standard. Kept out of
-    # Getting started so a new user's first section is not maintainer noise.
-    "Development" => [
-        "Infrastructure and template sync" => "getting-started/infrastructure.md"
     ]{{BENCHMARKS_NAV}}
 ]

@@ -253,14 +253,14 @@ const SCAFFOLD_TEMPLATES = Template[
     # Substituted so the benchmark nav entry (`{{BENCHMARKS_NAV}}`) is present
     # only when `benchmarks = true`; package-owned so a package extends the tree.
     Template("docs/pages.jl", "docs/pages.jl", false, true),
-    # Authored docs source pages, distinct from the README-derived home page:
-    # a getting-started quickstart and an infrastructure/template-sync guide.
+    # The authored quickstart, distinct from the README-derived home page.
     # Package-owned (write-once) so a package grows its own content without a
-    # sync reverting it; the nav entries live in the package-owned `pages.jl`.
+    # sync reverting it; the nav entry lives in the package-owned `pages.jl`.
+    # Docs about the kit (customising the site, infrastructure and template
+    # sync) are not seeded here: they describe the kit, not the adopting
+    # package, so they live on the kit's own site (#194).
     Template("docs/src/getting-started/index.md",
         "docs/src/getting-started/index.md", false, true),
-    Template("docs/src/getting-started/infrastructure.md",
-        "docs/src/getting-started/infrastructure.md", false, true),
     # The optional Literate/tutorial + README-rewrite config `make.jl` reads
     # (empty by default), and the release-notes page header (NEWS.md prepend).
     # Substituted so `BENCHMARK_PAGE` defaults to the `benchmarks` flag.
@@ -1132,10 +1132,10 @@ end
 # The Getting started nav entry for the rendered page.
 function _ad_tutorials_nav(ad::Bool)
     ad || return ""
-    return "\n        \"Tutorials\" => [\n" *
+    return ",\n        \"Tutorials\" => [\n" *
            "            \"Automatic differentiation backends\" =>\n" *
            "                \"getting-started/tutorials/ad-backends.md\"\n" *
-           "        ],"
+           "        ]"
 end
 
 # The docs-env `[deps]` block the page executes against: the seeded
