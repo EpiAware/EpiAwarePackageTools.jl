@@ -233,9 +233,8 @@
                     "docs/src/.vitepress/theme/style.css",
                     "docs/src/components/VersionPicker.vue",                 # The GitHub-stars navbar widget + its star-count loader.
                     "docs/src/components/StarUs.vue",
-                    "docs/src/components/stargazers.data.ts",                 # Authored source pages distinct from the README home page.
-                    "docs/src/getting-started/index.md",
-                    "docs/src/getting-started/infrastructure.md")
+                    "docs/src/components/stargazers.data.ts",                 # The authored quickstart, distinct from the README home page.
+                    "docs/src/getting-started/index.md")
                     @test isfile(joinpath(dir, f))
                 end
                 # The stars widget targets the adopting repo (no owner/repo
@@ -253,31 +252,31 @@
                 @test occursin("StarUs", theme)
                 @test occursin("d3-format",
                     read(joinpath(dir, "docs/package.json"), String))
-                # The getting-started + infrastructure pages are authored,
-                # package-owned, and substituted (no unresolved placeholders).
+                # The quickstart is authored, package-owned, and substituted
+                # (no unresolved placeholders). It does not repeat the install
+                # instructions the README-derived home page already carries
+                # (#194), and it points at the kit's site rather than a seeded
+                # copy of the kit's docs.
                 gs = read(joinpath(dir, "docs/src/getting-started/index.md"),
                     String)
                 @test occursin("@id getting-started", gs)
-                @test occursin("Pkg.add(\"Wombat\")", gs)
+                @test occursin("using Wombat", gs)
+                @test !occursin("Pkg.add(\"Wombat\")", gs)
+                @test !occursin("## Installation", gs)
+                @test occursin("epiawarepackagetools.epiaware.org", gs)
                 @test !occursin("{{", gs)
-                infra = read(
-                    joinpath(dir, "docs/src/getting-started/infrastructure.md"),
-                    String)
-                @test occursin("@id infrastructure", infra)
-                @test occursin("template-sync", infra)
-                @test !occursin("{{", infra)
                 # The nav wires the getting-started section into pages.jl.
                 pgs = read(joinpath(dir, "docs/pages.jl"), String)
                 @test occursin("getting-started/index.md", pgs)
-                @test occursin("getting-started/infrastructure.md", pgs)
-                # The maintainer-facing infrastructure page sits in its own
-                # top-level Development section, not under Getting started, so a
-                # new user's first section is not maintainer noise (#136).
-                @test occursin("\"Development\"", pgs)
-                dev_at = findfirst("\"Development\"", pgs)
-                infra_at = findfirst("getting-started/infrastructure.md", pgs)
-                @test dev_at !== nothing && infra_at !== nothing &&
-                      first(dev_at) < first(infra_at)
+                # Kit meta-docs (customising the generated site, infrastructure
+                # and template sync) describe the kit, not the adopting package,
+                # so they are neither seeded nor navigated to (#194).
+                for f in ("docs/src/getting-started/customising.md",
+                    "docs/src/getting-started/infrastructure.md")
+                    @test !ispath(joinpath(dir, f))
+                end
+                @test !occursin("customising.md", pgs)
+                @test !occursin("infrastructure.md", pgs)
                 # make.jl is a thin caller into the kit's DocsBuild machinery
                 # (DocumenterVitepress/Literate/makedocs all live in the kit
                 # now), and is fully substituted.
@@ -318,6 +317,34 @@
                 # The node deps pin vitepress + DocumenterVitepress plugins.
                 pj = read(joinpath(dir, "docs/package.json"), String)
                 @test occursin("vitepress", pj)
+            end
+        end
+
+        @testset "every seeded nav entry resolves to a page (#194)" begin
+            # The nav used to point at `getting-started/customising.md`, a page
+            # the scaffold never wrote: a fresh adopter's docs build started
+            # with a dead nav entry and a dangling `@ref`. Hold the seeded nav
+            # to pages the package writes or `make.jl` generates, for both the
+            # AD and no-AD navs.
+            generated = ["index.md", "lib/public.md", "lib/internals.md",
+                "benchmarks.md"]
+            for ad in (true, false)
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    scaffold(dir; ad = ad, benchmarks = true)
+                    src = joinpath(dir, "docs", "src")
+                    pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                    targets = [String(m.captures[1])
+                               for m in eachmatch(r"\"([^\"]+\.md)\"", pgs)]
+                    @test !isempty(targets)
+                    for t in targets
+                        t in generated && continue
+                        # A Literate page is written as its `.jl` source and
+                        # rendered to `.md` at build time.
+                        @test isfile(joinpath(src, t)) ||
+                              isfile(joinpath(src, replace(t, r"\.md$" => ".jl")))
+                    end
+                end
             end
         end
 
