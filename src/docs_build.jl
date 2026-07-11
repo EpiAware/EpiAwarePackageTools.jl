@@ -48,7 +48,7 @@ module DocsBuild
 import ..EpiAwarePackageTools: _require_pkg
 
 export build_docs, build_index, build_release_notes, build_benchmark_page,
-       build_api_pages, api_bindings
+       build_api_pages, api_bindings, api_owning_modules
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -367,6 +367,49 @@ function api_bindings(mod::Module)
     return public, private
 end
 
+# Whether `m` is `root` or nested inside it (a submodule at any depth). The
+# parent chain of a top-level module is itself; `Main`/`Base` terminate it.
+function _within(m::Module, root::Module)
+    while true
+        m === root && return true
+        p = parentmodule(m)
+        p === m && return false
+        m = p
+    end
+end
+
+"""
+    api_owning_modules(mod) -> Set{Module}
+
+The external *owning* modules of the re-exported docstrings `mod` documents —
+each module outside `mod`'s own module tree that records a docstring for one of
+the bindings [`api_bindings`](@ref) lists.
+
+`mod`'s generated `@docs` blocks list re-exported / `public`-declared bindings
+by their `mod.name` (e.g. `ComposedDistributions.Convolved`), but Documenter's
+`@docs` resolver only resolves a listed name when the module that *owns* its
+docstring is in `makedocs`' `modules` (it filters found docstrings to that
+set). A re-export's docstring lives in the defining module, not `mod`, so
+[`build_docs`](@ref) folds this set into `modules` — otherwise every such
+`@docs` entry raises Documenter's "no docs found ... in `@docs` block" warning
+and its `@ref`s break in the built HTML (#175). The owner is found by the same
+`Base.Docs.aliasof` walk `api_bindings` uses. `mod` and its own submodules are
+excluded: Documenter already discovers a package's submodules from `mod`
+itself, so only cross-package owners need adding.
+"""
+function api_owning_modules(mod::Module)
+    public, private = api_bindings(mod)
+    owners = Set{Module}()
+    for v in Iterators.flatten((public, private))
+        isdefined(mod, v) || continue
+        b = Base.Docs.aliasof(Base.Docs.Binding(mod, v))
+        haskey(Base.Docs.meta(b.mod), b) || continue
+        _within(b.mod, mod) && continue
+        push!(owners, b.mod)
+    end
+    return owners
+end
+
 function _write_api_page(path, title, anchor, page, intro, api_heading,
         mod, names)
     mkpath(dirname(path))
@@ -606,7 +649,7 @@ end
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
-               index_strip_sections=[], benchmark_page=true,
+               index_strip_sections=[], benchmark_page=true, extra_modules=[],
                build_vitepress=true, deploy=true)
 
 Run the standard EpiAware documentation build for package module `mod`. All
@@ -624,6 +667,18 @@ not terminate in reasonable time), so it need not block its siblings from
 running for real. `deploy=false` builds without deploying, and
 `build_vitepress=false` runs Documenter without the final VitePress (npm)
 pass — both used by tests and fast local content builds.
+
+The owning modules of `mod`'s re-exported docstrings are auto-discovered (see
+`api_owning_modules`) and folded into Documenter's `modules` so the
+generated `@docs` blocks for those re-exports resolve (#175); `extra_modules`
+adds any further owner modules auto-discovery cannot reach (e.g. a re-export
+referenced only from prose). Because Documenter drives its missing-docstring
+completeness check off the same `modules` list — with no working way to scope
+that check while widening `@docs` resolution — the completeness check is
+disabled whenever the resolution set is widened, so a package is never held
+responsible for a dependency's own missing-docstring hygiene (`mod`'s own
+completeness is already guaranteed by construction: `api_bindings` emits every
+docstring `mod` owns).
 """
 function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         pages, deploy_url = nothing, skip_notebooks::Bool = false,
@@ -634,8 +689,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         force_stub_tutorials = String[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
         readme_execute::Bool = true, index_strip_sections = String[],
-        benchmark_page::Bool = true, build_vitepress::Bool = true,
-        deploy::Bool = true)
+        benchmark_page::Bool = true, extra_modules = Module[],
+        build_vitepress::Bool = true, deploy::Bool = true)
     project_root = pkgdir(mod)
     # `pkgdir` returns `Union{Nothing,String}`; narrow to a concrete String up
     # front so the downstream `joinpath` calls never see `Nothing` (keeps JET
@@ -693,6 +748,28 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         repo = "github.com/$repo", devbranch = "main", devurl = "dev",
         deploy_url = deploy_url, build_vitepress = build_vitepress,
         keep = :patch)
+
+    # The modules Documenter's `@docs` resolver searches. `mod` always leads;
+    # the owning modules of `mod`'s re-exported docstrings follow so their
+    # `@docs` entries resolve instead of raising "no docs found" (#175). A
+    # package may name further owner modules via `extra_modules` (docs_config)
+    # for a re-export auto-discovery cannot reach.
+    owning_modules = union(Set{Module}(extra_modules), api_owning_modules(mod))
+    delete!(owning_modules, mod)
+    doc_modules = Module[mod]
+    append!(doc_modules, collect(owning_modules))
+    # Documenter drives its missing-docstring completeness check off this same
+    # `modules` list, and there is no working way to scope that check to `mod`
+    # while widening `@docs` resolution: `checkdocs_ignored_modules` does not
+    # exclude a top-level owner module (Documenter's `submodules` always keeps
+    # the roots it is handed), and no `checkdocs`-allowlist keyword exists. So
+    # whenever we widen for re-export resolution we disable the completeness
+    # check (`:none`), keeping a package off the hook for its dependencies'
+    # own missing-docstring hygiene; `mod`'s own completeness needs no check
+    # here because `api_bindings` emits every docstring `mod` owns by
+    # construction. With no re-exports the default `:all` check over `mod`
+    # alone is kept.
+    checkdocs = length(doc_modules) > 1 ? :none : :all
     # `root` is pinned to the package's docs dir. Documenter otherwise defaults
     # it to the running script's directory; because the build now lives in the
     # kit rather than in `docs/make.jl`, the thin caller (or a test) may run
@@ -705,7 +782,9 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         linkcheck_ignore = vcat(linkcheck_ignore, benchmark_linkcheck),
         warnonly = [
             :docs_block, :missing_docs, :autodocs_block, :cross_references],
-        modules = [mod], pages = pages, format = format, plugins = plugins)
+        checkdocs = checkdocs,
+        modules = doc_modules, pages = pages, format = format,
+        plugins = plugins)
 
     # Fail loudly rather than silently ship a truncated home page (#91).
     _check_index_not_truncated(joinpath(src_dir, "index.md"),

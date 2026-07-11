@@ -64,5 +64,9 @@ build_docs(
     index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
     readme_execute = _cfg(:README_EXECUTE, true),
     index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
-    benchmark_page = _cfg(:BENCHMARK_PAGE, false)
+    benchmark_page = _cfg(:BENCHMARK_PAGE, false),
+    # Extra docstring-owning modules for a re-export the alias walk cannot
+    # reach (e.g. one referenced only from prose); owners of re-exported API
+    # bindings are auto-discovered, so most packages leave this empty (#175).
+    extra_modules = _cfg(:EXTRA_MODULES, Module[])
 )
