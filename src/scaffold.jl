@@ -911,8 +911,13 @@ const _AD_BACKENDS = [
 # `unit` flag already in the template) so the flags list can never drift from
 # `AD_BUILD_COUNT` — see `_AD_BACKENDS`.
 function _ad_codecov_flags()
+    # `ext` is deliberately NOT listed under the AD flags: the per-backend AD
+    # jobs run without a package's weakdeps loaded, so extension files never
+    # execute under those flags and would report 0%, red-ing codecov/patch even
+    # when the unit suite covers `ext/` fully. Only the `unit` flag (which loads
+    # weakdeps) attributes `ext/` (#180).
     blocks = [string("  ", b.slug, ":\n", "    paths:\n", "      - src\n",
-                  "      - ext\n", "    carryforward: true") for b in _AD_BACKENDS]
+                  "    carryforward: true") for b in _AD_BACKENDS]
     return join(blocks, "\n")
 end
 

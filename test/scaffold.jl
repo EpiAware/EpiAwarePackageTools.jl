@@ -192,6 +192,13 @@
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("ad-forwarddiff", cov)
                 @test occursin("carryforward", cov)
+                # `ext` is attributed only to the `unit` flag, never the AD
+                # flags: AD jobs run without weakdeps so extensions read 0%
+                # there and would red codecov/patch (#180). So `- ext` appears
+                # exactly once (unit), while `- src` appears under unit + each
+                # AD backend.
+                @test count("- ext", cov) == 1
+                @test occursin("ext", cov)
                 # The ad=true codecov gates status until every flag upload lands
                 # (unit + six AD backends = seven), parameterised by backend count.
                 @test occursin("after_n_builds: 7", cov)
