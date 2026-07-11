@@ -5,6 +5,11 @@
 # broken/skip bookkeeping. The shared harness (driven from `test/ad/setup.jl`)
 # consumes these. Replace the placeholder scenario with the package's own
 # differentiable log densities and add the backends it supports.
+#
+# If the package's log densities use EpiAwareADTools' AD-safe hooks
+# (`cdf_ad_safe`, `primal`, ...) to stay differentiable, add scenarios here that
+# exercise those paths, so the per-backend matrix covers them. See
+# https://github.com/EpiAware/EpiAwareADTools.jl.
 module ADFixtures
 
 using ADTypes: AutoForwardDiff
