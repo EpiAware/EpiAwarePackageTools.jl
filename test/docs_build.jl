@@ -166,7 +166,70 @@
         @test startswith(out, "# [Benchmarks](@id benchmarks)")
     end
 
-    @testset "build_benchmark_page: renders published history" begin
+    @testset "build_benchmark_page: renders grouped published history" begin
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(`git -C $dir config user.email t@t`)
+        run(`git -C $dir config user.name t`)
+        write(joinpath(dir, "f.txt"), "x")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm init`;
+            stdout = devnull, stderr = devnull))
+        sha = strip(read(`git -C $dir rev-parse HEAD`, String))
+        short = sha[1:14]
+        cdate = strip(read(
+            `git -C $dir show -s --date=short --format=%cd $sha`, String))
+        main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
+        run(`git -C $dir checkout -q --orphan benchmarks`)
+        run(pipeline(`git -C $dir reset -q --hard`;
+            stdout = devnull, stderr = devnull))
+        hist = joinpath(dir, "history")
+        mkpath(hist)
+        # A realistic multi-suite table: slash-path row names, a truncated
+        # commit-hash column header (matching benchpkgtable output).
+        write(joinpath(hist, "table.md"),
+            "|   | $short...  |\n" *
+            "|:--|:---------:|\n" *
+            "| AD gradients/Enzyme forward | 1.0 |\n" *
+            "| AD gradients/ForwardDiff | 2.0 |\n" *
+            "| Baseline/allocations | 3.0 |\n" *
+            "| time_to_load | 4.0 |\n")
+        write(joinpath(hist, "plot_Pkg_1.png"), "PNG")
+        write(joinpath(hist, "plot_Pkg_2.png"), "PNG")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm hist`;
+            stdout = devnull, stderr = devnull))
+        run(`git -C $dir checkout -q $main`)
+        prose = joinpath(dir, "benchmarks.md")
+        write(prose, "Narrative.\n")
+        dest = joinpath(dir, "src", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir)
+        out = read(dest, String)
+        # Ratio table grouped into per-suite `###` sections (#193).
+        @test occursin("### Ratio summary", out)
+        @test occursin("### AD gradients", out)
+        @test occursin("### Baseline", out)
+        # Row labels have the suite prefix stripped.
+        @test occursin("| Enzyme forward | 1.0 |", out)
+        @test occursin("| ForwardDiff | 2.0 |", out)
+        @test occursin("| allocations | 3.0 |", out)
+        # The flat slash-path row name is no longer spliced verbatim.
+        @test !occursin("AD gradients/Enzyme forward", out)
+        # Column relabelled from raw hash to commit date.
+        @test occursin(cdate, out)
+        @test !occursin("$short...", out)
+        # Plots collapsed behind <details>, each still embedded (sorted).
+        @test occursin("### Per-benchmark timelines", out)
+        @test occursin("<details>", out)
+        @test occursin("<summary>", out)
+        @test occursin(
+            "![plot_Pkg_1.png](https://raw.githubusercontent.com/Org/Pkg.jl/benchmarks/history/plot_Pkg_1.png)",
+            out)
+        @test !occursin("tree/benchmarks/history", out)  # not the fallback
+    end
+
+    @testset "build_benchmark_page: history_suites filters suites" begin
         dir = mktempdir()
         run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
         run(`git -C $dir config user.email t@t`)
@@ -181,9 +244,10 @@
             stdout = devnull, stderr = devnull))
         hist = joinpath(dir, "history")
         mkpath(hist)
-        write(joinpath(hist, "table.md"), "| b | r |\n|---|---|\n| a | 1 |\n")
-        write(joinpath(hist, "Primary.png"), "PNG")
-        write(joinpath(hist, "Interval.png"), "PNG")
+        write(joinpath(hist, "table.md"),
+            "|   | c1 |\n|:--|:--:|\n" *
+            "| AD gradients/ForwardDiff | 2.0 |\n" *
+            "| Baseline/allocations | 3.0 |\n")
         run(`git -C $dir add -A`)
         run(pipeline(`git -C $dir commit -qm hist`;
             stdout = devnull, stderr = devnull))
@@ -192,20 +256,13 @@
         write(prose, "Narrative.\n")
         dest = joinpath(dir, "src", "benchmarks.md")
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+            package = "Pkg", prose_file = prose, project_root = dir,
+            history_suites = ["AD gradients"])
         out = read(dest, String)
-        # Ratio table inlined.
-        @test occursin("### Ratio summary", out)
-        @test occursin("| a | 1 |", out)
-        # Each plot embedded via its raw GitHub URL (sorted).
-        @test occursin("### Per-benchmark timelines", out)
-        @test occursin(
-            "![Interval.png](https://raw.githubusercontent.com/Org/Pkg.jl/benchmarks/history/Interval.png)",
-            out)
-        @test occursin(
-            "![Primary.png](https://raw.githubusercontent.com/Org/Pkg.jl/benchmarks/history/Primary.png)",
-            out)
-        @test !occursin("tree/benchmarks/history", out)  # not the fallback
+        # Only the named headline suite is rendered.
+        @test occursin("### AD gradients", out)
+        @test !occursin("### Baseline", out)
+        @test !occursin("allocations", out)
     end
 
     @testset "api_bindings + build_api_pages split public/private" begin
@@ -600,4 +657,129 @@ end
     widened_checked = makedocs_warnings(doc_modules; checkdocs = :all)
     @test nodocs(widened_checked) == 0
     @test any(m -> occursin("Dep175.dep_only", m), widened_checked)
+end
+
+@testitem "benchmark history table reshaping (#193)" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # A representative `table.md` matching benchpkgtable's real output: an empty
+    # first (name) column header, truncated commit-hash column headers, and
+    # slash-path leaf-benchmark row names spanning several suites.
+    tbl = """
+    |                                   | aaaa1111...  | bbbb2222...  |
+    |:----------------------------------|:------------:|:------------:|
+    | AD gradients/Enzyme forward       | 1.0          | 1.2          |
+    | AD gradients/ForwardDiff          | 2.0          | 1.9          |
+    | Baseline/allocations              | 3.0          | 3.0          |
+    | time_to_load                      | 4.0          | 4.1          |
+    """
+
+    @testset "_parse_pipe_table / _history_table_parts" begin
+        cols, entries = DB._history_table_parts(tbl)
+        # The alignment row is dropped; the two hash columns survive.
+        @test cols == ["aaaa1111...", "bbbb2222..."]
+        # One entry per leaf benchmark, name => values.
+        @test length(entries) == 4
+        @test entries[1] == ("AD gradients/Enzyme forward" => ["1.0", "1.2"])
+        @test entries[end] == ("time_to_load" => ["4.0", "4.1"])
+    end
+
+    @testset "_cap_columns keeps the most recent n" begin
+        cols, entries = DB._history_table_parts(tbl)
+        capped_cols, capped = DB._cap_columns(cols, entries, 1)
+        # Only the newest (rightmost) column is retained.
+        @test capped_cols == ["bbbb2222..."]
+        @test capped[1] == ("AD gradients/Enzyme forward" => ["1.2"])
+        # n >= column count is a no-op.
+        @test DB._cap_columns(cols, entries, 5) == (cols, entries)
+    end
+
+    @testset "_group_rows_by_suite groups + strips the prefix" begin
+        _, entries = DB._history_table_parts(tbl)
+        groups = DB._group_rows_by_suite(entries)
+        suites = first.(groups)
+        # First-seen suite order, one group per first `/`-segment.
+        @test suites == ["AD gradients", "Baseline", "time_to_load"]
+        adrows = groups[1].second
+        # The suite prefix is stripped from each row label.
+        @test first.(adrows) == ["Enzyme forward", "ForwardDiff"]
+        # A name with no `/` forms its own single-row suite (label == name).
+        @test groups[3].second == ["time_to_load" => ["4.0", "4.1"]]
+    end
+
+    @testset "_render_ratio_table: grouped, capped, all suites" begin
+        io = IOBuffer()
+        # `project_root` here is not a git repo, so the hash columns stay as-is
+        # (date relabelling is exercised in the git-backed page test).
+        DB._render_ratio_table(io, tbl, mktempdir(); last_n = 5,
+            suites = String[])
+        out = String(take!(io))
+        @test occursin("### AD gradients", out)
+        @test occursin("### Baseline", out)
+        @test occursin("### time_to_load", out)
+        @test occursin("| Enzyme forward | 1.0 | 1.2 |", out)
+        # The flat slash-path is not spliced verbatim.
+        @test !occursin("AD gradients/Enzyme forward", out)
+    end
+
+    @testset "_render_ratio_table: history_suites filter" begin
+        io = IOBuffer()
+        DB._render_ratio_table(io, tbl, mktempdir(); last_n = 5,
+            suites = ["AD gradients"])
+        out = String(take!(io))
+        @test occursin("### AD gradients", out)
+        @test !occursin("### Baseline", out)
+        @test !occursin("allocations", out)
+    end
+
+    @testset "_render_ratio_table: unparseable table spliced verbatim" begin
+        io = IOBuffer()
+        DB._render_ratio_table(io, "not a table at all", mktempdir())
+        @test occursin("not a table at all", String(take!(io)))
+    end
+end
+
+@testitem "benchmarks branch fetched via explicit refspec (#192)" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    mktempdir() do root
+        origin = joinpath(root, "origin.git")
+        work = joinpath(root, "work")
+        clone = joinpath(root, "clone")
+        q = (; stdout = devnull, stderr = devnull)
+        run(pipeline(`git init -q --bare $origin`; q...))
+        run(pipeline(`git init -q $work`; q...))
+        run(`git -C $work config user.email t@t`)
+        run(`git -C $work config user.name t`)
+        write(joinpath(work, "f"), "x")
+        run(`git -C $work add -A`)
+        run(pipeline(`git -C $work commit -qm init`; q...))
+        run(`git -C $work branch -M main`)
+        run(`git -C $work checkout -q --orphan benchmarks`)
+        run(pipeline(`git -C $work reset -q --hard`; q...))
+        mkpath(joinpath(work, "history"))
+        write(joinpath(work, "history", "table.md"),
+            "|  | c1 |\n|:-|:-:|\n| a/b | 1 |\n")
+        run(`git -C $work add -A`)
+        run(pipeline(`git -C $work commit -qm hist`; q...))
+        run(`git -C $work checkout -q main`)
+        run(`git -C $work remote add origin $origin`)
+        run(pipeline(`git -C $work push -q origin main benchmarks`; q...))
+
+        # A single-branch clone tracking only `main` — the CI docs checkout
+        # shape. `origin/benchmarks` is absent until an explicit fetch.
+        run(pipeline(
+            `git clone -q --single-branch --branch main $origin $clone`; q...))
+        @test DB._benchmarks_ref(clone; fetch = false) === nothing
+        # The refspec fetch creates the `origin/benchmarks` tracking ref so the
+        # lookup resolves it. A bare `git fetch origin benchmarks` (the old
+        # behaviour) would only populate FETCH_HEAD and still return nothing —
+        # the #192 failure that blanked the deployed history page.
+        @test DB._benchmarks_ref(clone; fetch = true) == "origin/benchmarks"
+        @test !isempty(DB._history_files(clone, "origin/benchmarks"))
+    end
 end
