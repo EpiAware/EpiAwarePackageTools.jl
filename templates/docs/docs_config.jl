@@ -67,3 +67,15 @@ const INDEX_STRIP_SECTIONS = String[]
 # to the `benchmarks` flag the package was scaffolded with; `false` drops the
 # page and `make.jl` also omits its `pages.jl` nav entry.
 const BENCHMARK_PAGE = {{BENCHMARK_PAGE}}
+
+# Headline benchmark suites to keep on the performance-history page. A suite is
+# the first `/`-segment of a benchmark's name (e.g. "AD gradients" in
+# "AD gradients/Convolved Normal+Normal/ForwardDiff"). Empty keeps every suite;
+# name a few here when the full suite list makes the history page too long.
+const HISTORY_SUITES = String[]
+
+# How many of the most-recent revisions (columns) to show in the history ratio
+# table. The published `table.md` can carry every benchmarked release; this caps
+# the rendered table so it stays readable. Columns are relabelled with commit
+# dates.
+const HISTORY_COMMITS = 5

@@ -175,7 +175,8 @@ end
 # ---- benchmark history page -----------------------------------------------
 
 """
-    _embed_benchmark_history(io, repo, project_root; fetch = true)
+    _embed_benchmark_history(io, repo, project_root; fetch = true,
+                             history_suites = String[], history_commits = 5)
 
 Render the published benchmark timeline into `io`.
 
@@ -183,13 +184,24 @@ The history is published by `benchmark-history.yaml` to the repo's
 `benchmarks` branch under `history/` (per-benchmark PNG plots + a
 `table.md` ratio summary). GitHub Pages serves only the gh-pages docs
 site, so the history is shown here by enumerating the branch at build
-time (a best-effort `git fetch`) and embedding the ratio table inline
-plus each plot via its raw GitHub URL. When the branch does not exist
-yet (no release has published a timeline) it degrades to a link to
-the branch.
+time (a best-effort `git fetch`) and rendering the ratio table plus the
+plots. When the branch does not exist yet (no release has published a
+timeline) it degrades to a link to the branch.
+
+The raw `table.md` is a single flat table with one row per leaf benchmark
+(a `Suite/.../Leaf` slash-path) and one column per benchmarked revision
+(labelled by commit hash). Splicing it verbatim is unreadable at realistic
+suite sizes (200+ rows, #193), so it is reshaped here: rows are grouped by
+their first `/`-segment into per-suite `###` sub-tables (that prefix stripped
+from the row labels), the table is capped to the last `history_commits`
+revisions, and the columns are relabelled with commit dates instead of raw
+hashes. `history_suites` (when non-empty) restricts the page to the named
+headline suites. The per-benchmark plots are collapsed behind a `<details>`
+so the page stays skimmable.
 """
 function _embed_benchmark_history(io, repo::AbstractString,
-        project_root::AbstractString; fetch::Bool = true)
+        project_root::AbstractString; fetch::Bool = true,
+        history_suites = String[], history_commits::Integer = 5)
     ref = _benchmarks_ref(project_root; fetch = fetch)
     if ref !== nothing
         files = _history_files(project_root, ref)
@@ -201,18 +213,10 @@ function _embed_benchmark_history(io, repo::AbstractString,
                     String)
                 println(io, "### Ratio summary")
                 println(io)
-                println(io, rstrip(tbl))
-                println(io)
+                _render_ratio_table(io, tbl, project_root;
+                    last_n = history_commits, suites = history_suites)
             end
-            if !isempty(pngs)
-                println(io, "### Per-benchmark timelines")
-                println(io)
-                for p in pngs
-                    url = "https://raw.githubusercontent.com/$repo/benchmarks/$p"
-                    println(io, "![$(basename(p))]($url)")
-                    println(io)
-                end
-            end
+            !isempty(pngs) && _embed_history_plots(io, repo, pngs)
             return true
         end
     end
@@ -226,14 +230,25 @@ function _embed_benchmark_history(io, repo::AbstractString,
 end
 
 # The resolvable git ref for the `benchmarks` branch, or `nothing`. A
-# best-effort fetch first so a CI checkout (which fetches only the built ref)
-# can still see it; failures (offline, no branch) are swallowed.
+# best-effort fetch first so a docs-build checkout (which by default fetches
+# only the built ref) can still see it. The fetch uses an explicit refspec
+# (`+refs/heads/benchmarks:refs/remotes/origin/benchmarks`) rather than a bare
+# `git fetch origin benchmarks`: the latter lands only in `FETCH_HEAD` and
+# never creates the `origin/benchmarks` tracking ref the lookup below checks,
+# so on a single-branch/shallow CI checkout the branch was fetched yet stayed
+# invisible and the page silently rendered empty (#192). Failures (offline, or
+# no `benchmarks` branch yet) are expected and non-fatal, but now log a
+# one-line reason instead of degrading silently.
 function _benchmarks_ref(project_root::AbstractString; fetch::Bool = true)
     if fetch
         try
-            run(pipeline(`git -C $project_root fetch --quiet origin benchmarks`;
+            run(pipeline(`git -C $project_root fetch --no-tags origin
+                    +refs/heads/benchmarks:refs/remotes/origin/benchmarks`;
                 stdout = devnull, stderr = devnull))
-        catch
+        catch err
+            @info "benchmark history: could not fetch the `benchmarks` " *
+                  "branch (offline, or it does not exist yet); the page " *
+                  "will use any locally present ref or the fallback link" exception = err
         end
     end
     for ref in ("origin/benchmarks", "benchmarks")
@@ -244,6 +259,9 @@ function _benchmarks_ref(project_root::AbstractString; fetch::Bool = true)
         catch
         end
     end
+    @info "benchmark history: no `benchmarks` ref resolvable after fetch; " *
+          "rendering the fallback link (publish a timeline via " *
+          "benchmark-history.yaml to populate this page)"
     return nothing
 end
 
@@ -258,9 +276,175 @@ function _history_files(project_root::AbstractString, ref::AbstractString)
     end
 end
 
+# ---- benchmark history: table reshaping (#193) -----------------------------
+
+# Parse a GitHub-flavoured pipe table into a vector of cell-rows (the leading
+# and trailing empty cells from the `|...|` delimiters dropped). Non-table
+# lines are ignored, so surrounding prose in `table.md` is skipped.
+function _parse_pipe_table(md::AbstractString)
+    rows = Vector{String}[]
+    for raw in split(md, '\n')
+        ln = strip(raw)
+        startswith(ln, "|") || continue
+        cells = map(strip, split(ln, '|'))
+        length(cells) >= 2 || continue
+        push!(rows, String.(cells[2:(end - 1)]))
+    end
+    return rows
+end
+
+# Whether every cell is a markdown alignment marker (`---`, `:---`, `:---:`),
+# i.e. the header separator row.
+_is_alignment_row(cells) = !isempty(cells) && all(c -> occursin(r"^:?-+:?$", c), cells)
+
+# Split a parsed `table.md` into its revision-column labels and its data rows
+# (`name => values`). The header's first cell is the empty benchmark-name
+# column, so the revision labels are the remaining header cells.
+function _history_table_parts(md::AbstractString)
+    all_rows = _parse_pipe_table(md)
+    isempty(all_rows) && return (String[], Pair{String, Vector{String}}[])
+    header = all_rows[1]
+    col_labels = length(header) > 1 ? header[2:end] : String[]
+    entries = Pair{String, Vector{String}}[]
+    for r in all_rows[2:end]
+        (isempty(r) || _is_alignment_row(r)) && continue
+        push!(entries, r[1] => (length(r) > 1 ? r[2:end] : String[]))
+    end
+    return (col_labels, entries)
+end
+
+# Keep only the last `n` revision columns (the most recent points on the
+# timeline). Rows whose width does not match the header are left untouched so a
+# malformed row never throws.
+function _cap_columns(col_labels, entries, n::Integer)
+    ncol = length(col_labels)
+    (n <= 0 || n >= ncol) && return (col_labels, entries)
+    keep = (ncol - n + 1):ncol
+    capped = map(entries) do (name, vals)
+        length(vals) == ncol ? (name => vals[keep]) : (name => vals)
+    end
+    return (col_labels[keep], capped)
+end
+
+# The short commit date for `label` (a benchpkgtable column header), or `label`
+# unchanged. Column headers are truncated commit hashes (a trailing `...`) for
+# SHA revs and plain names for tag revs; only the former resolve to a date.
+function _commit_date(project_root::AbstractString, label::AbstractString)
+    ref = rstrip(replace(strip(label), "..." => "", "…" => ""))
+    (isempty(ref) || !occursin(r"^[0-9a-fA-F]{7,40}$", ref)) && return label
+    try
+        d = strip(read(pipeline(`git -C $project_root show -s
+                --date=short --format=%cd $ref`; stderr = devnull), String))
+        return isempty(d) ? label : d
+    catch
+        return label
+    end
+end
+
+# Relabel each revision column with its commit date where resolvable.
+function _relabel_history_columns(col_labels, project_root)
+    [_commit_date(project_root, l) for l in col_labels]
+end
+
+# Group `name => values` rows by the first `/`-segment of each name, preserving
+# first-seen order; the segment is stripped from the per-row label. A name with
+# no `/` (e.g. `time_to_load`) forms its own single-row suite.
+function _group_rows_by_suite(entries)
+    groups = Pair{String, Vector{Pair{String, Vector{String}}}}[]
+    index = Dict{String, Int}()
+    for (name, vals) in entries
+        slash = findfirst('/', name)
+        if slash === nothing
+            suite, label = name, name
+        else
+            suite = name[1:prevind(name, slash)]
+            label = name[nextind(name, slash):end]
+        end
+        if !haskey(index, suite)
+            push!(groups, suite => Pair{String, Vector{String}}[])
+            index[suite] = length(groups)
+        end
+        push!(groups[index[suite]].second, label => vals)
+    end
+    return groups
+end
+
+# Write one grouped markdown sub-table (`| Benchmark | <cols...> |`).
+function _write_history_subtable(io, col_labels, subrows)
+    println(io, "| Benchmark | ", join(col_labels, " | "), " |")
+    println(io, "|:---|", repeat(":---:|", max(length(col_labels), 1)))
+    for (label, vals) in subrows
+        println(io, "| ", label, " | ", join(vals, " | "), " |")
+    end
+    return
+end
+
+# Reshape the raw `table.md` into grouped, capped, date-labelled per-suite
+# tables (see [`_embed_benchmark_history`](@ref)). Falls back to splicing the
+# table verbatim if it cannot be parsed, so a format change never blanks the
+# page.
+function _render_ratio_table(io, md::AbstractString,
+        project_root::AbstractString; last_n::Integer = 5,
+        suites = String[])
+    col_labels, entries = _history_table_parts(md)
+    if isempty(entries)
+        println(io, rstrip(md))
+        println(io)
+        return
+    end
+    col_labels, entries = _cap_columns(col_labels, entries, last_n)
+    col_labels = _relabel_history_columns(col_labels, project_root)
+    if !isempty(col_labels)
+        n = length(col_labels)
+        println(io, "_Most recent ", n, n == 1 ? " revision" : " revisions",
+            ", columns labelled by commit date._")
+        println(io)
+    end
+    groups = _group_rows_by_suite(entries)
+    if !isempty(suites)
+        wanted = Set(String.(suites))
+        groups = filter(g -> g.first in wanted, groups)
+    end
+    if isempty(groups)
+        println(io,
+            "_No benchmark suites matched the configured `history_suites`._")
+        println(io)
+        return
+    end
+    for (suite, subrows) in groups
+        println(io, "### ", suite)
+        println(io)
+        _write_history_subtable(io, col_labels, subrows)
+        println(io)
+    end
+    return
+end
+
+# Collapse the per-benchmark plot wall behind a `<details>` so the page stays
+# skimmable (#193). benchpkgplot names plots `plot_<Package>_<N>.png` with no
+# suite in the filename, so they cannot be grouped per suite; they are shown as
+# one collapsed block of raw-GitHub images.
+function _embed_history_plots(io, repo::AbstractString, pngs)
+    println(io, "### Per-benchmark timelines")
+    println(io)
+    println(io, "<details>")
+    println(io, "<summary>Show ", length(pngs),
+        length(pngs) == 1 ? " plot" : " plots", "</summary>")
+    println(io)
+    for p in pngs
+        url = "https://raw.githubusercontent.com/$repo/benchmarks/$p"
+        println(io, "![$(basename(p))]($url)")
+        println(io)
+    end
+    println(io, "</details>")
+    println(io)
+    return
+end
+
 """
     build_benchmark_page(; dest, repo, package, prose_file, embed_history=true,
-                         project_root=dirname(dirname(dest)))
+                         project_root=dirname(dirname(dest)),
+                         history_suites=String[], history_commits=5)
 
 Generate `dest` (the benchmark docs page). The managed skeleton is deliberately
 tight: the page heading, the package-owned `prose_file` spliced verbatim (all
@@ -268,13 +452,16 @@ narrative lives there, minus any leading HTML comment, which is stripped so the
 seed's authoring guidance never renders), and a data-driven
 `## Performance history` section that
 renders the timeline published to the repo's `benchmarks` branch (see
-[`_embed_benchmark_history`](@ref)). Returns the list of linkcheck-ignore
-regexes for the history URLs (the branch may not be live yet).
+[`_embed_benchmark_history`](@ref)). `history_suites` (when non-empty)
+restricts the history to the named headline suites and `history_commits` caps
+the ratio table to that many most-recent revisions. Returns the list of
+linkcheck-ignore regexes for the history URLs (the branch may not be live yet).
 """
 function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         package::AbstractString, prose_file::AbstractString,
         embed_history::Bool = true,
-        project_root::AbstractString = dirname(dirname(dest)))
+        project_root::AbstractString = dirname(dirname(dest)),
+        history_suites = String[], history_commits::Integer = 5)
     prose = isfile(prose_file) ? rstrip(read(prose_file, String)) :
             "Performance benchmarks for `$package`."
     # The package-owned prose file opens with an HTML comment that guides the
@@ -292,7 +479,9 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         println(io, "## Performance history")
         println(io)
         if embed_history
-            _embed_benchmark_history(io, repo, project_root)
+            _embed_benchmark_history(io, repo, project_root;
+                history_suites = history_suites,
+                history_commits = history_commits)
         else
             println(io,
                 "A performance timeline is published on each release.")
@@ -649,7 +838,8 @@ end
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
-               index_strip_sections=[], benchmark_page=true, extra_modules=[],
+               index_strip_sections=[], benchmark_page=true,
+               history_suites=[], history_commits=5, extra_modules=[],
                build_vitepress=true, deploy=true)
 
 Run the standard EpiAware documentation build for package module `mod`. All
@@ -666,7 +856,10 @@ heavy tutorial with an unresolved problem of its own (e.g. a model that does
 not terminate in reasonable time), so it need not block its siblings from
 running for real. `deploy=false` builds without deploying, and
 `build_vitepress=false` runs Documenter without the final VitePress (npm)
-pass — both used by tests and fast local content builds.
+pass — both used by tests and fast local content builds. On the benchmark page,
+`history_suites` (when non-empty) restricts the performance-history table to the
+named headline suites and `history_commits` caps it to that many most-recent
+revisions (see [`_embed_benchmark_history`](@ref)).
 
 The owning modules of `mod`'s re-exported docstrings are auto-discovered (see
 `api_owning_modules`) and folded into Documenter's `modules` so the
@@ -689,7 +882,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         force_stub_tutorials = String[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
         readme_execute::Bool = true, index_strip_sections = String[],
-        benchmark_page::Bool = true, extra_modules = Module[],
+        benchmark_page::Bool = true, history_suites = String[],
+        history_commits::Integer = 5, extra_modules = Module[],
         build_vitepress::Bool = true, deploy::Bool = true)
     project_root = pkgdir(mod)
     # `pkgdir` returns `Union{Nothing,String}`; narrow to a concrete String up
@@ -719,7 +913,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
             dest = joinpath(src_dir, "benchmarks.md"), repo = repo,
             package = string(mod),
             prose_file = joinpath(docs_dir, "benchmarks.md"),
-            project_root = project_root)
+            project_root = project_root, history_suites = history_suites,
+            history_commits = history_commits)
     else
         println("BENCHMARK_PAGE = false; skipping benchmark history page")
         # Drop any stale Benchmarks nav entry so a package that disabled the page

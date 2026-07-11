@@ -65,6 +65,11 @@ build_docs(
     readme_execute = _cfg(:README_EXECUTE, true),
     index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
     benchmark_page = _cfg(:BENCHMARK_PAGE, false),
+    # Performance-history rendering (#193): restrict to headline suites and cap
+    # the ratio table to the most-recent revisions. Both default to the whole
+    # timeline when a package predates these config keys.
+    history_suites = _cfg(:HISTORY_SUITES, String[]),
+    history_commits = _cfg(:HISTORY_COMMITS, 5),
     # Extra docstring-owning modules for a re-export the alias walk cannot
     # reach (e.g. one referenced only from prose); owners of re-exported API
     # bindings are auto-discovered, so most packages leave this empty (#175).
