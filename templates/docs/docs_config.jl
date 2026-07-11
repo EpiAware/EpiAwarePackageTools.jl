@@ -15,7 +15,10 @@ const LIGHT_TUTORIALS = String[]
 
 # Heavy tutorials (live MCMC fits, multi-backend AD, plotting) are each
 # executed once in a fresh subprocess so native/memory state cannot accumulate.
-const HEAVY_TUTORIALS = String[]
+# The `ad-backends.jl` entry is seeded when the package is scaffolded with
+# `ad = true`: the page itself is kit-managed (re-applied on every sync); only
+# this registration is package-owned.
+const HEAVY_TUTORIALS = String[{{AD_HEAVY_TUTORIALS}}]
 
 # Where the tutorial `.jl` sources and rendered `.md` pages live, relative to
 # `docs/src`.
@@ -25,7 +28,7 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # heading should preserve the tutorial's `@id` (e.g.
 # `"# [Title](@id my-anchor)"`) so cross-references from other pages still
 # resolve in a fast build.
-const TUTORIAL_STUBS = Pair{String, String}[]
+const TUTORIAL_STUBS = Pair{String, String}[{{AD_TUTORIAL_STUBS}}]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a

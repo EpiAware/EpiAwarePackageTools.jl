@@ -6,18 +6,21 @@
 # build machinery), so the kit is a docs dep too; until it is registered it is
 # pinned by git via `[sources]` (empty for the kit itself, which is the
 # package).
+# With `ad = true` the env also carries what the kit-managed AD-backends
+# tutorial page executes against: the package's `ADFixtures` registry (pinned
+# by path, same UUID as the AD test env) plus the benchmark and plotting stack.
 [deps]
-Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+{{AD_DOCS_DEPS}}Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"
 DocumenterVitepress = "4710194d-e776-4893-9690-8d956a29c365"
 {{KIT_DEP_LINE}}Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
 {{PACKAGE}} = "{{UUID}}"
 
 [sources]
-{{PACKAGE}} = {path = ".."}{{KIT_SOURCE_LINE}}
+{{PACKAGE}} = {path = ".."}{{AD_DOCS_SOURCES}}{{KIT_SOURCE_LINE}}
 
 [compat]
-Documenter = "1"
+{{AD_DOCS_COMPAT}}Documenter = "1"
 DocumenterCitations = "1"
 DocumenterVitepress = "0.3"
 Literate = "2"

@@ -216,6 +216,19 @@ const SCAFFOLD_TEMPLATES = Template[
         "docs/src/components/StarUs.vue", true, true),
     Template("docs/src/components/stargazers.data.ts",
         "docs/src/components/stargazers.data.ts", true, true),
+    # The AD-backends tutorial page (generalised from CensoredDistributions.jl,
+    # the org model page). Managed so the page body stays kit-current across
+    # syncs; everything package-specific it reports — scenarios, backends, and
+    # broken/skip declarations — is read at docs-build time from the
+    # package-owned `test/ADFixtures` registry (the `ADRegistry` contract), so
+    # a package never edits this file to declare a broken scenario. Its
+    # registration (docs_config's Literate pipeline, the pages.jl nav) and the
+    # docs-env deps it needs live in the package-owned docs seeds below, filled
+    # via the `AD_*` docs fragments (see `_ad_heavy_tutorials` etc.); an
+    # adopter that predates those seeds wires them by hand once.
+    Template("docs/src/getting-started/tutorials/ad-backends.jl",
+        "docs/src/getting-started/tutorials/ad-backends.jl", true, true,
+        :ad_only),
 
     # --- package-owned skeletons (written once, never overwritten) ---
     # The standard DocStringExtensions `@template` conventions. Package-owned
@@ -675,6 +688,7 @@ function scaffold_inputs(target_dir::AbstractString;
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(),
         AD_BACKENDS_JSON = _ad_backends_json(),
+        AD_COV_TABLE = _ad_cov_table(rp),
         AD_BACKEND_PACKAGES = _ad_backend_packages(),
         AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
         CODEOWNERS_LINE = codeowners_line,
@@ -954,6 +968,102 @@ function _ad_scenario_testitems()
     return join(blocks, "\n\n")
 end
 
+# The per-backend coverage-flag markdown table (header line, separator line,
+# badge line), generated from `_AD_BACKENDS` so it can never drift from the
+# codecov flags / CI matrix derived from the same source. Shared by the
+# managed README badge block (`_render_badges`) and the AD-backends tutorial
+# page (`{{AD_COV_TABLE}}`), so the two always show the same table.
+function _ad_cov_flag_table(repo::AbstractString)
+    cov = "https://codecov.io/gh/" * repo
+    headers = "| " * join((b.header for b in _AD_BACKENDS), " | ") * " |"
+    sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
+    badges = "| " *
+             join(
+                 ["[![cov $(b.alt)]($cov/graph/badge.svg?flag=$(b.slug))]" *
+                  "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
+                  "$(b.slug))" for b in _AD_BACKENDS],
+                 " | ") * " |"
+    return (headers, sep, badges)
+end
+
+# The `{{AD_COV_TABLE}}` substitution for the AD-backends tutorial page: the
+# three table lines joined, or `nothing` when the repo slug is unknown (then
+# `_substitute` errors only if the ad-gated tutorial is actually emitted,
+# matching every other `{{REPO}}`-bearing template).
+_ad_cov_table(repo::Nothing) = nothing
+_ad_cov_table(repo::AbstractString) = join(_ad_cov_flag_table(repo), "\n")
+
+# --- the ad=true docs surface -----------------------------------------------
+#
+# The managed AD-backends tutorial page needs three package-owned docs seeds to
+# carry it: `docs/docs_config.jl` must register it with the Literate pipeline
+# (heavy tutorial + fast-build stub), `docs/pages.jl` must add its nav entry,
+# and `docs/Project.toml` must reach the `ADFixtures` registry by path and
+# carry the page's execution deps. Each helper below renders the fragment
+# substituted into those seeds — empty for `ad = false` — so a single template
+# serves both standards, mirroring the `BENCHMARKS_NAV` pattern.
+
+# The `HEAVY_TUTORIALS` entry: the page executes DIT benchmarks over every
+# registry backend plus CairoMakie plotting, exactly the workload the heavy
+# (one fresh subprocess per tutorial) pipeline exists for.
+function _ad_heavy_tutorials(ad::Bool)
+    ad || return ""
+    return "\n    \"ad-backends.jl\"\n"
+end
+
+# The fast-build stub, preserving the page's `@id` so cross-references still
+# resolve under `--skip-notebooks`.
+function _ad_tutorial_stubs(ad::Bool)
+    ad || return ""
+    return "\n    \"ad-backends.md\" => \"# [Automatic differentiation " *
+           "backends](@id ad-backends)\"\n"
+end
+
+# The Getting started nav entry for the rendered page.
+function _ad_tutorials_nav(ad::Bool)
+    ad || return ""
+    return "\n        \"Tutorials\" => [\n" *
+           "            \"Automatic differentiation backends\" =>\n" *
+           "                \"getting-started/tutorials/ad-backends.md\"\n" *
+           "        ],"
+end
+
+# The docs-env `[deps]` block the page executes against: the seeded
+# `ADFixtures` registry (same fresh UUID as the AD test env, path-sourced
+# below), DifferentiationInterfaceTest (the benchmark driver), the
+# DataFrames/plotting stack, and the stdlibs the page loads.
+function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
+    ad || return ""
+    return string(
+        "ADFixtures = \"", adfix_uuid, "\"\n",
+        "AlgebraOfGraphics = \"cbdf2221-f076-402e-a563-3d30da359d67\"\n",
+        "CairoMakie = \"13f3f980-e62b-5c42-98c6-ff1f3baf88f0\"\n",
+        "DataFramesMeta = \"1313f7d8-7da2-5740-9ea0-a2ca25f37964\"\n",
+        "DifferentiationInterfaceTest = ",
+        "\"a82114a7-5aa3-49a8-9643-716bb13727a3\"\n",
+        "Markdown = \"d6f4376e-aef5-505a-96c1-9c027394607a\"\n",
+        "Statistics = \"10745b16-79ce-11e8-11f9-7d13ad32a3b2\"\n")
+end
+
+# The `[sources]` path pin from the docs env to the registry.
+function _ad_docs_sources(ad::Bool)
+    ad || return ""
+    return "\nADFixtures = {path = \"../test/ADFixtures\"}"
+end
+
+# The `[compat]` bounds for the ad-only docs deps (ADFixtures is path-pinned,
+# so it carries none). DifferentiationInterfaceTest mirrors the test-env pin.
+function _ad_docs_compat(ad::Bool)
+    ad || return ""
+    return string(
+        "AlgebraOfGraphics = \"0.13\"\n",
+        "CairoMakie = \"0.15\"\n",
+        "DataFramesMeta = \"0.15\"\n",
+        "DifferentiationInterfaceTest = \"0.9, 0.10\"\n",
+        "Markdown = \"1\"\n",
+        "Statistics = \"1\"\n")
+end
+
 # The conventional custom-subdomain docs host for a package, e.g.
 # `MyPkg` -> `mypkg.epiaware.org`. Only used on the opt-in subdomain path
 # (`docs_subdomain = true`); the default project-pages path needs no host.
@@ -1112,17 +1222,13 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         # aggregate ad.yaml matrix). No per-backend *status* badges: only the
         # aggregate ad.yaml exists, so per-backend status URLs would 404 — the
         # single aggregate AD status badge lives in the Build Status cell above.
-        headers = join((b.header for b in _AD_BACKENDS), " | ")
-        sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
-        cov_badges = join(
-            ["[![cov $(b.alt)]($cov/graph/badge.svg?flag=$(b.slug))]" *
-             "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
-             "$(b.slug))" for b in _AD_BACKENDS],
-            " | ")
+        # The table itself is shared with the AD-backends tutorial page, so the
+        # two always match (see `_ad_cov_flag_table`).
+        header_line, sep, cov_line = _ad_cov_flag_table(repo)
         push!(lines, "")
-        push!(lines, "| " * headers * " |")
+        push!(lines, header_line)
         push!(lines, sep)
-        push!(lines, "| " * cov_badges * " |")
+        push!(lines, cov_line)
     end
     return join(lines, "\n")
 end
@@ -1678,7 +1784,16 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
                 inputs.ORG, downgrade_compat),
             BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
-                _detect_benchmark_history_parked(target_dir))))
+                _detect_benchmark_history_parked(target_dir)),
+            # The ad=true docs surface: the AD-backends tutorial page's
+            # registration in the package-owned docs seeds and the docs-env
+            # deps it executes against (see `_ad_heavy_tutorials` etc.).
+            AD_HEAVY_TUTORIALS = _ad_heavy_tutorials(ad),
+            AD_TUTORIAL_STUBS = _ad_tutorial_stubs(ad),
+            AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
+            AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
+            AD_DOCS_SOURCES = _ad_docs_sources(ad),
+            AD_DOCS_COMPAT = _ad_docs_compat(ad)))
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -1829,12 +1944,21 @@ repo needs (Codecov, GitHub Pages, branch protection, ...).
 `ad` controls whether the AD CI caller and AD test infrastructure are
 scaffolded, so a numerical package opts in and a tooling/non-numerical package
 opts out. It defaults to `true` (the common case for an EpiAware modelling
-package). When `ad = false`, none of the AD infra is written — no
-`.github/workflows/ad.yaml`, no `test/ad/` drivers, scenarios, or env, no
-`test/ADFixtures/` registry skeleton — and the files whose content depends on AD
-(`Taskfile.yml`, `codecov.yml`, `test/Project.toml`) are emitted in their no-AD
-variants (no `test-ad` tasks, no per-backend `ad-*` coverage flags, no AD test
-deps). Pass the same `ad` value to [`scaffold_update`](@ref) to keep the standard stable.
+package). When `ad = true` the managed AD-backends tutorial page
+(`docs/src/getting-started/tutorials/ad-backends.jl`, generalised from
+CensoredDistributions.jl) is also written: its body stays kit-current across
+syncs while the scenarios, backends, and broken/skip declarations it reports
+are read at docs-build time from the package-owned `test/ADFixtures` registry
+(rendered via [`ad_backend_support_table`](@ref)), and its registration plus
+docs-env deps are seeded into the package-owned `docs/docs_config.jl`,
+`docs/pages.jl`, and `docs/Project.toml`. When `ad = false`, none of the AD
+infra is written — no `.github/workflows/ad.yaml`, no `test/ad/` drivers,
+scenarios, or env, no `test/ADFixtures/` registry skeleton, no AD-backends
+docs page — and the files whose content depends on AD (`Taskfile.yml`,
+`codecov.yml`, `test/Project.toml`, and the docs seeds above) are emitted in
+their no-AD variants (no `test-ad` tasks, no per-backend `ad-*` coverage
+flags, no AD test/docs deps). Pass the same `ad` value to
+[`scaffold_update`](@ref) to keep the standard stable.
 
 `benchmarks` controls the opt-in benchmark suite: the benchmark CI callers
 (`.github/workflows/benchmark.yaml`, `benchmark-history.yaml`), the `benchmark/`

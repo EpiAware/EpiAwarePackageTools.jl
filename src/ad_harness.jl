@@ -165,6 +165,53 @@ function test_working_backend(reg, name::AbstractString;
 end
 
 """
+    ad_backend_support_table(reg; scenario_kwargs = (;)) -> String
+
+Render a Markdown table summarising, per registry backend, how many of the
+registry's scenarios it supports and which are declared broken or skipped.
+
+One row per `backends(reg)` entry, with the scenario coverage count
+(`supported/total`) and the sorted names from the optional bookkeeping
+accessors (`broken_scenario_names`, `backend_broken_scenarios`,
+`backend_skip_scenarios`; a missing accessor means none — see
+[`ADRegistry`](@ref)). The scaffolded AD-backends docs page calls this at
+docs-build time, so a package's broken-scenario declarations live only in
+its registry and the published support table can never drift from what the
+gradient tests actually mark broken.
+
+`scenario_kwargs` is forwarded to the registry's `scenarios` call, as in
+[`test_working_backend`](@ref).
+"""
+function ad_backend_support_table(reg; scenario_kwargs = (;))
+    entries = _backends(reg)
+    scens = _scenarios(
+        reg; with_reference = false, scenario_kwargs = scenario_kwargs)
+    names = [String(s.name) for s in scens]
+    total = length(names)
+    global_broken = Set(String.(_global_broken(reg)))
+    per_broken = _per_backend_broken(reg)
+    per_skip = _per_backend_skip(reg)
+    fmt(v) = isempty(v) ? "none" : join(v, ", ")
+    lines = [
+        "| Backend | Scenarios | Declared broken | Skipped |",
+        "|:---|:---:|:---|:---|"
+    ]
+    for e in entries
+        broken = sort!([n
+                        for n in names
+                        if n in global_broken ||
+            n in get(per_broken, e.name, Set{String}())])
+        skipped = sort!([n for n in names
+                         if n in get(per_skip, e.name, Set{String}())])
+        n_ok = total - length(union(Set(broken), Set(skipped)))
+        push!(lines,
+            "| " * e.name * " | " * string(n_ok) * "/" * string(total) *
+            " | " * fmt(broken) * " | " * fmt(skipped) * " |")
+    end
+    return join(lines, "\n")
+end
+
+"""
     test_partial_backend(reg, name; rtol = 5e-2, atol = 1e-6)
 
 Test a partially-supported backend by running every scenario through
