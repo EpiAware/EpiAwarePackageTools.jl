@@ -88,5 +88,6 @@ const HISTORY_COMMITS = 5
 # recent shown revision, against its value at the oldest shown revision) at
 # or above which that suite's `Status` flags "⚠ reg". 1.1 == a 10% increase
 # in runtime/memory counts as a regression; raise it for a noisier benchmark
-# suite, lower it for a stricter one.
+# suite, lower it for a stricter one. Must be > 1.0 — at or below that, a
+# suite with no change (ratio 1.0) or even an improvement would flag.
 const HISTORY_REGRESSION_THRESHOLD = 1.1

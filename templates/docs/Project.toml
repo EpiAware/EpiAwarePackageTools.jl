@@ -9,8 +9,11 @@
 # With `ad = true` the env also carries what the kit-managed AD-backends
 # tutorial page executes against: the package's `ADFixtures` registry (pinned
 # by path, same UUID as the AD test env) plus the benchmark and plotting stack.
+# With `benchmarks = true` it also carries `Plots` for the benchmark page's
+# combined trend plot (lazily loaded kit-side; absent here, the plot degrades
+# to an `@info` note rather than failing the build).
 [deps]
-{{AD_DOCS_DEPS}}Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+{{AD_DOCS_DEPS}}{{BENCH_DOCS_DEPS}}Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"
 DocumenterVitepress = "4710194d-e776-4893-9690-8d956a29c365"
 {{KIT_DEP_LINE}}Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
@@ -20,7 +23,7 @@ DocumenterVitepress = "4710194d-e776-4893-9690-8d956a29c365"
 {{PACKAGE}} = {path = ".."}{{AD_DOCS_SOURCES}}{{KIT_SOURCE_LINE}}
 
 [compat]
-{{AD_DOCS_COMPAT}}Documenter = "1"
+{{AD_DOCS_COMPAT}}{{BENCH_DOCS_COMPAT}}Documenter = "1"
 DocumenterCitations = "1"
 DocumenterVitepress = "0.3"
 Literate = "2"

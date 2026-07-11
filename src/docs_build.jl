@@ -185,7 +185,7 @@ end
     _embed_benchmark_history(io, repo, project_root; fetch = true,
                              history_suites = String[], history_commits = 5,
                              history_regression_threshold = 1.1,
-                             overall_plot_dest = nothing)
+                             overall_plot_dest = nothing, notes = "")
 
 Render the published benchmark timeline into `io`.
 
@@ -216,7 +216,8 @@ function _embed_benchmark_history(io, repo::AbstractString,
         project_root::AbstractString; fetch::Bool = true,
         history_suites = String[], history_commits::Integer = 5,
         history_regression_threshold::Real = 1.1,
-        overall_plot_dest::Union{Nothing, AbstractString} = nothing)
+        overall_plot_dest::Union{Nothing, AbstractString} = nothing,
+        notes::AbstractString = "")
     ref = _benchmarks_ref(project_root; fetch = fetch)
     if ref !== nothing
         files = _history_files(project_root, ref)
@@ -229,13 +230,15 @@ function _embed_benchmark_history(io, repo::AbstractString,
                 _render_benchmark_overview(io, tbl, project_root, pngs, repo;
                     last_n = history_commits, suites = history_suites,
                     regression_threshold = history_regression_threshold,
-                    plot_dest = overall_plot_dest)
+                    plot_dest = overall_plot_dest, notes = notes)
             elseif !isempty(pngs)
+                _write_benchmark_notes(io, notes)
                 _embed_history_plots(io, repo, pngs)
             end
             return true
         end
     end
+    _write_benchmark_notes(io, notes)
     println(io,
         "The performance timeline (per-benchmark plots and a ratio table) is")
     println(io,
@@ -414,20 +417,15 @@ function _write_history_subtable(io, col_labels, subrows)
     return
 end
 
-# Reshape the raw `table.md` into grouped, capped, date-labelled per-suite
-# tables (see [`_embed_benchmark_history`](@ref)). Falls back to splicing the
-# table verbatim if it cannot be parsed, so a format change never blanks the
-# page.
-function _render_ratio_table(io, md::AbstractString,
-        project_root::AbstractString; last_n::Integer = 5,
-        suites = String[])
-    if isempty(_history_table_parts(md)[2])
-        println(io, rstrip(md))
-        println(io)
-        return
-    end
-    col_labels, groups = _reshape_history_table(md, project_root;
-        last_n = last_n, suites = suites)
+# Write the reshaped per-suite detail: the "_Most recent N revisions_"
+# caption, one grouped `###` sub-table per suite, or a "no suites matched"
+# note when `history_suites` filtered everything out. Takes the already
+# reshaped `(col_labels, groups)` ([`_reshape_history_table`](@ref)) so a
+# caller that already has them (the overall-summary orchestrator,
+# [`_render_benchmark_overview`](@ref)) does not re-parse `table.md` and
+# re-shell out to `git show` (once per column, for the commit-date
+# relabelling) a second time.
+function _write_reshaped_detail(io, col_labels, groups)
     if !isempty(col_labels)
         n = length(col_labels)
         println(io, "_Most recent ", n, n == 1 ? " revision" : " revisions",
@@ -446,6 +444,24 @@ function _render_ratio_table(io, md::AbstractString,
         _write_history_subtable(io, col_labels, subrows)
         println(io)
     end
+    return
+end
+
+# Reshape the raw `table.md` into grouped, capped, date-labelled per-suite
+# tables (see [`_embed_benchmark_history`](@ref)). Falls back to splicing the
+# table verbatim if it cannot be parsed, so a format change never blanks the
+# page.
+function _render_ratio_table(io, md::AbstractString,
+        project_root::AbstractString; last_n::Integer = 5,
+        suites = String[])
+    if isempty(_history_table_parts(md)[2])
+        println(io, rstrip(md))
+        println(io)
+        return
+    end
+    col_labels, groups = _reshape_history_table(md, project_root;
+        last_n = last_n, suites = suites)
+    _write_reshaped_detail(io, col_labels, groups)
     return
 end
 
@@ -488,13 +504,18 @@ end
 
 # One value per (already capped) revision column: the median of a suite's
 # per-benchmark values in that column, `missing` when none of the suite's
-# rows parse for that column.
+# rows parse for that column. A row whose width does not match `ncol` is
+# skipped entirely (not read positionally): `_cap_columns` leaves a
+# malformed row's original, uncapped-width cells untouched (#193), so
+# indexing it as if it were capped would silently pair its stale, oldest
+# values with the newest (capped) columns — wrong data with no visible sign
+# of the misalignment, feeding straight into the headline summary/plot.
 function _suite_column_medians(subrows, ncol::Integer)
     out = Vector{Union{Float64, Missing}}(missing, ncol)
     for j in 1:ncol
         vals = Float64[]
         for (_, cellvals) in subrows
-            j <= length(cellvals) || continue
+            length(cellvals) == ncol || continue
             v = _parse_metric_value(cellvals[j])
             v === nothing || push!(vals, v)
         end
@@ -504,14 +525,19 @@ function _suite_column_medians(subrows, ncol::Integer)
 end
 
 # Normalise a suite's per-column medians to a ratio series against its first
-# finite value in the (capped) window, i.e. 1.0 at the oldest shown revision.
-# All-`missing` when the suite has no finite column (nothing to compare
-# against). `medians` is `AbstractVector` rather than the exact
+# finite AND NON-ZERO value in the (capped) window, i.e. 1.0 at the oldest
+# comparable revision. A zero baseline is skipped rather than divided by: a
+# genuine `0.0` median (e.g. "0 bytes allocated") is valid data, but using it
+# as the denominator would make the baseline itself `0/0 = NaN` and every
+# later column `x/0 = ±Inf`, breaking the "1.0 at the oldest revision"
+# invariant and silently defeating the finite-value checks downstream. All
+# `missing` when no such baseline exists (nothing to compare against).
+# `medians` is `AbstractVector` rather than the exact
 # `Vector{Union{Float64,Missing}}` because a comprehension with no `missing`
 # among its actual values narrows to `Vector{Float64}` (Julia infers a
 # comprehension's eltype from the values it produces, not a declared type).
 function _suite_ratio_series(medians::AbstractVector)
-    baseline_idx = findfirst(!ismissing, medians)
+    baseline_idx = findfirst(v -> !ismissing(v) && v != 0, medians)
     baseline_idx === nothing &&
         return Vector{Union{Float64, Missing}}(missing, length(medians))
     baseline = medians[baseline_idx]
@@ -523,11 +549,16 @@ end
 # change). `trend` compares it against `1 ± flat_threshold`. `status` flags a
 # regression once `ratio` reaches `regression_threshold` — higher-is-worse,
 # matching the runtime/memory metrics `table.md` reports. Fewer than two
-# finite points give no signal. `ratio_series` is `AbstractVector` for the
-# same reason as [`_suite_ratio_series`](@ref)'s input.
+# finite points give no signal. `finite` excludes `NaN`/`Inf` as well as
+# `missing` — belt-and-suspenders alongside the zero-baseline guard in
+# [`_suite_ratio_series`](@ref), so a future change that reintroduces a
+# non-finite ratio degrades to "n/a" rather than comparing `NaN` against the
+# thresholds (silently `false` every time, rendering as an unremarkable
+# "no change" row instead of flagging the missing signal). `ratio_series` is
+# `AbstractVector` for the same reason as `_suite_ratio_series`'s input.
 function _suite_trend_status(ratio_series::AbstractVector;
         regression_threshold::Real = 1.1, flat_threshold::Real = 0.02)
-    finite = findall(!ismissing, ratio_series)
+    finite = findall(v -> !ismissing(v) && isfinite(v), ratio_series)
     length(finite) < 2 && return (missing, "→", "n/a")
     ratio = ratio_series[finite[end]]
     trend = if ratio >= 1 + flat_threshold
@@ -542,7 +573,7 @@ function _suite_trend_status(ratio_series::AbstractVector;
 end
 
 _fmt_ratio(::Missing) = "n/a"
-_fmt_ratio(r::Real) = string(round(r; digits = 2))
+_fmt_ratio(r::Real) = isfinite(r) ? string(round(r; digits = 2)) : "n/a"
 
 # Per-suite ratio series from the same `(col_labels, groups)` shape
 # [`_reshape_history_table`](@ref) produces — the shared input to both the
@@ -569,7 +600,11 @@ end
 # Write the `## Benchmark summary (overall)` table: one row per suite, its
 # ratio against the oldest shown revision, a trend arrow and a regression
 # flag. Leads the page — the one thing worth skimming — above the collapsed
-# per-suite detail.
+# per-suite detail. Deliberately tight (a table + one caption line, matching
+# the terseness of CensoredDistributions.jl's own PR-comparison comment,
+# e.g. "Cells are PR median / base median. \U0001F534 >=1.10 (slower), ..."
+# — see `benchmark/comment/comment.jl`) rather than a multi-paragraph
+# explainer.
 function _write_benchmark_summary(io, rows)
     println(io, "## Benchmark summary (overall)")
     println(io)
@@ -586,11 +621,9 @@ function _write_benchmark_summary(io, rows)
     end
     println(io)
     println(io,
-        "_Ratio is each suite's median benchmark value at the most recent " *
-        "shown revision, against its value at the oldest shown revision " *
-        "(1.00 = no change; above 1 = slower/larger). " *
-        "↗/→/↘ mark an increase/flat/decrease past a 2% threshold; " *
-        "⚠ reg flags a ratio at or above the regression threshold._")
+        "_Ratio: latest vs oldest shown revision (1.00 = no change, " *
+        "higher = slower/larger). ⚠ reg = at/above the regression " *
+        "threshold._")
     println(io)
     return
 end
@@ -602,11 +635,14 @@ end
 # per-benchmark plots (pre-rendered externally by `benchpkgplot`, embedded via
 # raw-GitHub URL), there is nothing to fetch here. `Plots` (GR backend) is
 # loaded lazily like every other heavy docs dependency in this module: a
-# package only needs it once it sets `BENCHMARK_PAGE = true`. Any failure
-# (dependency missing from `docs/Project.toml`, headless render error,
-# nothing plottable) degrades to `false` with an `@info` rather than failing
-# the docs build — the summary table and detail sections still render
-# without it.
+# package only needs it once it sets `BENCHMARK_PAGE = true` (the scaffold
+# seeds `docs/Project.toml` with it — see `_bench_docs_deps` — but an
+# already-scaffolded package must add it by hand, `docs/Project.toml` being
+# package-owned and never rewritten). Never fails the docs build: the two
+# failure modes are logged and handled separately so a genuinely broken
+# render (a real bug) is distinguishable from the expected "not installed
+# yet" case — `Plots` missing degrades to `@info` (nothing plottable does
+# too), a load-then-render failure degrades to `@warn`.
 function _write_overall_trend_plot(dest_png::AbstractString, col_labels,
         series_by_suite)
     plottable = filter(series_by_suite) do (_, series)
@@ -617,8 +653,16 @@ function _write_overall_trend_plot(dest_png::AbstractString, col_labels,
               "skipping the overall trend plot"
         return false
     end
+    local Plots
     try
         Plots = _plots()
+    catch err
+        @info "benchmark history: `Plots` is not available in the docs " *
+              "environment; add it to `docs/Project.toml` to enable the " *
+              "overall trend plot" exception = err
+        return false
+    end
+    try
         Base.invokelatest() do
             # GR's default Qt/X11 terminal hangs on a headless CI runner; the
             # null terminal renders straight to file with no display.
@@ -637,27 +681,71 @@ function _write_overall_trend_plot(dest_png::AbstractString, col_labels,
         end
         return true
     catch err
-        @info "benchmark history: could not render the overall trend " *
-              "plot (add `Plots` to `docs/Project.toml` to enable it, or " *
-              "check the render error below)" exception = err
+        @warn "benchmark history: the overall trend plot failed to " *
+              "render; the summary table still renders without it" exception = err
         return false
     end
 end
 
+# Suite-qualified labels of leaf benchmarks whose EVERY capped-column cell
+# fails to parse as a number — present in the published table but with no
+# usable data in the shown window (an errored or skipped benchmark in the
+# run), auto-surfaced alongside the maintainer's own notes. A no-`/` name
+# (e.g. `time_to_load`) is its own single-row suite in `groups`
+# (`_group_rows_by_suite`: `suite == label == name`); reconstruct the flat
+# name as just that value rather than doubling it into `"name/name"`.
+function _unparsed_benchmarks(groups)
+    out = String[]
+    for (suite, subrows) in groups
+        for (label, vals) in subrows
+            isempty(vals) && continue
+            all(v -> _parse_metric_value(v) === nothing, vals) &&
+                push!(out, label == suite ? label : "$suite/$label")
+        end
+    end
+    return out
+end
+
+# Write the "Skipped & broken benchmarks" notes block: the package-owned
+# `notes` prose (`docs/benchmarks_notes.md`, write-once like the narrative
+# prose hook) plus any auto-detected no-data benchmarks. Rendered
+# unconditionally near the top of the page, even before any history has
+# published, so a maintainer can document a known-skipped suite ahead of CI
+# ever running. Renders nothing when there is neither prose nor a detection.
+function _write_benchmark_notes(io, notes::AbstractString,
+        auto::AbstractVector{<:AbstractString} = String[])
+    (isempty(strip(notes)) && isempty(auto)) && return
+    println(io, "### Skipped & broken benchmarks")
+    println(io)
+    isempty(strip(notes)) || (println(io, notes); println(io))
+    if !isempty(auto)
+        println(io, "_No data in the shown revisions: ",
+            join(("`$a`" for a in auto), ", "), "._")
+        println(io)
+    end
+    return
+end
+
 # Orchestrates the `## Performance history` body: the
-# `## Benchmark summary (overall)` table + combined trend plot, then the
-# existing per-suite ratio detail ([`_render_ratio_table`](@ref)) and
-# per-benchmark plot wall ([`_embed_history_plots`](@ref)) collapsed together
-# behind one `<details>` block. When `table.md` does not parse, skips
-# straight to the original unreshaped fallback so a format change never
-# blanks the page. `plot_dest === nothing` skips plot generation entirely
-# (e.g. a caller that only wants the tabular content).
+# `## Benchmark summary (overall)` table + combined trend plot + the
+# "Skipped & broken benchmarks" notes, then the existing per-suite ratio
+# detail ([`_write_reshaped_detail`](@ref)) and per-benchmark plot wall
+# ([`_embed_history_plots`](@ref)) collapsed together behind one `<details>`
+# block. When `table.md` does not parse, skips straight to the original
+# unreshaped fallback so a format change never blanks the page. `plot_dest
+# === nothing` skips plot generation entirely (e.g. a caller that only wants
+# the tabular content). Reshapes `table.md` once and reuses the result for
+# both the summary and the detail section (rather than calling
+# [`_render_ratio_table`](@ref), which would re-parse and re-shell out to
+# `git show` a second time).
 function _render_benchmark_overview(io, md::AbstractString,
         project_root::AbstractString, pngs, repo::AbstractString;
         last_n::Integer = 5, suites = String[],
         regression_threshold::Real = 1.1,
-        plot_dest::Union{Nothing, AbstractString} = nothing)
+        plot_dest::Union{Nothing, AbstractString} = nothing,
+        notes::AbstractString = "")
     if isempty(_history_table_parts(md)[2])
+        _write_benchmark_notes(io, notes)
         println(io, "### Ratio summary")
         println(io)
         _render_ratio_table(io, md, project_root; last_n = last_n,
@@ -676,22 +764,40 @@ function _render_benchmark_overview(io, md::AbstractString,
         println(io, "![Overall benchmark trend](", basename(plot_dest), ")")
         println(io)
     end
+    _write_benchmark_notes(io, notes, _unparsed_benchmarks(groups))
     println(io, "<details>")
     println(io, "<summary>Per-suite detail</summary>")
     println(io)
     println(io, "### Ratio summary")
     println(io)
-    _render_ratio_table(io, md, project_root; last_n = last_n,
-        suites = suites)
+    _write_reshaped_detail(io, col_labels, groups)
     !isempty(pngs) && _embed_history_plots(io, repo, pngs)
     println(io, "</details>")
     println(io)
     return
 end
 
+# The package-owned seed files (`docs/benchmarks.md`,
+# `docs/benchmarks_notes.md`) open with an HTML authoring-guidance comment.
+# Strip a leading comment block so Documenter never renders it as literal
+# text on the Benchmarks page (#145). Splice-side so it holds even though
+# the seed is package-owned and sync never rewrites it.
+function _strip_seed_comment(s::AbstractString)
+    lstrip(replace(s, r"^\s*<!--.*?-->"s => ""))
+end
+
+# The package-owned seed file's content, or `default` when the file is
+# absent (a package predating it, or one that opted out).
+function _read_seed(file::AbstractString, default::AbstractString)
+    isfile(file) || return default
+    return _strip_seed_comment(rstrip(read(file, String)))
+end
+
 """
     build_benchmark_page(; dest, repo, package, prose_file, embed_history=true,
                          project_root=dirname(dirname(dest)),
+                         notes_file=joinpath(dirname(dirname(dest)),
+                                              "benchmarks_notes.md"),
                          history_suites=String[], history_commits=5,
                          history_regression_threshold=1.1)
 
@@ -701,28 +807,28 @@ narrative lives there, minus any leading HTML comment, which is stripped so the
 seed's authoring guidance never renders), and a data-driven
 `## Performance history` section that
 renders the timeline published to the repo's `benchmarks` branch (see
-[`_embed_benchmark_history`](@ref)). `history_suites` (when non-empty)
-restricts the history to the named headline suites, `history_commits` caps the
-ratio table and trend plot to that many most-recent revisions, and
-`history_regression_threshold` sets the overall-summary ratio (relative to the
-oldest shown revision) at or above which a suite's `Status` flags "⚠ reg".
-Returns the list of linkcheck-ignore regexes for the history URLs (the branch
-may not be live yet).
+[`_embed_benchmark_history`](@ref)). `notes_file` is a second package-owned
+seed (`docs/benchmarks_notes.md`) for hand-written notes on skipped or broken
+benchmarks, spliced under a "Skipped & broken benchmarks" heading near the top
+of the page (below the overall summary and trend plot); any benchmark with no
+parseable data across the shown revisions is auto-appended there too.
+`history_suites` (when non-empty) restricts the history to the named headline
+suites, `history_commits` caps the ratio table and trend plot to that many
+most-recent revisions, and `history_regression_threshold` sets the
+overall-summary ratio (relative to the oldest shown revision) at or above
+which a suite's `Status` flags "⚠ reg". Returns the list of linkcheck-ignore
+regexes for the history URLs (the branch may not be live yet).
 """
 function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         package::AbstractString, prose_file::AbstractString,
         embed_history::Bool = true,
         project_root::AbstractString = dirname(dirname(dest)),
+        notes_file::AbstractString = joinpath(
+            dirname(dirname(dest)), "benchmarks_notes.md"),
         history_suites = String[], history_commits::Integer = 5,
         history_regression_threshold::Real = 1.1)
-    prose = isfile(prose_file) ? rstrip(read(prose_file, String)) :
-            "Performance benchmarks for `$package`."
-    # The package-owned prose file opens with an HTML comment that guides the
-    # author (what to write, that the build splices it verbatim). Strip a
-    # leading comment block so Documenter never renders it as literal text on
-    # the Benchmarks page (#145). Splice-side so it holds even though the seed
-    # is package-owned and sync never rewrites it.
-    prose = lstrip(replace(prose, r"^\s*<!--.*?-->"s => ""))
+    prose = _read_seed(prose_file, "Performance benchmarks for `$package`.")
+    notes = _read_seed(notes_file, "")
     mkpath(dirname(dest))
     # The overall trend plot is a build artefact regenerated from `table.md`
     # on every docs build (like `index.md`/the API pages), so it lives beside
@@ -742,7 +848,7 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
                 history_suites = history_suites,
                 history_commits = history_commits,
                 history_regression_threshold = history_regression_threshold,
-                overall_plot_dest = plot_dest)
+                overall_plot_dest = plot_dest, notes = notes)
         else
             println(io,
                 "A performance timeline is published on each release.")

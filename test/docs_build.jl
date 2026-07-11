@@ -284,6 +284,24 @@
         @test all(ismissing, DB._suite_column_medians(subrows2, 2))
     end
 
+    @testset "_suite_column_medians: mismatched-width row skipped" begin
+        # `_cap_columns` leaves a malformed row's ORIGINAL (uncapped) cells
+        # untouched (#193): a well-formed row here has exactly `ncol = 2`
+        # values (already capped to the newest 2 columns), but a malformed
+        # row still carries all 5 of its original, oldest-first values.
+        # Reading `cellvals[j]` positionally against `1:ncol` would silently
+        # pair the malformed row's stale oldest values with the newest
+        # columns; it must be skipped instead.
+        subrows = [
+            "ok" => ["40.0", "50.0"],   # well-formed, capped
+            "malformed" => ["1.0", "2.0", "3.0", "4.0", "5.0"]  # uncapped
+        ]
+        medians = DB._suite_column_medians(subrows, 2)
+        # Only the well-formed row contributes; the malformed row's stale
+        # `"1.0"`/`"2.0"` never leak into the (newest) capped columns.
+        @test medians == [40.0, 50.0]
+    end
+
     @testset "_suite_ratio_series: normalised to the first finite value" begin
         @test DB._suite_ratio_series([2.0, 4.0, 1.0]) == [1.0, 2.0, 0.5]
         # Leading `missing` columns are skipped when picking the baseline.
@@ -295,6 +313,19 @@
         # No finite value at all -> every entry stays `missing`.
         @test all(ismissing,
             DB._suite_ratio_series(Vector{Union{Float64, Missing}}(missing, 3)))
+    end
+
+    @testset "_suite_ratio_series: zero baseline never divides by zero" begin
+        # A leading `0.0` (a legitimate value, e.g. "0 bytes allocated") must
+        # not become the denominator: `0/0` and `x/0` would produce
+        # `NaN`/`Inf`, breaking "1.0 at the oldest revision" and silently
+        # defeating the finite-value checks downstream.
+        series = DB._suite_ratio_series([0.0, 2.0, 4.0])
+        @test all(isfinite, skipmissing(series))
+        @test series[2] == 1.0   # 2.0 is the real baseline
+        @test series[3] == 2.0
+        # All-zero series: no non-zero baseline exists -> all `missing`.
+        @test all(ismissing, DB._suite_ratio_series([0.0, 0.0, 0.0]))
     end
 
     @testset "_suite_trend_status: arrow + regression flag" begin
@@ -323,6 +354,20 @@
         @test ismissing(ratio)
         @test trend == "→"
         @test status == "n/a"
+        # Exactly at the regression threshold flags (>=, not >).
+        _, _, status = DB._suite_trend_status([1.0, 1.1];
+            regression_threshold = 1.1)
+        @test status == "⚠ reg"
+        # A non-finite entry (defence in depth alongside the zero-baseline
+        # guard in `_suite_ratio_series`) never reaches the threshold
+        # comparisons: it is excluded like `missing`, not compared as `NaN`
+        # (which would silently evaluate every `>=`/`<=` to `false`).
+        ratio, trend, status = DB._suite_trend_status([1.0, NaN, 2.0])
+        @test ratio == 2.0
+        @test trend == "↗"
+        ratio, trend, _ = DB._suite_trend_status([1.0, NaN])
+        @test ismissing(ratio)
+        @test trend == "→"
     end
 
     @testset "_write_benchmark_summary: markdown table + legend" begin
@@ -342,6 +387,12 @@
         io2 = IOBuffer()
         DB._write_benchmark_summary(io2, [])
         @test occursin("## Benchmark summary (overall)", String(take!(io2)))
+        # `_fmt_ratio` never prints a literal "NaN"/"Inf" -- both degrade to
+        # "n/a" like a `missing` ratio, defence in depth alongside the
+        # zero-baseline guard in `_suite_ratio_series`.
+        @test DB._fmt_ratio(NaN) == "n/a"
+        @test DB._fmt_ratio(Inf) == "n/a"
+        @test DB._fmt_ratio(2.0) == "2.0"
     end
 
     @testset "build_benchmark_page: overall summary table + trend plot" begin
@@ -398,6 +449,22 @@
         @test occursin("![Overall benchmark trend](overall_trend.png)", out)
     end
 
+    @testset "_write_overall_trend_plot: render failure degrades to false" begin
+        # Plots loads fine (plenty of comparable data), but the destination
+        # is unwritable: `blocker` exists as a regular file, so `mkpath` on
+        # a path nested under it throws inside the render `try`. This must
+        # hit the render-failure `@warn` branch (not the "Plots missing"
+        # `@info` branch) and return `false` without propagating.
+        series_by_suite = [("A", [1.0, 2.0]), ("B", [1.0, 0.9])]
+        col_labels = ["2024-01-01", "2024-01-02"]
+        blocker = joinpath(mktempdir(), "blocker")
+        write(blocker, "not a directory")
+        bad_dest = joinpath(blocker, "sub", "overall_trend.png")
+        @test DB._write_overall_trend_plot(
+            bad_dest, col_labels, series_by_suite) == false
+        @test !isfile(bad_dest)
+    end
+
     @testset "build_benchmark_page: single revision skips the trend plot" begin
         # Mirrors the existing "renders grouped published history" fixture
         # (one column) -- fewer than two comparable points means nothing to
@@ -432,6 +499,95 @@
         @test occursin("| Baseline | n/a | → | n/a |", out)
         @test !isfile(joinpath(dirname(dest), "overall_trend.png"))
         @test !occursin("Overall benchmark trend", out)
+    end
+
+    @testset "_write_benchmark_notes: user prose + auto-detected rows" begin
+        io = IOBuffer()
+        DB._write_benchmark_notes(io, "`slow_path` is skipped: see #123.")
+        out = String(take!(io))
+        @test occursin("### Skipped & broken benchmarks", out)
+        @test occursin("`slow_path` is skipped", out)
+        # Auto-detected rows are appended, quoted, comma-joined.
+        io2 = IOBuffer()
+        DB._write_benchmark_notes(io2, "", ["Baseline/flaky", "time_to_load"])
+        out2 = String(take!(io2))
+        @test occursin("### Skipped & broken benchmarks", out2)
+        @test occursin("`Baseline/flaky`", out2)
+        @test occursin("`time_to_load`", out2)
+        # Neither prose nor an auto-detection -> nothing rendered at all.
+        io3 = IOBuffer()
+        DB._write_benchmark_notes(io3, "")
+        @test isempty(String(take!(io3)))
+        io4 = IOBuffer()
+        DB._write_benchmark_notes(io4, "   ")  # blank/whitespace-only prose
+        @test isempty(String(take!(io4)))
+    end
+
+    @testset "_unparsed_benchmarks: leaf rows with no parseable data" begin
+        groups = [
+            "AD gradients" => [
+                "Enzyme forward" => ["1.0", "2.0"],   # parses fine
+                "broken" => ["—", "—"]                # never parses
+            ],
+            "time_to_load" => [
+                "time_to_load" => ["—", "—"]
+            ]
+        ]
+        out = DB._unparsed_benchmarks(groups)
+        @test "AD gradients/broken" in out
+        @test "time_to_load" in out  # no `/` -> label alone, no suite prefix
+        @test "AD gradients/Enzyme forward" ∉ out
+    end
+
+    @testset "build_benchmark_page: notes block + auto-detected skip" begin
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(`git -C $dir config user.email t@t`)
+        run(`git -C $dir config user.name t`)
+        write(joinpath(dir, "f.txt"), "x")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm init`;
+            stdout = devnull, stderr = devnull))
+        main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
+        run(`git -C $dir checkout -q --orphan benchmarks`)
+        run(pipeline(`git -C $dir reset -q --hard`;
+            stdout = devnull, stderr = devnull))
+        hist = joinpath(dir, "history")
+        mkpath(hist)
+        # One benchmark never parses across either shown revision (a
+        # realistic "errored in CI" signature) alongside normal data.
+        write(joinpath(hist, "table.md"),
+            "|   | c1 | c2 |\n|:--|:--:|:--:|\n" *
+            "| Baseline/allocations | 1.0 | 1.0 |\n" *
+            "| Baseline/broken | — | — |\n")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm hist`;
+            stdout = devnull, stderr = devnull))
+        run(`git -C $dir checkout -q $main`)
+        prose = joinpath(dir, "benchmarks.md")
+        write(prose, "Narrative.\n")
+        notes = joinpath(dir, "benchmarks_notes.md")
+        write(notes,
+            "<!-- guidance -->\n\n`weird_scenario` intentionally excluded.\n")
+        dest = joinpath(dir, "src", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir,
+            notes_file = notes)
+        out = read(dest, String)
+        @test occursin("### Skipped & broken benchmarks", out)
+        @test occursin("`weird_scenario` intentionally excluded.", out)
+        @test !occursin("<!-- guidance -->", out)
+        # The auto-detected no-data benchmark is appended alongside the
+        # hand-written note.
+        @test occursin("`Baseline/broken`", out)
+        # A missing notes_file degrades gracefully: no section, no error.
+        dest2 = joinpath(dir, "src2", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest2, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir,
+            notes_file = joinpath(dir, "no_such_file.md"))
+        out2 = read(dest2, String)
+        @test occursin("`Baseline/broken`", out2)  # auto-detection still runs
+        @test !occursin("intentionally excluded", out2)
     end
 
     @testset "api_bindings + build_api_pages split public/private" begin

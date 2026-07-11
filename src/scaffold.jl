@@ -271,6 +271,12 @@ const SCAFFOLD_TEMPLATES = Template[
     # Opt-in: only written when `benchmarks = true` (no page, no hook otherwise).
     Template("docs/benchmarks.md", "docs/benchmarks.md", false, true, :always,
         :bench_only),
+    # The package-owned "Skipped & broken benchmarks" notes hook, spliced
+    # near the top of the benchmark page (below the overall trend plot,
+    # above the collapsed detail). Same write-once/opt-in lifecycle as the
+    # narrative prose hook above.
+    Template("docs/benchmarks_notes.md", "docs/benchmarks_notes.md", false,
+        true, :always, :bench_only),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
     Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
@@ -1064,6 +1070,24 @@ function _ad_docs_compat(ad::Bool)
         "Statistics = \"1\"\n")
 end
 
+# The docs-env `[deps]` fragment the benchmark page's combined trend plot
+# needs (`EpiAwarePackageTools.DocsBuild._write_overall_trend_plot`): `Plots`
+# (GR backend), lazily loaded kit-side so it is only required once a package
+# opts into `BENCHMARK_PAGE = true`. Empty for `benchmarks = false`,
+# mirroring `_ad_docs_deps`. Without this, the trend plot silently degrades
+# to an `@info` note (never fails the docs build), but a freshly scaffolded
+# benchmark page would otherwise never render it at all.
+function _bench_docs_deps(benchmarks::Bool)
+    benchmarks || return ""
+    return "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n"
+end
+
+# The `[compat]` bound for the benchmark-only docs dep.
+function _bench_docs_compat(benchmarks::Bool)
+    benchmarks || return ""
+    return "Plots = \"1\"\n"
+end
+
 # The conventional custom-subdomain docs host for a package, e.g.
 # `MyPkg` -> `mypkg.epiaware.org`. Only used on the opt-in subdomain path
 # (`docs_subdomain = true`); the default project-pages path needs no host.
@@ -1793,7 +1817,11 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
             AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
             AD_DOCS_SOURCES = _ad_docs_sources(ad),
-            AD_DOCS_COMPAT = _ad_docs_compat(ad)))
+            AD_DOCS_COMPAT = _ad_docs_compat(ad),
+            # The benchmarks=true docs surface: the trend-plot dependency the
+            # overall summary needs (see `_bench_docs_deps`).
+            BENCH_DOCS_DEPS = _bench_docs_deps(benchmarks),
+            BENCH_DOCS_COMPAT = _bench_docs_compat(benchmarks)))
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -1962,10 +1990,12 @@ flags, no AD test/docs deps). Pass the same `ad` value to
 
 `benchmarks` controls the opt-in benchmark suite: the benchmark CI callers
 (`.github/workflows/benchmark.yaml`, `benchmark-history.yaml`), the `benchmark/`
-suite + compare script, and the docs benchmark page (its nav entry and the
-package-owned `docs/benchmarks.md` prose hook, gated by `docs_config`'s
-`BENCHMARK_PAGE`). It defaults to `nothing`, which detects the target's current
-state from the benchmark workflows so re-scaffolding preserves an opt-in; a
+suite + compare script, and the docs benchmark page (its nav entry, the
+package-owned `docs/benchmarks.md` prose hook, and the package-owned
+`docs/benchmarks_notes.md` skipped/broken-benchmarks hook, gated by
+`docs_config`'s `BENCHMARK_PAGE`). It defaults to `nothing`, which detects
+the target's current state from the benchmark workflows so re-scaffolding
+preserves an opt-in; a
 fresh package has none, so the default is opt-out. When disabled, none of the
 benchmark files are written and the docs emit no Benchmarks page. Pass
 `benchmarks = true` to opt in; [`scaffold_update`](@ref) detects and preserves the state.
