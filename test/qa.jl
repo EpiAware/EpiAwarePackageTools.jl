@@ -336,6 +336,24 @@
             end
         end
 
+        @testset "readme_qa_config warns on a missing readme field (#188)" begin
+            # A `QA_CONFIG` carrying an explicit `readme` field is returned as
+            # is, with no warning — the normal custom-README path.
+            custom = (; path = "/pkg", order = false)
+            cfg = (; mod = Main, readme = custom)
+            @test_logs readme_qa_config(cfg, (; path = "/default"))
+            @test readme_qa_config(cfg, (; path = "/default")) === custom
+
+            # No `readme` field falls back to the default AND emits a loud
+            # `@warn`, so a typoed key (e.g. `readme_cfg`) is visible in the log
+            # rather than silently reverting to the standard checks.
+            typoed = (; mod = Main, readme_cfg = custom)
+            default = (; path = "/default")
+            @test_logs (:warn, r"no `readme` field"i) readme_qa_config(
+                typoed, default)
+            @test readme_qa_config(typoed, default) === default
+        end
+
         @testset "test_formatting over self" begin
             # Check the package src tree is JuliaFormatter-clean.
             root = dirname(dirname(pathof(EpiAwarePackageTools)))

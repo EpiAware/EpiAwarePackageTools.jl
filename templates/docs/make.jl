@@ -51,7 +51,11 @@ build_docs(
     repo = "{{REPO}}",
     authors = "{{AUTHORS}}",
     deploy_url = {{DOCS_DEPLOY_URL}},
-    pages = _cfg(:pages, ["Home" => "index.md"]),
+    # `pages` gets a loud `@warn` (not a silent default) when it falls back to
+    # the bare single-page nav, so a dropped `pages.jl`/`docs_config.jl` is
+    # visible in the CI docs log rather than only in the deployed site (#188).
+    pages = default_docs_pages(@__DIR__;
+        pages = isdefined(@__MODULE__, :pages) ? pages : nothing),
     skip_notebooks = "--skip-notebooks" in ARGS ||
                      get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
     tutorials_subdir = _cfg(:TUTORIALS_SUBDIR,

@@ -359,12 +359,14 @@
                 rm(joinpath(dir, "docs/pages.jl"))
                 scaffold_update(dir)
                 # make.jl no longer hard-includes the missing config; the
-                # include is guarded and pages falls back to a default.
+                # include is guarded and pages falls back to a default (with a
+                # loud `@warn` from `default_docs_pages`, #188).
                 mk = read(joinpath(dir, "docs/make.jl"), String)
                 @test occursin("isfile(joinpath(@__DIR__, _f))", mk)
                 @test !occursin("\ninclude(\"docs_config.jl\")", mk)
                 @test !occursin("\ninclude(\"pages.jl\")", mk)
-                @test occursin("_cfg(:pages,", mk)
+                @test occursin("default_docs_pages(", mk)
+                @test occursin("isdefined(@__MODULE__, :pages)", mk)
                 # The guarded prelude actually loads with the config absent and
                 # returns defaults rather than erroring on the missing files.
                 prelude = joinpath(dir, "docs", "_prelude163.jl")
@@ -380,9 +382,10 @@
                 @test Base.invokelatest(
                     getproperty(m, :_cfg), :pages, ["Home" => "index.md"]) ==
                       ["Home" => "index.md"]
-                # quality.jl defaults a missing QA_CONFIG.readme field.
+                # quality.jl defaults a missing QA_CONFIG.readme field (with a
+                # loud `@warn` from `readme_qa_config`, #188).
                 ql = read(joinpath(dir, "test/package/quality.jl"), String)
-                @test occursin("hasproperty(QA_CONFIG, :readme)", ql)
+                @test occursin("readme_qa_config(QA_CONFIG,", ql)
             end
         end
 

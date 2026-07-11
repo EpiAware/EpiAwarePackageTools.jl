@@ -47,8 +47,8 @@ module DocsBuild
 
 import ..EpiAwarePackageTools: _require_pkg
 
-export build_docs, build_index, build_release_notes, build_benchmark_page,
-       build_api_pages, api_bindings, api_owning_modules
+export build_docs, default_docs_pages, build_index, build_release_notes,
+       build_benchmark_page, build_api_pages, api_bindings, api_owning_modules
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -831,6 +831,39 @@ function _check_index_not_truncated(index_src::AbstractString,
               "already exists) before running `docs/make.jl`.")
     end
     return nothing
+end
+
+"""
+    default_docs_pages(docs_dir; pages = nothing)
+
+Resolve the documentation navigation tree, warning loudly when it falls back to
+the bare single-page default (#188).
+
+The managed `docs/make.jl` calls this with `pages` set to the package-owned
+`pages` const (from `pages.jl`/`docs_config.jl`) when that file is present, or
+`nothing` when neither file defined it. `pages.jl`/`docs_config.jl` are
+package-owned — written on `scaffold`, never re-applied by `scaffold_update` —
+so a brand-new scaffold legitimately has no nav yet (the warning names this as
+expected). The failure mode #188 guards against is a package that PREVIOUSLY
+shipped a navigation tree silently losing it: a dropped `pages.jl` leaves the
+docs build green while the deployed site collapses to a single `Home` page with
+no navigation. Emitting a loud `@warn` on every bare fallback makes a dropped
+nav file visible in the CI docs log rather than only in the published site.
+
+Returns the supplied `pages` unchanged when non-`nothing`, otherwise the bare
+`["Home" => "index.md"]` default after warning.
+"""
+function default_docs_pages(docs_dir::AbstractString; pages = nothing)
+    pages === nothing || return pages
+    looked_for = [joinpath(docs_dir, f) for f in ("pages.jl", "docs_config.jl")]
+    @warn "No docs navigation found: neither `pages.jl` nor `docs_config.jl` \
+           defined a `pages` tree, so the published site is defaulting to a \
+           single `Home` page with no navigation. A brand-new scaffold has \
+           none yet (expected); but if this package previously shipped a \
+           navigation tree, its package-owned `pages.jl` has likely been \
+           dropped — restore it, or the deployed docs will silently lose all \
+           navigation." looked_for
+    return ["Home" => "index.md"]
 end
 
 """

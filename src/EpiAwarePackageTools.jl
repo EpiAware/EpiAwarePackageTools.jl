@@ -108,13 +108,13 @@ export test_aqua, test_jet, test_explicit_imports, test_import_centralisation
 export dynamicppl_model_filter
 export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
-export test_readme_sections, STANDARD_README_SECTIONS
+export test_readme_sections, readme_qa_config, STANDARD_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
 export scaffold, scaffold_update, scaffold_generate, scaffold_inputs, setup_checklist
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
-export build_docs
+export build_docs, default_docs_pages
 
-using .DocsBuild: build_docs
+using .DocsBuild: build_docs, default_docs_pages
 
 end # module EpiAwarePackageTools

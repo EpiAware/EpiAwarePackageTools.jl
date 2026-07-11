@@ -45,6 +45,23 @@
     stays
     """
 
+    @testset "default_docs_pages: warns loudly on the bare fallback (#188)" begin
+        # A supplied nav tree is returned untouched, with no warning — the
+        # normal path where `pages.jl`/`docs_config.jl` defined `pages`.
+        supplied = ["Home" => "index.md", "Guide" => "guide.md"]
+        @test_logs DB.default_docs_pages("/some/docs"; pages = supplied)
+        @test DB.default_docs_pages("/some/docs"; pages = supplied) == supplied
+
+        # A `nothing` (no `pages.jl`/`docs_config.jl` defined `pages`) falls
+        # back to the bare single-page nav AND emits a loud `@warn` naming the
+        # files it looked for, so a dropped nav file shows up in the CI log.
+        @test_logs (:warn, r"no docs navigation"i) DB.default_docs_pages(
+            "/some/docs")
+        @test DB.default_docs_pages("/some/docs") == ["Home" => "index.md"]
+        @test DB.default_docs_pages("/some/docs"; pages = nothing) ==
+              ["Home" => "index.md"]
+    end
+
     @testset "build_index: badges, logo, @example, rewrites" begin
         dir = mktempdir()
         readme = joinpath(dir, "README.md")

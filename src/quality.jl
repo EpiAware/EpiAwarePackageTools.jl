@@ -297,6 +297,35 @@ function _readme_headings(body::AbstractString)
 end
 
 """
+    readme_qa_config(qa_config, default)
+
+Return the package-owned README quality config, warning loudly when the
+`readme` field is absent (#188).
+
+`readme` is a newer package-owned `QA_CONFIG` field read by the managed README
+quality testset. `qa_config.jl` is package-owned (not re-applied by
+`scaffold_update`), so an adopter predating the field legitimately has no
+`readme` key and `default` (the repo-root README with the standard section
+requirements) applies. The failure mode this guards against is a typoed key
+(e.g. `readme_cfg` instead of `readme`): without a signal the check silently
+reverts to the standard requirements, so a package's custom README requirements
+stop being enforced with nothing in the log. Emitting a loud `@warn` whenever
+the field is missing makes a typoed key visible.
+
+Returns `qa_config.readme` when present, otherwise `default` after warning.
+"""
+function readme_qa_config(qa_config, default)
+    hasproperty(qa_config, :readme) && return qa_config.readme
+    @warn "`QA_CONFIG` has no `readme` field, so the README quality check is \
+           defaulting to the repo-root README with the standard section \
+           requirements. A package with no custom README config is fine \
+           (expected); but if you meant to set one, check for a typoed key \
+           (e.g. `readme_cfg` instead of `readme`) — otherwise your custom \
+           README requirements are silently not enforced." present_keys = propertynames(qa_config)
+    return default
+end
+
+"""
     test_readme_sections(path; required = STANDARD_README_SECTIONS, order = true)
 
 Assert the README at `path` carries the standard EpiAware section structure.

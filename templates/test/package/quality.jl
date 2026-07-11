@@ -40,9 +40,10 @@ end
     # `readme` is a newer package-owned `QA_CONFIG` field; `qa_config.jl` is
     # package-owned (not re-applied by `scaffold_update`), so an adopter predating it has
     # no `readme` key. Default to the repo-root README with the standard section
-    # requirements (#163) rather than erroring on the missing field.
-    cfg = hasproperty(QA_CONFIG, :readme) ? QA_CONFIG.readme :
-          (; path = joinpath(@__DIR__, "..", ".."))
+    # requirements (#163) rather than erroring on the missing field, but `@warn`
+    # loudly on the fallback so a typoed key (e.g. `readme_cfg`) is visible
+    # rather than silently reverting to the standard checks (#188).
+    cfg = readme_qa_config(QA_CONFIG, (; path = joinpath(@__DIR__, "..", "..")))
     test_readme_sections(cfg.path;
         (k => v for (k, v) in pairs(cfg) if k !== :path)...)
 end
