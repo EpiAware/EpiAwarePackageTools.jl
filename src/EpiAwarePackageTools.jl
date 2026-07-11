@@ -20,7 +20,10 @@ Two groups are provided.
   - An AD-gradient harness ([`check_broken`](@ref),
     [`test_working_backend`](@ref), [`test_partial_backend`](@ref)) checks a
     package's reverse/forward AD backends against a ForwardDiff reference. It
-    works on any registry satisfying the [`ADRegistry`](@ref) contract.
+    works on any registry satisfying the [`ADRegistry`](@ref) contract, and
+    [`ad_backend_support_table`](@ref) renders that registry's broken/skip
+    declarations as the support table the scaffolded AD-backends docs page
+    shows.
 
 A [`scaffold`](@ref) helper writes the shipped standard configuration and test
 infrastructure into a package — root dev config, CI caller workflows +
@@ -109,6 +112,7 @@ export test_readme_sections, STANDARD_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
 export scaffold, scaffold_update, scaffold_generate, scaffold_inputs, setup_checklist
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
+export ad_backend_support_table
 export build_docs
 
 using .DocsBuild: build_docs

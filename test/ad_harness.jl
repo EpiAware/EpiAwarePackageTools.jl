@@ -78,6 +78,35 @@
         test_working_backend(broken_reg, "ForwardDiff")
     end
 
+    @testset "ad_backend_support_table renders declarations" begin
+        # No declarations: every backend supports the full set.
+        tbl = ad_backend_support_table(reg)
+        @test occursin("| Backend | Scenarios | Declared broken | Skipped |",
+            tbl)
+        @test occursin("| ForwardDiff | 2/2 | none | none |", tbl)
+        @test occursin("| ReverseDiff | 2/2 | none | none |", tbl)
+
+        # Globally broken + per-backend broken + per-backend skip
+        # declarations all land in the right row, and the coverage count
+        # excludes the union (a name both broken and skipped counts once).
+        declared = merge(reg,
+            (broken_scenario_names = () -> ["centred"],
+                backend_broken_scenarios = () -> Dict(
+                    "ReverseDiff" => Set(["sum_squares"])),
+                backend_skip_scenarios = () -> Dict(
+                    "ReverseDiff" => Set(["centred"]))))
+        tbl2 = ad_backend_support_table(declared)
+        @test occursin("| ForwardDiff | 1/2 | centred | none |", tbl2)
+        @test occursin(
+            "| ReverseDiff | 0/2 | centred, sum_squares | centred |", tbl2)
+
+        # A registry with none of the optional accessors renders all-none,
+        # mirroring the harness's missing-accessor defaults.
+        minimal = (scenarios = reg.scenarios, backends = reg.backends)
+        tbl3 = ad_backend_support_table(minimal)
+        @test occursin("| ForwardDiff | 2/2 | none | none |", tbl3)
+    end
+
     @testset "optional bookkeeping accessors default to empty" begin
         # A registry that owns no broken/skipped scenarios may omit all three
         # bookkeeping accessors; the harness must treat them as empty rather

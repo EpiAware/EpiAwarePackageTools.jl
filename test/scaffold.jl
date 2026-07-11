@@ -32,9 +32,15 @@
         exe = joinpath(Sys.BINDIR, Base.julia_exename())
         out = IOBuffer()
         ok = try
+            # Resolution/installation is what this proves; auto-precompiling
+            # the resolved set adds minutes (the ad=true docs env now carries
+            # the CairoMakie plotting stack for the AD-backends page) without
+            # adding proof, so it is disabled for the subprocess.
             run(pipeline(
-                `$exe --startup-file=no --history-file=no --project=$env
-                 -e "using Pkg; Pkg.instantiate()"`;
+                addenv(
+                    `$exe --startup-file=no --history-file=no --project=$env
+                     -e "using Pkg; Pkg.instantiate()"`,
+                    "JULIA_PKG_PRECOMPILE_AUTO" => "0");
                 stdout = out, stderr = out))
             true
         catch
@@ -896,6 +902,23 @@
                 tp = read(joinpath(dir, "test/Project.toml"), String)
                 @test !occursin("DifferentiationInterface", tp)
                 @test !occursin("ForwardDiff", tp)
+                # No AD-backends docs page, and the docs seeds carry none of
+                # its wiring: no Literate registration (the seeds' comments
+                # may mention the entry, so match the quoted entries), no nav
+                # entry, no AD deps.
+                @test !isfile(joinpath(dir,
+                    "docs/src/getting-started/tutorials/ad-backends.jl"))
+                cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
+                @test occursin("const HEAVY_TUTORIALS = String[]", cfg)
+                @test !occursin("\"ad-backends.jl\"", cfg)
+                @test !occursin("\"ad-backends.md\"", cfg)
+                pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                @test !occursin("ad-backends.md", pgs)
+                @test !occursin("{{AD_TUTORIALS_NAV}}", pgs)
+                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                @test !occursin("ADFixtures = ", dp)
+                @test !occursin("CairoMakie = ", dp)
+                @test !occursin("{{", dp)
                 # The manifest count matches the ad=false, benchmarks=false
                 # selection (the fresh default opts out of both).
                 @test length(res.created) == length(_selected(false, false))
@@ -912,6 +935,88 @@
                 end
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("ad-forwarddiff", cov)
+            end
+        end
+
+        @testset "ad = true ships the AD-backends tutorial page" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                tut = joinpath(dir,
+                    "docs/src/getting-started/tutorials/ad-backends.jl")
+                @test isfile(tut)
+                txt = read(tut, String)
+                # Managed, substituted, and anchored for cross-references.
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("@id ad-backends", txt)
+                @test occursin("using Wombat", txt)
+                @test occursin(
+                    "github.com/EpiAware/Wombat.jl/actions/workflows/ad.yaml",
+                    txt)
+                @test !occursin("{{", txt)
+                # The support table is rendered at docs-build time from the
+                # package-owned registry, so broken-scenario declarations
+                # never live in the (managed) page body.
+                @test occursin("ad_backend_support_table(ADFixtures)", txt)
+                # One coverage-flag badge per backend, from `_AD_BACKENDS`
+                # (the same table the README badge block renders).
+                n = length(EpiAwarePackageTools._AD_BACKENDS)
+                @test count("graph/badge.svg?flag=ad-", txt) == n
+                # The substituted script is valid Julia (Literate executes it
+                # in the docs build): parse it whole and require no error or
+                # incomplete trailing expression.
+                parsed = Meta.parseall(txt)
+                @test parsed isa Expr
+                @test !any(
+                    ex -> ex isa Expr && ex.head in (:error, :incomplete),
+                    parsed.args)
+
+                # Registered in the package-owned docs seeds: the Literate
+                # pipeline (heavy tutorial + fast-build stub) and the nav.
+                cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
+                @test occursin("\"ad-backends.jl\"", cfg)
+                @test occursin(
+                    "\"ad-backends.md\" => \"# [Automatic differentiation " *
+                    "backends](@id ad-backends)\"", cfg)
+                pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                @test occursin(
+                    "getting-started/tutorials/ad-backends.md", pgs)
+                @test occursin("\"Tutorials\"", pgs)
+
+                # The docs env reaches the registry by path, keyed to the same
+                # seeded ADFixtures UUID as the AD test env, and carries the
+                # page's execution deps with compat.
+                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                reg = read(
+                    joinpath(dir, "test/ADFixtures/Project.toml"), String)
+                m = match(r"uuid = \"([^\"]+)\"", reg)
+                @test m !== nothing
+                @test occursin("ADFixtures = \"$(m.captures[1])\"", dp)
+                @test occursin(
+                    "ADFixtures = {path = \"../test/ADFixtures\"}", dp)
+                for dep in ("DifferentiationInterfaceTest", "CairoMakie",
+                    "AlgebraOfGraphics", "DataFramesMeta", "Statistics",
+                    "Markdown")
+                    @test occursin(dep, dp)
+                end
+                @test occursin("CairoMakie = \"0.15\"", dp)
+                @test !occursin("{{", dp)
+            end
+        end
+
+        @testset "scaffold_update() refreshes the managed AD tutorial page" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                tut = joinpath(dir,
+                    "docs/src/getting-started/tutorials/ad-backends.jl")
+                # A drifted page body is re-applied from the kit (that is the
+                # point: the page stays kit-current; declarations live in the
+                # package-owned ADFixtures registry instead).
+                write(tut, "# drifted by hand\n")
+                res = scaffold_update(dir)
+                @test tut in res.updated
+                @test occursin("@id ad-backends", read(tut, String))
             end
         end
 
