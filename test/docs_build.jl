@@ -227,6 +227,11 @@
             "![plot_Pkg_1.png](https://raw.githubusercontent.com/Org/Pkg.jl/benchmarks/history/plot_Pkg_1.png)",
             out)
         @test !occursin("tree/benchmarks/history", out)  # not the fallback
+        # No emitted table carries an empty leading header cell (`|   |`):
+        # DocumenterVitepress's inventory writer turns one into an anchored
+        # header with an empty anchor id and aborts the deploy build (#204).
+        # The reshaped tables lead with `| Benchmark |`/`| Suite |`.
+        @test !occursin(r"(?m)^[ \t]*\|[ \t]*\|", out)
     end
 
     @testset "build_benchmark_page: history_suites filters suites" begin
@@ -588,6 +593,58 @@
         out2 = read(dest2, String)
         @test occursin("`Baseline/broken`", out2)  # auto-detection still runs
         @test !occursin("intentionally excluded", out2)
+    end
+
+    @testset "_label_empty_leading_header labels a blank first header cell" begin
+        # benchpkgtable's leaf-name column has a blank header; label it so a
+        # verbatim splice cannot produce an empty anchor id (#204).
+        md = "|   | c1 | c2 |\n|:--|:--:|:--:|\n| a/b | 1.0 | 2.0 |\n"
+        out = DB._label_empty_leading_header(md)
+        @test occursin("| Benchmark | c1 | c2 |", out)
+        @test !occursin(r"(?m)^[ \t]*\|[ \t]*\|", out)
+        # Only the header (first blank-leading row) is relabelled; the
+        # alignment and data rows are untouched.
+        @test occursin("|:--|:--:|:--:|", out)
+        @test occursin("| a/b | 1.0 | 2.0 |", out)
+        @test count("Benchmark", out) == 1
+        # A table already carrying a label is left unchanged.
+        labelled = "| Suite | c1 |\n|:--|:--:|\n"
+        @test DB._label_empty_leading_header(labelled) == labelled
+    end
+
+    @testset "build_benchmark_page: verbatim fallback has no empty anchor" begin
+        # A published table.md that parses to a header but no data rows takes
+        # the verbatim-splice fallback; the spliced table must still carry no
+        # empty leading header cell (#204).
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(`git -C $dir config user.email t@t`)
+        run(`git -C $dir config user.name t`)
+        write(joinpath(dir, "f.txt"), "x")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm init`;
+            stdout = devnull, stderr = devnull))
+        main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
+        run(`git -C $dir checkout -q --orphan benchmarks`)
+        run(pipeline(`git -C $dir reset -q --hard`;
+            stdout = devnull, stderr = devnull))
+        hist = joinpath(dir, "history")
+        mkpath(hist)
+        # Header + alignment only: no parseable data rows, so the reshaper
+        # falls back to splicing the table verbatim.
+        write(joinpath(hist, "table.md"), "|   | c1 | c2 |\n|:--|:--:|:--:|\n")
+        run(`git -C $dir add -A`)
+        run(pipeline(`git -C $dir commit -qm hist`;
+            stdout = devnull, stderr = devnull))
+        run(`git -C $dir checkout -q $main`)
+        prose = joinpath(dir, "benchmarks.md")
+        write(prose, "Narrative.\n")
+        dest = joinpath(dir, "src", "benchmarks.md")
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose, project_root = dir)
+        out = read(dest, String)
+        @test occursin("| Benchmark | c1 | c2 |", out)
+        @test !occursin(r"(?m)^[ \t]*\|[ \t]*\|", out)
     end
 
     @testset "api_bindings + build_api_pages split public/private" begin

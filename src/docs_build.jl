@@ -449,15 +449,31 @@ function _write_reshaped_detail(io, col_labels, groups)
     return
 end
 
+# Give a pipe table's header its benchmark-name label when the first cell is
+# empty. benchpkgtable emits the leaf-name column with a blank header (`|   |
+# rev | ... |`); spliced verbatim (the parse-failure fallback below), that
+# empty leading header cell is misparsed by DocumenterVitepress's inventory
+# writer into an anchored header with an empty anchor id, which aborts the
+# deploy build with `ArgumentError: \`name\` must have non-zero length` (#204).
+# The reshaped path already labels its tables (`| Benchmark |`/`| Suite |`); this
+# hardens the one remaining verbatim path so no emitted table can carry an empty
+# leading header cell. Only the first such row (the header) is relabelled.
+function _label_empty_leading_header(
+        md::AbstractString; label::AbstractString = "Benchmark")
+    repl = SubstitutionString("\\1| " * label * " |")
+    return replace(md, r"(?m)^([ \t]*)\|[ \t]*\|" => repl; count = 1)
+end
+
 # Reshape the raw `table.md` into grouped, capped, date-labelled per-suite
 # tables (see [`_embed_benchmark_history`](@ref)). Falls back to splicing the
 # table verbatim if it cannot be parsed, so a format change never blanks the
-# page.
+# page — sanitising the header first so the fallback cannot emit an empty
+# anchor (#204).
 function _render_ratio_table(io, md::AbstractString,
         project_root::AbstractString; last_n::Integer = 5,
         suites = String[])
     if isempty(_history_table_parts(md)[2])
-        println(io, rstrip(md))
+        println(io, _label_empty_leading_header(rstrip(md)))
         println(io)
         return
     end
