@@ -15,6 +15,18 @@ using TestItemRunner
 # Restrict discovery to this package's test tree so a nested worktree's items
 # are not globbed in. Trailing separator guards against sibling dirs sharing a
 # string prefix.
+#
+# `@run_package_tests` walks the WHOLE package root (TestItemRunner.jl's
+# `run_tests`, hardcoded via `dirname(@__FILE__)/..`), not just `test/`, and it
+# registers every `@testsnippet` it finds by NAME with no path scoping at all —
+# `in_this_package`/`filter` only decide which `@testitem`s RUN, never which
+# `@testsnippet`s get registered (kit #191). A stale worktree ANYWHERE under
+# the package root (not just under test/) that carries an old copy of a test
+# file can silently shadow the current file's same-named snippet, with no
+# error at the collision site. Keep every nested worktree (a manual `git
+# worktree add`, this repo's own agent-tooling worktrees, etc.) fully OUTSIDE
+# the package root — a sibling directory, never a subdirectory of it — until
+# TestItemRunner exposes a way to scope `@testsnippet` discovery itself.
 const TEST_ROOT = normpath(@__DIR__) * Base.Filesystem.path_separator
 in_this_package(ti) = startswith(normpath(ti.filename), TEST_ROOT)
 
