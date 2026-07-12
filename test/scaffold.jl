@@ -1799,6 +1799,110 @@
             end
         end
 
+        @testset "scaffold_update preserves a comment documenting a merged with: key (#212)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # Symptom 1 (ad.yaml): a package-owned key preceded by a
+                # multi-line guard comment, added alongside a job whose
+                # `with:` block the template renders from scratch (`backends:`
+                # only, no comment of its own). Before #212 the comment was
+                # attached to the *preceding* key (`backends`) during parsing,
+                # so it was dropped wholesale when that seeded key won.
+                ad_caller = joinpath(dir, ".github/workflows/ad.yaml")
+                ad_before = read(ad_caller, String)
+                @test occursin("backends:", ad_before)
+                guard_comment = string(
+                    "      # Count extension lines too (the Mooncake ext is exercised by\n",
+                    "      # this suite). Re-added by hand (#88).\n")
+                ad_overridden = replace(ad_before,
+                    r"([ \t]+)(backends:[^\r\n]*\r?\n)" =>
+                        SubstitutionString(
+                            "\\1\\2" * guard_comment *
+                            "\\1coverage_directories: 'src,ext'\n"))
+                @test ad_overridden != ad_before
+                write(ad_caller, ad_overridden)
+
+                # Symptom 2 (codecoverage.yaml): a package-owned key inserted
+                # *before* a template-rendered key that itself already carries
+                # a preceding comment (`fail_ci_if_error`). Before #212 the
+                # package's own preceding comment was captured as a
+                # continuation of the *previous* key instead of attached to
+                # `coverage_directories`, and the template's own
+                # `fail_ci_if_error` comment was then duplicated onto the
+                # relocated package key.
+                cov_caller = joinpath(dir, ".github/workflows/codecoverage.yaml")
+                cov_before = read(cov_caller, String)
+                @test occursin("fail_ci_if_error:", cov_before)
+                pkg_comment = string(
+                    "      # Package extensions carry real code; count their\n",
+                    "      # lines too. Re-added by hand (#88).\n")
+                cov_overridden = replace(cov_before,
+                    r"([ \t]+)(julia_version:[^\r\n]*\r?\n)" =>
+                        SubstitutionString(
+                            "\\1\\2" * pkg_comment *
+                            "\\1coverage_directories: 'src,ext'\n"))
+                @test cov_overridden != cov_before
+                write(cov_caller, cov_overridden)
+
+                scaffold_update(dir)
+                ad_after = read(ad_caller, String)
+                cov_after = read(cov_caller, String)
+
+                # The package key and its own guard comment both survive ...
+                @test occursin("coverage_directories: 'src,ext'", ad_after)
+                @test occursin("Count extension lines too", ad_after)
+                @test occursin("coverage_directories: 'src,ext'", cov_after)
+                @test occursin("Package extensions carry real code", cov_after)
+                # ... exactly once each (no duplication) ...
+                @test count("Count extension lines too", ad_after) == 1
+                @test count("Package extensions carry real code", cov_after) == 1
+                # ... and the template's own comment/key are neither dropped
+                # nor duplicated by the merge.
+                @test count("Hard-fail the coverage check", cov_after) == 1
+                @test occursin("fail_ci_if_error:", cov_after)
+                @test occursin("backends:", ad_after)
+
+                # Idempotent on the merged block.
+                scaffold_update(dir)
+                @test read(ad_caller, String) == ad_after
+                @test read(cov_caller, String) == cov_after
+            end
+        end
+
+        @testset "_merge_with_blocks keeps a destination's own dangling trailing comment" begin
+            using EpiAwarePackageTools: _merge_with_blocks
+            # A comment with no key after it at all (nothing between it and
+            # the block's end) is package-owned unmatched content, exactly
+            # like an extra key — it must survive the merge, not be dropped.
+            seed = "    with:\n      backends: '[\"A\"]'\n"
+            existing = "    with:\n      backends: '[\"A\"]'\n" *
+                       "      # dangling comment, no key follows\n"
+            merged = _merge_with_blocks(seed, existing)
+            @test occursin("dangling comment, no key follows", merged)
+            @test count("dangling comment, no key follows", merged) == 1
+            @test occursin("backends:", merged)
+            # Idempotent: re-merging the already-merged block against the
+            # same seed leaves it unchanged.
+            @test _merge_with_blocks(seed, merged) == merged
+        end
+
+        @testset "_merge_with_blocks keeps a package-only key's multi-line value intact" begin
+            using EpiAwarePackageTools: _merge_with_blocks
+            # A package-owned key whose value spans multiple lines (e.g. a
+            # YAML block list) has continuation lines that are neither a key
+            # nor a comment/blank — they must stay attached to that key
+            # through the merge, not get dropped or misfiled.
+            seed = "    with:\n      backends: '[\"A\"]'\n"
+            existing = "    with:\n      backends: '[\"A\"]'\n" *
+                       "      extra_matrix:\n        - x\n        - y\n"
+            merged = _merge_with_blocks(seed, existing)
+            @test occursin(
+                "extra_matrix:\n        - x\n        - y", merged)
+            @test occursin("backends:", merged)
+            @test _merge_with_blocks(seed, merged) == merged
+        end
+
         @testset "scaffold_update removes retired managed paths (#185)" begin
             using EpiAwarePackageTools: RETIRED_PATHS
             # The kit retires managed files (the `benchmark/comment/` env went

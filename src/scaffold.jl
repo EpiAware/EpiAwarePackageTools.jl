@@ -880,11 +880,20 @@ const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\
 # lines and the `with:` inputs. `indent` is the `with:` line's indent, or
 # `nothing` when the region carries no `with:` block. Each input is
 # `key => lines`, keeping any deeper continuation lines with their key so a
-# block/list value survives intact.
+# block/list value survives intact. A comment/blank line is buffered and
+# attached to the key it *precedes* (a rationale comment documents the key
+# below it, by convention — e.g. `# guard comment` / `coverage_directories:
+# 'src,ext'`), not the key above; `trailing` catches any such lines left
+# over with no following key (dangling at the end of the block). Before
+# #212 a comment was attached to the preceding key instead, which silently
+# dropped it when that key was seeded (replaced wholesale by the template)
+# and duplicated it when the *next* real template key happened to carry the
+# same trailing comment.
 function _parse_with_block(chunk::AbstractString)
     head = String[]
     inputs = Pair{String, Vector{String}}[]
     indent = nothing
+    pending = String[]
     lines = split(chunk, '\n')
     endswith(chunk, "\n") && !isempty(lines) && pop!(lines)
     for line in lines
@@ -898,24 +907,32 @@ function _parse_with_block(chunk::AbstractString)
             continue
         end
         key = match(r"^[ \t]+([A-Za-z0-9_.-]+):", line)
-        if key === nothing && !isempty(inputs)
-            push!(last(inputs).second, String(line))  # continuation
-        elseif key !== nothing
+        if key !== nothing
             name = String(something(key.captures[1]))
-            push!(inputs, name => String[String(line)])
+            push!(inputs, name => vcat(pending, String[String(line)]))
+            empty!(pending)
+        elseif occursin(r"^[ \t]*#", line) || isempty(strip(line))
+            push!(pending, String(line))  # comment/blank: attach to next key
+        elseif !isempty(inputs)
+            push!(last(inputs).second, String(line))  # value continuation
         end
     end
-    return (head = head, indent = indent, inputs = inputs)
+    return (head = head, indent = indent, inputs = inputs, trailing = pending)
 end
 
-# Render a caller's preserved region back from its parts.
+# Render a caller's preserved region back from its parts. `trailing` has no
+# default: the sole call site (`_merge_with_blocks`) always supplies it
+# explicitly, and a default here would generate an unreachable, uncovered
+# 3-arg method (caught by codecov's patch-coverage check on #218).
 function _render_with_block(head::Vector{String}, indent::AbstractString,
-        inputs::Vector{Pair{String, Vector{String}}})
+        inputs::Vector{Pair{String, Vector{String}}},
+        trailing::Vector{String})
     lines = copy(head)
     push!(lines, indent * "with:")
     for (_, value) in inputs
         append!(lines, value)
     end
+    append!(lines, trailing)
     return join(lines, "\n") * "\n"
 end
 
@@ -931,8 +948,12 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
     s.indent === nothing && return existing
     seeded = Set(first(p) for p in s.inputs)
     extra = [p for p in e.inputs if !(first(p) in seeded)]
-    isempty(extra) && return seed
-    return _render_with_block(s.head, s.indent, vcat(s.inputs, extra))
+    # A genuinely dangling comment in the destination (no key follows it) is
+    # package-owned unmatched content, exactly like an extra key — keep it
+    # alongside the seed's own trailing lines (if any) rather than dropping it.
+    trailing = isempty(e.trailing) ? s.trailing : vcat(s.trailing, e.trailing)
+    isempty(extra) && isempty(e.trailing) && return seed
+    return _render_with_block(s.head, s.indent, vcat(s.inputs, extra), trailing)
 end
 
 function _preserve_caller_with_inputs(content::AbstractString,
