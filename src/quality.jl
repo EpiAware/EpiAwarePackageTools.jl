@@ -249,7 +249,11 @@ const STANDARD_README_SECTIONS = [
     ("Getting started", "Usage", "Quickstart", "Quick start"),
     ("Documentation", "Where to learn more", "Learn more"),
     ("Contributing",),
-    ("Citing", "Citation", "License", "Supporting")
+    # "Cite" accepts the managed standard-sections heading `## How to cite`
+    # (`_render_standard_sections`), so a freshly scaffolded package passes this
+    # check out of the box rather than needing a hand-authored License/Supporting
+    # section to satisfy it (#201).
+    ("Citing", "Citation", "Cite", "License", "Supporting")
 ]
 
 # Render one section group as a human-readable label for failure messages.

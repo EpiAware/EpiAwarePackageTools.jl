@@ -315,6 +315,16 @@
                 test_readme_sections(dir)
             end
 
+            # The managed standard-sections citation heading `## How to cite`
+            # satisfies the citation group, so a scaffolded package that carries
+            # only the managed sections (no hand-authored License/Supporting)
+            # passes the check out of the box (#201).
+            how_to_cite = replace(conforming, "## License\nMIT.\n" => "## How to cite\ncite it.\n")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), how_to_cite)
+                test_readme_sections(dir)
+            end
+
             # A custom required list can extend the standard set.
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), conforming)

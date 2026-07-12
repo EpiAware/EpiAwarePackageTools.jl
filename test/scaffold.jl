@@ -1392,6 +1392,14 @@
                 # ad = false and no DOI passed: no version-DOI line.
                 @test !occursin("doi.org", txt)
 
+                # The managed `## How to cite` heading satisfies the citation
+                # group of STANDARD_README_SECTIONS, so the scaffolded README
+                # passes the kit's own README-sections quality check out of the
+                # box, with no hand-authored License/Supporting section (#201).
+                headings = EpiAwarePackageTools._readme_headings(txt)
+                @test EpiAwarePackageTools._has_section(headings,
+                    EpiAwarePackageTools.STANDARD_README_SECTIONS[end])
+
                 # A second scaffold_update refreshes the block in place, idempotently.
                 before = read(joinpath(dir, "README.md"), String)
                 ures = scaffold_update(dir; ad = false)
