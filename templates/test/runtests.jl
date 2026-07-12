@@ -10,37 +10,22 @@
 #   quality_only  — run only the QA testset
 #   readme_only   — run only `:readme`-tagged items (README/tutorial tests)
 
-using TestItemRunner
+using EpiAwarePackageTools: run_package_tests
 
-# Restrict discovery to this package's test tree so a nested worktree's items
-# are not globbed in. Trailing separator guards against sibling dirs sharing a
-# string prefix.
-#
-# `@run_package_tests` walks the WHOLE package root (TestItemRunner.jl's
-# `run_tests`, hardcoded via `dirname(@__FILE__)/..`), not just `test/`, and it
-# registers every `@testsnippet` it finds by NAME with no path scoping at all —
-# `in_this_package`/`filter` only decide which `@testitem`s RUN, never which
-# `@testsnippet`s get registered (kit #191). A stale worktree ANYWHERE under
-# the package root (not just under test/) that carries an old copy of a test
-# file can silently shadow the current file's same-named snippet, with no
-# error at the collision site. Keep every nested worktree (a manual `git
-# worktree add`, this repo's own agent-tooling worktrees, etc.) fully OUTSIDE
-# the package root — a sibling directory, never a subdirectory of it — until
-# TestItemRunner exposes a way to scope `@testsnippet` discovery itself.
-const TEST_ROOT = normpath(@__DIR__) * Base.Filesystem.path_separator
-in_this_package(ti) = startswith(normpath(ti.filename), TEST_ROOT)
+# `run_package_tests` roots discovery at this package's own `test/` tree rather
+# than the whole package root, so a nested worktree checked out under the repo
+# (the `worktrees/wt-*` convention) is never scanned and cannot inject test
+# items or silently shadow a same-named `@testsnippet` (kit #191). It is
+# otherwise a drop-in for TestItemRunner's `@run_package_tests`: pass the same
+# `filter` predicate over `ti.tags`.
 
 if "skip_quality" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      !(:quality in ti.tags) &&
-                                      !(:ad in ti.tags)
+    run_package_tests(@__DIR__;
+        filter = ti -> !(:quality in ti.tags) && !(:ad in ti.tags))
 elseif "quality_only" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      :quality in ti.tags
+    run_package_tests(@__DIR__; filter = ti -> :quality in ti.tags)
 elseif "readme_only" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      :readme in ti.tags
+    run_package_tests(@__DIR__; filter = ti -> :readme in ti.tags)
 else
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      !(:ad in ti.tags)
+    run_package_tests(@__DIR__; filter = ti -> !(:ad in ti.tags))
 end
