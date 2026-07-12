@@ -1725,6 +1725,22 @@
             @test _merge_with_blocks(seed, merged) == merged
         end
 
+        @testset "_merge_with_blocks keeps a package-only key's multi-line value intact" begin
+            using EpiAwarePackageTools: _merge_with_blocks
+            # A package-owned key whose value spans multiple lines (e.g. a
+            # YAML block list) has continuation lines that are neither a key
+            # nor a comment/blank — they must stay attached to that key
+            # through the merge, not get dropped or misfiled.
+            seed = "    with:\n      backends: '[\"A\"]'\n"
+            existing = "    with:\n      backends: '[\"A\"]'\n" *
+                       "      extra_matrix:\n        - x\n        - y\n"
+            merged = _merge_with_blocks(seed, existing)
+            @test occursin(
+                "extra_matrix:\n        - x\n        - y", merged)
+            @test occursin("backends:", merged)
+            @test _merge_with_blocks(seed, merged) == merged
+        end
+
         @testset "scaffold_update removes retired managed paths (#185)" begin
             using EpiAwarePackageTools: RETIRED_PATHS
             # The kit retires managed files (the `benchmark/comment/` env went
