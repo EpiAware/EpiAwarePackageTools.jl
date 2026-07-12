@@ -456,7 +456,8 @@ end
 # The reshaped path already labels its tables (`| Benchmark |`/`| Suite |`); this
 # hardens the one remaining verbatim path so no emitted table can carry an empty
 # leading header cell. Only the first such row (the header) is relabelled.
-function _label_empty_leading_header(md::AbstractString; label = "Benchmark")
+function _label_empty_leading_header(
+        md::AbstractString; label::AbstractString = "Benchmark")
     repl = SubstitutionString("\\1| " * label * " |")
     return replace(md, r"(?m)^([ \t]*)\|[ \t]*\|" => repl; count = 1)
 end
