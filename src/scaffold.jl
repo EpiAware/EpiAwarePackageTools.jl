@@ -897,8 +897,12 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
     s.indent === nothing && return existing
     seeded = Set(first(p) for p in s.inputs)
     extra = [p for p in e.inputs if !(first(p) in seeded)]
-    isempty(extra) && return seed
-    return _render_with_block(s.head, s.indent, vcat(s.inputs, extra), s.trailing)
+    # A genuinely dangling comment in the destination (no key follows it) is
+    # package-owned unmatched content, exactly like an extra key — keep it
+    # alongside the seed's own trailing lines (if any) rather than dropping it.
+    trailing = isempty(e.trailing) ? s.trailing : vcat(s.trailing, e.trailing)
+    isempty(extra) && isempty(e.trailing) && return seed
+    return _render_with_block(s.head, s.indent, vcat(s.inputs, extra), trailing)
 end
 
 function _preserve_caller_with_inputs(content::AbstractString,

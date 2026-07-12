@@ -1708,6 +1708,23 @@
             end
         end
 
+        @testset "_merge_with_blocks keeps a destination's own dangling trailing comment" begin
+            using EpiAwarePackageTools: _merge_with_blocks
+            # A comment with no key after it at all (nothing between it and
+            # the block's end) is package-owned unmatched content, exactly
+            # like an extra key — it must survive the merge, not be dropped.
+            seed = "    with:\n      backends: '[\"A\"]'\n"
+            existing = "    with:\n      backends: '[\"A\"]'\n" *
+                       "      # dangling comment, no key follows\n"
+            merged = _merge_with_blocks(seed, existing)
+            @test occursin("dangling comment, no key follows", merged)
+            @test count("dangling comment, no key follows", merged) == 1
+            @test occursin("backends:", merged)
+            # Idempotent: re-merging the already-merged block against the
+            # same seed leaves it unchanged.
+            @test _merge_with_blocks(seed, merged) == merged
+        end
+
         @testset "scaffold_update removes retired managed paths (#185)" begin
             using EpiAwarePackageTools: RETIRED_PATHS
             # The kit retires managed files (the `benchmark/comment/` env went
