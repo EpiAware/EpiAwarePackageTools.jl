@@ -1318,6 +1318,54 @@
             end
         end
 
+        @testset "scaffold_generate seeds a passing ad = true AD suite out of the box (#217)" begin
+            mktempdir() do base
+                dir = joinpath(base, "FreshAdPkg")
+                scaffold_generate(dir, "FreshAdPkg"; authors = ["Ada Lovelace"])
+                fixtures = read(
+                    joinpath(dir, "test/ADFixtures/src/ADFixtures.jl"), String)
+                scenarios = read(joinpath(dir, "test/ad/scenarios.jl"), String)
+                # Every backend `test/ad/scenarios.jl` calls
+                # `test_working_backend(...)` for must have a matching seeded
+                # `backends()` entry, or a fresh scaffold errors
+                # (`ArgumentError: Collection is empty...`) on that backend
+                # out of the box (#217). Before this the seed only ever
+                # registered ForwardDiff.
+                backend_calls = [String(m.captures[1])
+                                 for m in eachmatch(
+                    r"test_working_backend\(\"([^\"]+)\"\)", scenarios)]
+                @test !isempty(backend_calls)
+                for name in backend_calls
+                    @test occursin("name = \"$name\"", fixtures)
+                end
+                @test !occursin("{{", fixtures)
+                @test Meta.parseall(fixtures) isa Expr
+                # The isolated AD env + ADFixtures env both carry every
+                # backend package the seeded `backends()` now constructs.
+                ad_proj = read(joinpath(dir, "test/ad/Project.toml"), String)
+                adfix_proj = read(
+                    joinpath(dir, "test/ADFixtures/Project.toml"), String)
+                for pkg in ("Enzyme", "Mooncake", "ReverseDiff", "ForwardDiff")
+                    @test occursin(pkg, ad_proj)
+                    @test occursin(pkg, adfix_proj)
+                end
+            end
+        end
+
+        @testset "scaffold_generate's module docstring includes an @example (#217)" begin
+            mktempdir() do base
+                dir = joinpath(base, "FreshDocPkg")
+                scaffold_generate(dir, "FreshDocPkg"; authors = ["Ada Lovelace"])
+                src = read(joinpath(dir, "src/FreshDocPkg.jl"), String)
+                # `test_docstring_format` treats the module's own exported
+                # symbol like any other and requires an `@example` block on
+                # it (`exported_only_examples = true` is the default) — the
+                # bare skeleton docstring had none, so a fresh scaffold
+                # failed its own docstring-format QA out of the box (#217).
+                @test occursin("@example", src)
+            end
+        end
+
         @testset "scaffold_generate with ad = false opts out" begin
             mktempdir() do base
                 dir = joinpath(base, "ToolPkg")

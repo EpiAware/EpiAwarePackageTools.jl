@@ -721,6 +721,7 @@ function scaffold_inputs(target_dir::AbstractString;
         AD_BACKENDS_JSON = _ad_backends_json(),
         AD_COV_TABLE = _ad_cov_table(rp),
         AD_BACKEND_PACKAGES = _ad_backend_packages(),
+        AD_BACKEND_ENTRIES = _ad_backend_entries(),
         AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
@@ -1057,6 +1058,41 @@ function _ad_backend_packages()
         b.pkg in pkgs || push!(pkgs, b.pkg)
     end
     return join(pkgs, ", ")
+end
+
+# The `ADTypes` constructor call for each `_AD_BACKENDS` tag, matching what
+# every real adopter (ConvolvedDistributions, ModifiedDistributions, ...)
+# ends up hand-writing in its own `ADFixtures.backends()`.
+const _AD_BACKEND_CTORS = Dict(
+    "forwarddiff" => "AutoForwardDiff()",
+    "reversediff" => "AutoReverseDiff(compile = false)",
+    "enzyme_forward" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Forward))",
+    "enzyme_reverse" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))",
+    "mooncake_reverse" => "AutoMooncake(config = nothing)",
+    "mooncake_forward" => "AutoMooncakeForward()")
+
+# The seeded `ADFixtures.backends()` body, one `(; name, backend)` entry per
+# `_AD_BACKENDS` entry, so a fresh package's AD registry always matches every
+# backend `test/ad/scenarios.jl` emits a testitem for (#217). Before this the
+# seed only ever registered ForwardDiff, so a fresh `ad = true` scaffold
+# errored (`ArgumentError: Collection is empty...`) on 5 of 6 backends out of
+# the box, and every real adopter had to hand-copy the full list from a
+# sibling package to get a passing AD suite.
+#
+# A tag with no known constructor (e.g. a newly added `_AD_BACKENDS` entry
+# ahead of this being updated, or a test round-trip backend) gets `nothing`
+# with an inline TODO rather than erroring, so `scaffold`/`scaffold_update`
+# still succeeds — the same graceful-degradation the other `_AD_BACKENDS`
+# generators (`_ad_codecov_flags`, `_ad_backends_json`, ...) already offer,
+# since they need no such lookup at all.
+function _ad_backend_entries()
+    entries = map(_AD_BACKENDS) do b
+        ctor = get(_AD_BACKEND_CTORS, b.tag) do
+            "nothing  # TODO: add the ADTypes constructor for \"$(b.header)\""
+        end
+        string("        (name = \"", b.header, "\", backend = ", ctor, ")")
+    end
+    return join(entries, ",\n")
 end
 
 # The family tag shared by a backend's forward/reverse variants (e.g.
@@ -2302,6 +2338,12 @@ function _emit_package_skeleton(target_dir::AbstractString, package::AbstractStr
         $package
 
     A fresh EpiAware package. Replace this skeleton with the package's API.
+
+    # Example
+
+    ```@example
+    using $package
+    ```
     \"\"\"
     module $package
 

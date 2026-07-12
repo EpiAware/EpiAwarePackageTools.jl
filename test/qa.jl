@@ -622,5 +622,19 @@
             @test check_flags(() -> test_ext_ambiguities(
                 EpiAwarePackageTools, :NotAnExtension))
         end
+
+        @testset "test_aqua stale_deps forwards a NamedTuple to Aqua.test_stale_deps (#217)" begin
+            # Before #217, `stale_deps` was Bool-only: `stale_deps && ...`
+            # requires an exact `Bool` (Julia's `&&` rejects any other type),
+            # so passing a NamedTuple of Aqua kwargs (e.g. to `ignore` a
+            # dependency a package deliberately keeps ahead of using it)
+            # threw a `TypeError` rather than reaching `Aqua.test_stale_deps`.
+            ts = test_aqua(EpiAwarePackageTools; ambiguities = false,
+                unbound_args = false, undefined_exports = false,
+                project_extras = false, deps_compat = false,
+                undocumented_names = false, piracies = false,
+                stale_deps = (; ignore = [:Statistics]))
+            @test ts isa Test.DefaultTestSet
+        end
     end # @testset "QA helpers"
 end # @testitem "QA helpers"

@@ -56,6 +56,11 @@ ambiguities) in one `@testset`. Keyword arguments forward to each check that
 accepts them, so a package can relax a single check without re-listing the rest
 (e.g. `test_aqua(MyPkg; ambiguities = false)` to skip the ambiguity check).
 
+`stale_deps` also accepts a `NamedTuple` of keywords forwarded to
+`Aqua.test_stale_deps` (e.g. `stale_deps = (; ignore = [:LinearAlgebra])`), so
+a package that deliberately keeps a dependency ahead of using it (#217) can
+allow just that one rather than disabling the whole check with `false`.
+
 Aqua must be a dependency of the calling test environment.
 """
 function test_aqua(mod::Module; ambiguities = true, unbound_args = true,
@@ -72,8 +77,9 @@ function test_aqua(mod::Module; ambiguities = true, unbound_args = true,
         project_extras && @testset "project extras" begin
             Base.invokelatest(Aqua.test_project_extras, mod)
         end
-        stale_deps && @testset "stale deps" begin
-            Base.invokelatest(Aqua.test_stale_deps, mod)
+        stale_deps !== false && @testset "stale deps" begin
+            sd_kwargs = stale_deps isa NamedTuple ? stale_deps : NamedTuple()
+            Base.invokelatest(Aqua.test_stale_deps, mod; sd_kwargs...)
         end
         deps_compat && @testset "deps compat" begin
             Base.invokelatest(Aqua.test_deps_compat, mod)
