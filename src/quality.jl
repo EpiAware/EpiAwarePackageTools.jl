@@ -90,6 +90,39 @@ function test_aqua(mod::Module; ambiguities = true, unbound_args = true,
     end
 end
 
+# A submodule found by `ExplicitImports.find_submodules(mod)` is a package
+# extension (rather than a genuine submodule) exactly when `Base.get_extension`
+# resolves its name back to it. Extensions are self-parented (their
+# `parentmodule` is themselves), so they are never a true submodule of `mod`.
+function _is_package_extension(EI, sub::Module, mod::Module)
+    sub !== mod && Base.get_extension(mod, nameof(sub)) === sub
+end
+
+# Names any currently-loaded extension of `mod` imports in a way ExplicitImports
+# would otherwise flag (non-public / non-owner / stale explicit imports, plus
+# implicit imports). `ExplicitImports.find_submodules` includes an extension
+# only when it happens to be loaded, which depends on what else ran earlier in
+# the same session — so folding these names into every check's `ignore` makes an
+# extension contribute nothing to the verdict whether or not it is loaded,
+# removing the extension-load-order dependence of #189. The nonrecursive
+# analysis functions already apply ExplicitImports' own improper/implicit
+# filters, so we only read the reported `name`s; the pass/fail verdict still
+# comes from the real `check_*` functions below.
+function _extension_ignore_names(EI, mod::Module)
+    names = Symbol[]
+    for (sub, path) in EI.find_submodules(mod)
+        (path === nothing || !_is_package_extension(EI, sub, mod)) && continue
+        for row in EI.improper_explicit_imports_nonrecursive(sub, path;
+            strict = false)
+            push!(names, row.name)
+        end
+        for row in EI.explicit_imports_nonrecursive(sub, path)
+            push!(names, row.name)
+        end
+    end
+    return Tuple(unique(names))
+end
+
 """
     test_explicit_imports(mod; ignore = (), implicit_ignore = ignore)
 
@@ -108,22 +141,34 @@ owning module.
     `SomePkg` an implicit import that no amount of explicit listing removes —
     pass `implicit_ignore = (:SomePkg,)` so a reexporting package conforms.
 
+Package extensions are handled automatically: an extension imports its parent's
+(and its trigger's) internals by design, and ExplicitImports walks an extension
+only when it is loaded, so the verdict used to flip with extension-load order
+(#189). The names a loaded extension imports are folded into every check's
+`ignore` here, so the verdict is independent of whether extensions are loaded and
+adopters no longer need to enumerate their extensions' import lists by hand.
+
 ExplicitImports must be a dependency of the calling test environment.
 """
 function test_explicit_imports(mod::Module; ignore::Tuple = (),
         implicit_ignore::Tuple = ignore)
     EI = _require_pkg("7d51a73a-1435-4ff3-83d9-f097790105c7", "ExplicitImports")
+    ext_ignore = Base.invokelatest(_extension_ignore_names, EI, mod)
+    ei = (ignore..., ext_ignore...)
+    ii = (implicit_ignore..., ext_ignore...)
     return @testset "ExplicitImports: $(nameof(mod))" begin
         @test Base.invokelatest(
-            EI.check_no_stale_explicit_imports, mod) === nothing
+            EI.check_no_stale_explicit_imports, mod;
+            ignore = ext_ignore) === nothing
         @test Base.invokelatest(
             EI.check_no_implicit_imports, mod;
-            ignore = implicit_ignore) === nothing
+            ignore = ii) === nothing
         @test Base.invokelatest(
             EI.check_all_explicit_imports_are_public, mod;
-            ignore = ignore) === nothing
+            ignore = ei) === nothing
         @test Base.invokelatest(
-            EI.check_all_explicit_imports_via_owners, mod) === nothing
+            EI.check_all_explicit_imports_via_owners, mod;
+            ignore = ext_ignore) === nothing
     end
 end
 
