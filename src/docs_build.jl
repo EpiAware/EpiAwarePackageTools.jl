@@ -45,11 +45,13 @@ can be unit-tested and reused in isolation.
 """
 module DocsBuild
 
+import Pkg
+
 import ..EpiAwarePackageTools: _require_pkg
 import Statistics
 
 export build_docs, build_index, build_release_notes, build_benchmark_page,
-       build_api_pages, api_bindings, api_owning_modules
+       build_api_pages, api_bindings, api_owning_modules, api_remotes
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -1026,6 +1028,107 @@ function build_api_pages(mod::Module, lib_dir::AbstractString)
     return public, private
 end
 
+# ---- source remotes for the owning modules --------------------------------
+
+# The (org, repo) pair of a GitHub clone/browse URL, in either the https or the
+# ssh form and with or without the `.git` suffix; `nothing` for any other host
+# (Documenter can only build source links for GitHub remotes).
+function _github_org_repo(url::AbstractString)
+    m = match(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?/*$", url)
+    m === nothing && return nothing
+    # Both groups are mandatory, so a match always captures them (the type
+    # assertions narrow `Union{Nothing,SubString}` for JET).
+    return (String(m[1]::AbstractString), String(m[2]::AbstractString))
+end
+
+# The `(org, repo, ref)` a source link for a dependency needs, from its git
+# source URL and how it was installed. A git-tracked dependency links against
+# the revision it tracks; otherwise the installed version names its release tag
+# (registered packages tag `vX.Y.Z`). `nothing` when no GitHub source URL or no
+# ref can be found — the caller then leaves the package to Documenter.
+function _remote_spec(url::Union{Nothing, AbstractString},
+        rev::Union{Nothing, AbstractString},
+        version::Union{Nothing, VersionNumber})
+    url === nothing && return nothing
+    org_repo = _github_org_repo(url)
+    org_repo === nothing && return nothing
+    ref = if rev !== nothing && !isempty(rev)
+        String(rev)
+    elseif version !== nothing
+        "v$version"
+    else
+        return nothing
+    end
+    return (org_repo[1], org_repo[2], ref)
+end
+
+# The active environment's Pkg entry for `mod`'s package, or `nothing` when it
+# has no UUID (e.g. `Base`) or the environment cannot be read.
+function _package_entry(mod::Module)
+    uuid = Base.PkgId(mod).uuid
+    uuid === nothing && return nothing
+    deps = try
+        Pkg.dependencies()
+    catch
+        return nothing
+    end
+    return get(deps, uuid, nothing)
+end
+
+# Expand one `extra_remotes` value into what Documenter's `remotes` accepts: an
+# "Org/Repo.jl" string becomes a GitHub remote on `main`, anything else (a
+# `Remotes.Remote`, or a `(remote, ref)` tuple) passes through untouched.
+function _extra_remote(Documenter, value)
+    value isa AbstractString || return value
+    parts = split(value, '/')
+    length(parts) == 2 || error(
+        "extra_remotes: \"$value\" is not an \"Org/Repo.jl\" pair")
+    remote = Base.invokelatest(
+        Documenter.Remotes.GitHub, String(parts[1]), String(parts[2]))
+    return (remote, "main")
+end
+
+"""
+    api_remotes(mods; extra_remotes = Dict()) -> Dict{String, Any}
+
+Documenter `remotes` entries for the owning modules `mods` — a
+`pkgdir(mod) => (Remotes.GitHub(org, repo), ref)` mapping so Documenter can
+build source links for the docstrings those modules own.
+
+[`build_docs`](@ref) folds each re-export's owning module into Documenter's
+`modules` (#175), and Documenter then needs a remote for that module's source
+tree. It derives one itself for a `develop`ed (git checkout) or registered
+dependency, but not for a package `Pkg.add`ed from a git URL, and the build
+dies with `MissingRemoteError` (#190). The remote is taken from the
+dependency's own git source URL as recorded in the active environment, so no
+repository layout is assumed; a module with no GitHub source URL is left out
+for Documenter to resolve as before. `extra_remotes` maps a `Module` or a path
+to either an `"Org/Repo.jl"` string or anything Documenter's `remotes` accepts
+(a `Remotes.Remote`, or a `(remote, ref)` tuple), and overrides any derived
+entry for the same path.
+"""
+function api_remotes(mods; extra_remotes = Dict())
+    Documenter = _documenter()
+    remotes = Dict{String, Any}()
+    for mod in mods
+        root = pkgdir(mod)
+        (root === nothing || !isdir(root)) && continue
+        entry = _package_entry(mod)
+        entry === nothing && continue
+        spec = _remote_spec(
+            entry.git_source, entry.git_revision, entry.version)
+        spec === nothing && continue
+        remote = Base.invokelatest(Documenter.Remotes.GitHub, spec[1], spec[2])
+        remotes[realpath(root)] = (remote, spec[3])
+    end
+    for (key, value) in extra_remotes
+        root = key isa Module ? pkgdir(key) : String(key)
+        (root === nothing || !isdir(root)) && continue
+        remotes[realpath(root)] = _extra_remote(Documenter, value)
+    end
+    return remotes
+end
+
 # ---- Literate tutorial pipeline -------------------------------------------
 
 # Render the Literate tutorial pipeline into `tutorials_dir`. Light tutorials
@@ -1208,7 +1311,7 @@ end
                index_strip_sections=[], benchmark_page=true,
                history_suites=[], history_commits=5,
                history_regression_threshold=1.1, extra_modules=[],
-               build_vitepress=true, deploy=true)
+               extra_remotes=Dict(), build_vitepress=true, deploy=true)
 
 Run the standard EpiAware documentation build for package module `mod`. All
 paths derive from `pkgdir(mod)`, so the managed `docs/make.jl` only forwards the
@@ -1241,6 +1344,13 @@ disabled whenever the resolution set is widened, so a package is never held
 responsible for a dependency's own missing-docstring hygiene (`mod`'s own
 completeness is already guaranteed by construction: `api_bindings` emits every
 docstring `mod` owns).
+
+Each owning module also needs a source remote, which Documenter cannot derive
+for a dependency installed from a git URL (#190). [`api_remotes`](@ref) derives
+one from the dependency's recorded git source URL and passes it to Documenter's
+`remotes`; `extra_remotes` supplies the rest, mapping a `Module` or a path to
+an `"Org/Repo.jl"` string or to anything Documenter's `remotes` accepts (e.g.
+`Dict(SomeDep => "EpiAware/SomeDep.jl")`).
 """
 function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         pages, deploy_url = nothing, skip_notebooks::Bool = false,
@@ -1254,6 +1364,7 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         benchmark_page::Bool = true, history_suites = String[],
         history_commits::Integer = 5,
         history_regression_threshold::Real = 1.1, extra_modules = Module[],
+        extra_remotes = Dict(),
         build_vitepress::Bool = true, deploy::Bool = true)
     project_root = pkgdir(mod)
     # `pkgdir` returns `Union{Nothing,String}`; narrow to a concrete String up
@@ -1336,6 +1447,12 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     # construction. With no re-exports the default `:all` check over `mod`
     # alone is kept.
     checkdocs = length(doc_modules) > 1 ? :none : :all
+    # Documenter needs a source remote for every module it resolves docstrings
+    # from, and cannot derive one for a dependency installed from a git URL —
+    # without this the widened `modules` list kills the build with
+    # `MissingRemoteError` (#190). `mod` itself is left out: its docs build runs
+    # in its own checkout, which Documenter resolves from git.
+    remotes = api_remotes(owning_modules; extra_remotes = extra_remotes)
     # `root` is pinned to the package's docs dir. Documenter otherwise defaults
     # it to the running script's directory; because the build now lives in the
     # kit rather than in `docs/make.jl`, the thin caller (or a test) may run
@@ -1348,7 +1465,7 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         linkcheck_ignore = vcat(linkcheck_ignore, benchmark_linkcheck),
         warnonly = [
             :docs_block, :missing_docs, :autodocs_block, :cross_references],
-        checkdocs = checkdocs,
+        checkdocs = checkdocs, remotes = remotes,
         modules = doc_modules, pages = pages, format = format,
         plugins = plugins)
 

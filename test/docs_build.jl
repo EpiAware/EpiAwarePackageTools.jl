@@ -1108,3 +1108,64 @@ end
         @test !isempty(DB._history_files(clone, "origin/benchmarks"))
     end
 end
+
+@testitem "api_remotes maps owning modules to source remotes (#190)" begin
+    using Test
+    using Documenter
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    @testset "_github_org_repo parses the GitHub URL forms" begin
+        @test DB._github_org_repo(
+            "https://github.com/EpiAware/ConvolvedDistributions.jl.git") ==
+              ("EpiAware", "ConvolvedDistributions.jl")
+        @test DB._github_org_repo(
+            "https://github.com/EpiAware/ConvolvedDistributions.jl") ==
+              ("EpiAware", "ConvolvedDistributions.jl")
+        @test DB._github_org_repo(
+            "git@github.com:EpiAware/ConvolvedDistributions.jl.git") ==
+              ("EpiAware", "ConvolvedDistributions.jl")
+        # Non-GitHub hosts have no GitHub remote to derive.
+        @test DB._github_org_repo(
+            "https://gitlab.com/x/Y.jl.git") === nothing
+        @test DB._github_org_repo("") === nothing
+    end
+
+    @testset "_remote_spec picks the revision, else the version tag" begin
+        url = "https://github.com/EpiAware/ConvolvedDistributions.jl.git"
+        # A git-tracked dependency links against the tracked revision.
+        @test DB._remote_spec(url, "main", v"0.1.0") ==
+              ("EpiAware", "ConvolvedDistributions.jl", "main")
+        # With no revision, the installed version's tag names a tagged tree.
+        @test DB._remote_spec(url, nothing, v"0.1.0") ==
+              ("EpiAware", "ConvolvedDistributions.jl", "v0.1.0")
+        # Nothing derivable without a URL, a ref, or a GitHub host.
+        @test DB._remote_spec(url, nothing, nothing) === nothing
+        @test DB._remote_spec(nothing, "main", v"0.1.0") === nothing
+        @test DB._remote_spec("https://gitlab.com/x/Y.jl", "main", v"0.1.0") ===
+              nothing
+    end
+
+    @testset "api_remotes: extra_remotes escape hatch" begin
+        dir = mktempdir()
+        # An "Org/Repo.jl" string is expanded into a GitHub remote...
+        remotes = DB.api_remotes(Module[]; extra_remotes = Dict(
+            dir => "Org/Repo.jl"))
+        remote, ref = remotes[realpath(dir)]
+        @test remote == Documenter.Remotes.GitHub("Org", "Repo.jl")
+        @test ref == "main"
+        # ...and an explicit Documenter remote/ref pair passes straight through.
+        explicit = (Documenter.Remotes.GitHub("Org", "Other.jl"), "v1.2.3")
+        remotes = DB.api_remotes(Module[]; extra_remotes = Dict(
+            dir => explicit))
+        @test remotes[realpath(dir)] == explicit
+    end
+
+    @testset "api_remotes: skips modules with no derivable remote" begin
+        # The kit is `develop`ed in its own test environment: its source tree is
+        # a git checkout Documenter resolves by itself, so no remote is added.
+        @test isempty(DB.api_remotes([EpiAwarePackageTools]))
+        # A module with no package directory (Base) is skipped, not an error.
+        @test isempty(DB.api_remotes([Base]))
+    end
+end
