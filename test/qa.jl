@@ -464,7 +464,14 @@
                 """
                 module ExtOrder189SparseArraysExt
                 import ExtOrder189: _secret
-                usesecret() = _secret()
+                # A wildcard `using` (no explicit list) so `sprand` is used
+                # implicitly: this is what `explicit_imports_nonrecursive`
+                # (the second loop in `_extension_ignore_names`, separate
+                # from the improper-imports check above) reports — an
+                # extension's implicit imports must also be exempted from
+                # the verdict, not just its improper explicit ones.
+                using SparseArrays
+                usesecret() = _secret() + length(sprand(2, 2, 0.5))
                 end
                 """)
             push!(LOAD_PATH, dir)
@@ -506,6 +513,10 @@
                 ignored = Base.invokelatest(
                     EpiAwarePackageTools._extension_ignore_names, EI, Fix)
                 @test :_secret in ignored
+                # The extension's implicit `using SparseArrays` import
+                # (`sprand`, used without an explicit list) is folded in too
+                # — the second, separate loop in `_extension_ignore_names`.
+                @test :sprand in ignored
             finally
                 filter!(!=(dir), LOAD_PATH)
             end
