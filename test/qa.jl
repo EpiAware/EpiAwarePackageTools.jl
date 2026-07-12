@@ -424,6 +424,104 @@
             @test ts isa Test.AbstractTestSet
         end
 
+        @testset "test_explicit_imports ignores extension-load order (#189)" begin
+            # A package extension imports its parent's internals by design, so
+            # ExplicitImports' are-public check flags it — but only when the
+            # extension happens to be loaded, which depends on what else ran
+            # earlier in the session. That made the verdict non-deterministic
+            # (#189). Build a throwaway package whose extension imports a
+            # non-public parent name, then load it with and without its trigger
+            # and assert `test_explicit_imports` gives the same passing verdict
+            # either way, even though the raw ExplicitImports check flips to a
+            # failure once the extension is loaded.
+            dir = mktempdir()
+            mkpath(joinpath(dir, "src"))
+            mkpath(joinpath(dir, "ext"))
+            write(joinpath(dir, "Project.toml"),
+                """
+                name = "ExtOrder189"
+                uuid = "e0f1c2d3-4455-6677-8899-aabbccddeeff"
+                version = "0.1.0"
+                [weakdeps]
+                SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+                [extensions]
+                ExtOrder189SparseArraysExt = "SparseArrays"
+                """)
+            write(joinpath(dir, "src", "ExtOrder189.jl"),
+                """
+                module ExtOrder189
+                _secret() = 42
+                # A genuine (non-extension) submodule: `_is_package_extension`
+                # must not mistake it for an extension (checked directly
+                # below), so `_extension_ignore_names` never even considers
+                # collecting names from a real submodule in the first place.
+                module Sub
+                helper() = 1
+                end
+                end
+                """)
+            write(joinpath(dir, "ext", "ExtOrder189SparseArraysExt.jl"),
+                """
+                module ExtOrder189SparseArraysExt
+                import ExtOrder189: _secret
+                # A wildcard `using` (no explicit list) so `sprand` is used
+                # implicitly: this is what `explicit_imports_nonrecursive`
+                # (the second loop in `_extension_ignore_names`, separate
+                # from the improper-imports check above) reports — an
+                # extension's implicit imports must also be exempted from
+                # the verdict, not just its improper explicit ones.
+                using SparseArrays
+                usesecret() = _secret() + length(sprand(2, 2, 0.5))
+                end
+                """)
+            push!(LOAD_PATH, dir)
+            try
+                EI = Base.require(
+                    Base.PkgId(
+                    Base.UUID("7d51a73a-1435-4ff3-83d9-f097790105c7"),
+                    "ExplicitImports"))
+                Fix = Base.require(Main, :ExtOrder189)
+
+                # Extension not loaded yet: the check is clean.
+                @test test_explicit_imports(Fix) isa Test.AbstractTestSet
+                @test !check_flags(() -> test_explicit_imports(Fix))
+
+                # Loading the trigger loads the extension, which imports the
+                # non-public `_secret` — the raw ExplicitImports check now fails.
+                Base.require(
+                    Base.PkgId(
+                    Base.UUID("2f01184e-e22b-5df5-ae63-d93ebab69eaf"),
+                    "SparseArrays"))
+                @test check_flags() do
+                    @test Base.invokelatest(
+                        EI.check_all_explicit_imports_are_public, Fix) ===
+                          nothing
+                end
+
+                # But `test_explicit_imports` stays green: the verdict no longer
+                # depends on whether the extension was loaded.
+                @test !check_flags(() -> test_explicit_imports(Fix))
+
+                # `Sub` is a genuine submodule, not an extension — checked
+                # directly (`_is_package_extension` must say so for it, and
+                # for `mod` itself), so `_extension_ignore_names`'s loop over
+                # `find_submodules` skips it (only the loaded extension's
+                # `_secret` is folded into the ignore list).
+                SubMod = Fix.Sub
+                @test !EpiAwarePackageTools._is_package_extension(EI, SubMod, Fix)
+                @test !EpiAwarePackageTools._is_package_extension(EI, Fix, Fix)
+                ignored = Base.invokelatest(
+                    EpiAwarePackageTools._extension_ignore_names, EI, Fix)
+                @test :_secret in ignored
+                # The extension's implicit `using SparseArrays` import
+                # (`sprand`, used without an explicit list) is folded in too
+                # — the second, separate loop in `_extension_ignore_names`.
+                @test :sprand in ignored
+            finally
+                filter!(!=(dir), LOAD_PATH)
+            end
+        end
+
         @testset "_import_centralisation_violations flags a scattered import" begin
             mktempdir() do dir
                 src = joinpath(dir, "src")

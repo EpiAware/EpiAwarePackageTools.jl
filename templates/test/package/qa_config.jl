@@ -16,8 +16,10 @@ const QA_CONFIG = (
     # Per-check Aqua relaxations, e.g. (; ambiguities = false). Empty = all on.
     aqua = (;),
 
-    # ExplicitImports `ignore`: symbols an extension legitimately imports
-    # non-publicly. Tuple of Symbols, e.g. (:_internal_helper,).
+    # ExplicitImports `ignore`: symbols the main module legitimately imports
+    # non-publicly. Tuple of Symbols, e.g. (:_internal_helper,). Package
+    # extensions are handled automatically (#189), so their import lists do not
+    # need listing here.
     ei_ignore = (),
 
     # Docstring `crossref_ignore`: upstream names docstrings link to via
