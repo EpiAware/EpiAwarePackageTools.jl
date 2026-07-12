@@ -721,6 +721,7 @@ function scaffold_inputs(target_dir::AbstractString;
         AD_BACKENDS_JSON = _ad_backends_json(),
         AD_COV_TABLE = _ad_cov_table(rp),
         AD_BACKEND_PACKAGES = _ad_backend_packages(),
+        AD_BACKEND_ENTRIES = _ad_backend_entries(),
         AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
@@ -1106,6 +1107,41 @@ function _ad_backend_packages()
         b.pkg in pkgs || push!(pkgs, b.pkg)
     end
     return join(pkgs, ", ")
+end
+
+# The `ADTypes` constructor call for each `_AD_BACKENDS` tag, matching what
+# every real adopter (ConvolvedDistributions, ModifiedDistributions, ...)
+# ends up hand-writing in its own `ADFixtures.backends()`.
+const _AD_BACKEND_CTORS = Dict(
+    "forwarddiff" => "AutoForwardDiff()",
+    "reversediff" => "AutoReverseDiff(compile = false)",
+    "enzyme_forward" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Forward))",
+    "enzyme_reverse" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))",
+    "mooncake_reverse" => "AutoMooncake(config = nothing)",
+    "mooncake_forward" => "AutoMooncakeForward()")
+
+# The seeded `ADFixtures.backends()` body, one `(; name, backend)` entry per
+# `_AD_BACKENDS` entry, so a fresh package's AD registry always matches every
+# backend `test/ad/scenarios.jl` emits a testitem for (#217). Before this the
+# seed only ever registered ForwardDiff, so a fresh `ad = true` scaffold
+# errored (`ArgumentError: Collection is empty...`) on 5 of 6 backends out of
+# the box, and every real adopter had to hand-copy the full list from a
+# sibling package to get a passing AD suite.
+#
+# A tag with no known constructor (e.g. a newly added `_AD_BACKENDS` entry
+# ahead of this being updated, or a test round-trip backend) gets `nothing`
+# with an inline TODO rather than erroring, so `scaffold`/`scaffold_update`
+# still succeeds — the same graceful-degradation the other `_AD_BACKENDS`
+# generators (`_ad_codecov_flags`, `_ad_backends_json`, ...) already offer,
+# since they need no such lookup at all.
+function _ad_backend_entries()
+    entries = map(_AD_BACKENDS) do b
+        ctor = get(_AD_BACKEND_CTORS, b.tag) do
+            "nothing  # TODO: add the ADTypes constructor for \"$(b.header)\""
+        end
+        string("        (name = \"", b.header, "\", backend = ", ctor, ")")
+    end
+    return join(entries, ",\n")
 end
 
 # The family tag shared by a backend's forward/reverse variants (e.g.
@@ -1943,8 +1979,11 @@ Shared worker for `scaffold`/`scaffold_update`.
 `scaffold`). `ad` selects the AD-enabled or AD-disabled standard;
 `benchmarks` gates the opt-in benchmark CI/suite/docs page;
 `downgrade_compat` gates the opt-in `downgrade-compat` CI job. Returns a
-`(created, updated, preserved, removed)` manifest of destination paths
-(`removed` being the retired managed paths cleaned up; see `RETIRED_PATHS`).
+`(created, updated, preserved, removed, warnings)` manifest of destination
+paths (`removed` being the retired managed paths cleaned up; see
+`RETIRED_PATHS`; `warnings` a `Vector{String}` of non-fatal issues raised
+while applying, e.g. a diverged-but-unmarked `test/ad/setup.jl` about to be
+overwritten).
 """
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
@@ -1986,6 +2025,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     created = String[]
     updated = String[]
     preserved = String[]
+    warnings = String[]
     for t in SCAFFOLD_TEMPLATES
         managed_only && !t.managed && continue
         _ad_selected(t, ad) || continue
@@ -2006,6 +2046,32 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
            _detect_ad_setup_owned(target_dir)
             push!(preserved, to)
             continue
+        end
+        # A managed file that already diverges substantially from what a
+        # fresh render would produce, with no ownership marker, is a strong
+        # signal the adopter customised it and simply never added the
+        # marker — silently force-overwriting it (the standard "managed
+        # files always resync" rule) is exactly the footgun that nearly
+        # broke CensoredDistributions' AD CI: a heavily customised
+        # `test/ad/setup.jl` carrying no `$(_AD_SETUP_OWNED_MARKER)` marker
+        # was clobbered with the generic driver, which would `MethodError`
+        # on every AD job. Warn (rather than silently proceed) so a
+        # maintainer notices before the next scheduled template-sync does
+        # this again; still overwrites, matching every other managed file.
+        if exists && !force && t.dest == _AD_SETUP_DEST
+            current = read(to, String)
+            fresh = _substitute(read(from, String), inputs, from)
+            if current != fresh
+                msg = string(_AD_SETUP_DEST,
+                    " differs from the managed driver but carries no ",
+                    _AD_SETUP_OWNED_MARKER,
+                    " marker — overwriting. If this divergence is ",
+                    "intentional, add a comment containing \"",
+                    _AD_SETUP_OWNED_MARKER,
+                    "\" to keep it across future scaffold_update calls.")
+                push!(warnings, msg)
+                @warn msg
+            end
         end
         # Package-owned files are written once and never overwritten (unless
         # `force`); managed files are always (re)written to remove drift.
@@ -2070,7 +2136,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
         logo = logo_action, standard_sections = sections_action,
-        citation = citation_action)
+        citation = citation_action, warnings = warnings)
 end
 
 """
@@ -2224,16 +2290,18 @@ never rewrites it, so the real author list and DOI stand.
 exist. Use [`scaffold_update`](@ref) to re-apply only the managed files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation)` named tuple: destination paths
-newly written, managed files overwritten, package-owned files left in place,
-retired managed paths deleted (`RETIRED_PATHS`, #185), the
-README badge action (`:created`, `:injected`, `:refreshed`, or `:skipped`), the
-`LICENSE` action, the root `[workspace]` stanza action (`:injected`,
-`:preserved`, or `:skipped`), the `.gitignore` managed-block action
-(`:created`, `:injected`, or `:refreshed`), the README logo-title action
-(`:injected`, `:preserved`, or `:skipped` when no logo file exists yet), the
-managed standard-sections action (`:refreshed`, `:injected`, or `:skipped`),
-and the `CITATION.cff` action (`:created`, `:preserved`, or `:skipped`).
+gitignore, logo, standard_sections, citation, warnings)` named tuple:
+destination paths newly written, managed files overwritten, package-owned
+files left in place, retired managed paths deleted (`RETIRED_PATHS`, #185),
+the README badge action (`:created`, `:injected`, `:refreshed`, or
+`:skipped`), the `LICENSE` action, the root `[workspace]` stanza action
+(`:injected`, `:preserved`, or `:skipped`), the `.gitignore` managed-block
+action (`:created`, `:injected`, or `:refreshed`), the README logo-title
+action (`:injected`, `:preserved`, or `:skipped` when no logo file exists
+yet), the managed standard-sections action (`:refreshed`, `:injected`, or
+`:skipped`), the `CITATION.cff` action (`:created`, `:preserved`, or
+`:skipped`), and non-fatal `warnings` raised while applying (a
+`Vector{String}`).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
@@ -2305,15 +2373,22 @@ comment containing the marker `$(_AD_SETUP_OWNED_MARKER)` to the committed
 `preserved`) instead of clobbering it, so a package can keep a hand-written
 driver while it migrates; remove the marker to hand management back to the kit.
 `scaffold`/`scaffold_generate` (`force = true`) still (re)lay the managed driver down.
+When the committed driver has diverged from the managed one but carries no
+marker — a strong signal it was customised and the marker just never got
+added — `scaffold_update()` still overwrites it (managed files always
+resync) but records a message in `warnings` (and emits `@warn`) rather than
+clobbering it silently.
 
 Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo)` named tuple: managed files newly added, managed files
-rewritten, preserved files, retired paths deleted, the README badge action, the
-`LICENSE` action (`:skipped` on scaffold_update), the root `[workspace]` stanza
-action, the `.gitignore` managed-block action, and the README logo-title action.
+gitignore, logo, warnings)` named tuple: managed files newly added, managed
+files rewritten, preserved files, retired paths deleted, the README badge
+action, the `LICENSE` action (`:skipped` on scaffold_update), the root
+`[workspace]` stanza action, the `.gitignore` managed-block action, the
+README logo-title action, and non-fatal warnings raised while applying (a
+`Vector{String}`).
 """
 function scaffold_update(target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,
@@ -2351,6 +2426,12 @@ function _emit_package_skeleton(target_dir::AbstractString, package::AbstractStr
         $package
 
     A fresh EpiAware package. Replace this skeleton with the package's API.
+
+    # Example
+
+    ```@example
+    using $package
+    ```
     \"\"\"
     module $package
 

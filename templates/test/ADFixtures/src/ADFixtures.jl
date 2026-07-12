@@ -12,10 +12,11 @@
 # https://github.com/EpiAware/EpiAwareADTools.jl.
 module ADFixtures
 
-using ADTypes: AutoForwardDiff
+using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
+               AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
 import DifferentiationInterfaceTest as DIT
-import ForwardDiff
+import {{AD_BACKEND_PACKAGES}}
 using {{PACKAGE}}
 
 export scenarios, backends, broken_scenario_names,
@@ -52,10 +53,16 @@ end
 """
     backends()
 
-The AD backends to test, as `(; name, backend)` named tuples. Add the package's
-supported backends (ReverseDiff, Mooncake, Enzyme, ...).
+The AD backends to test, as `(; name, backend)` named tuples. Seeded to match
+every backend `test/ad/scenarios.jl` emits a testitem for, so a fresh package
+passes its AD suite out of the box; trim to the subset the package actually
+supports.
 """
-backends() = [(name = "ForwardDiff", backend = AutoForwardDiff())]
+function backends()
+    return [
+{{AD_BACKEND_ENTRIES}}
+    ]
+end
 
 "Scenario names broken on every backend."
 broken_scenario_names() = String[]

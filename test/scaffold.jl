@@ -1178,6 +1178,37 @@
             end
         end
 
+        @testset "scaffold_update warns before clobbering a diverged, unmarked ad setup.jl" begin
+            # A managed test/ad/setup.jl that diverges from the fresh render
+            # but carries no ownership marker is a strong signal it was
+            # customised and the marker was simply never added — the exact
+            # footgun that nearly broke CensoredDistributions' AD CI:
+            # scaffold_update silently overwrote a heavily customised,
+            # unmarked driver. It still overwrites (managed files always
+            # resync), but now warns rather than proceeding silently.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric2")
+                scaffold(dir)
+                setup = joinpath(dir, "test/ad/setup.jl")
+                write(setup, "# hand-edited, no marker\n")
+                local res
+                @test_logs (:warn, r"test/ad/setup\.jl.*no.*marker"i) match_mode=:any begin
+                    res = scaffold_update(dir)
+                end
+                @test !isempty(res.warnings)
+                @test occursin("test/ad/setup.jl", res.warnings[1])
+                @test setup in res.updated
+            end
+            # A never-touched managed driver (fresh scaffold, never
+            # hand-edited) matches its own render exactly — no warning.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric3")
+                scaffold(dir)
+                res = scaffold_update(dir)
+                @test isempty(res.warnings)
+            end
+        end
+
         @testset "AD backends single source of truth (#821)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")
@@ -1315,6 +1346,54 @@
                 @test !occursin("{{", qa)
                 # ad = true by default, so AD infra is present.
                 @test isfile(joinpath(dir, ".github/workflows/ad.yaml"))
+            end
+        end
+
+        @testset "scaffold_generate seeds a passing ad = true AD suite out of the box (#217)" begin
+            mktempdir() do base
+                dir = joinpath(base, "FreshAdPkg")
+                scaffold_generate(dir, "FreshAdPkg"; authors = ["Ada Lovelace"])
+                fixtures = read(
+                    joinpath(dir, "test/ADFixtures/src/ADFixtures.jl"), String)
+                scenarios = read(joinpath(dir, "test/ad/scenarios.jl"), String)
+                # Every backend `test/ad/scenarios.jl` calls
+                # `test_working_backend(...)` for must have a matching seeded
+                # `backends()` entry, or a fresh scaffold errors
+                # (`ArgumentError: Collection is empty...`) on that backend
+                # out of the box (#217). Before this the seed only ever
+                # registered ForwardDiff.
+                backend_calls = [String(m.captures[1])
+                                 for m in eachmatch(
+                    r"test_working_backend\(\"([^\"]+)\"\)", scenarios)]
+                @test !isempty(backend_calls)
+                for name in backend_calls
+                    @test occursin("name = \"$name\"", fixtures)
+                end
+                @test !occursin("{{", fixtures)
+                @test Meta.parseall(fixtures) isa Expr
+                # The isolated AD env + ADFixtures env both carry every
+                # backend package the seeded `backends()` now constructs.
+                ad_proj = read(joinpath(dir, "test/ad/Project.toml"), String)
+                adfix_proj = read(
+                    joinpath(dir, "test/ADFixtures/Project.toml"), String)
+                for pkg in ("Enzyme", "Mooncake", "ReverseDiff", "ForwardDiff")
+                    @test occursin(pkg, ad_proj)
+                    @test occursin(pkg, adfix_proj)
+                end
+            end
+        end
+
+        @testset "scaffold_generate's module docstring includes an @example (#217)" begin
+            mktempdir() do base
+                dir = joinpath(base, "FreshDocPkg")
+                scaffold_generate(dir, "FreshDocPkg"; authors = ["Ada Lovelace"])
+                src = read(joinpath(dir, "src/FreshDocPkg.jl"), String)
+                # `test_docstring_format` treats the module's own exported
+                # symbol like any other and requires an `@example` block on
+                # it (`exported_only_examples = true` is the default) — the
+                # bare skeleton docstring had none, so a fresh scaffold
+                # failed its own docstring-format QA out of the box (#217).
+                @test occursin("@example", src)
             end
         end
 
