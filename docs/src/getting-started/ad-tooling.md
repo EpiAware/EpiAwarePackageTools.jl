@@ -161,3 +161,21 @@ The scaffolded `Taskfile.yml` wraps the AD runs.
 
 Running a single backend by tag is the fastest way to reproduce a CI failure
 that only one backend hits.
+
+## Making code AD-safe
+
+This page is about *testing* that a package's differentiable code works across
+backends.
+Making that code differentiable in the first place — stripping an AD tape, or
+giving a backend an analytic derivative for a call it cannot handle, such as a
+`cdf` through `SpecialFunctions.gamma_inc` — is the job of
+[EpiAwareADTools.jl](https://github.com/EpiAware/EpiAwareADTools.jl), the org's
+shared home for AD-safe evaluation hooks (`cdf_ad_safe`, `primal`, and the rest)
+and AD workarounds.
+A package imports it in its own source, and the AD scenarios registered here
+then exercise the result.
+It is a staging ground rather than a permanent home: each workaround is
+documented against the upstream fix meant to replace it, so entries are deleted
+as those land.
+The kit does not depend on it, and an `ad = true` package takes it on only if it
+needs one of those workarounds.

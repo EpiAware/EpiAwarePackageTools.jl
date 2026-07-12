@@ -396,6 +396,17 @@ When a genuinely broken combination is confirmed, declare it in the
 then record it as `@test_broken` and this page reports it in the support
 table, instead of the suite going red.
 
+When the construct a backend chokes on is a distribution evaluation it
+cannot differentiate — a `cdf` through `SpecialFunctions.gamma_inc`, say,
+or a call whose AD tape needs stripping —
+[EpiAwareADTools](https://github.com/EpiAware/EpiAwareADTools.jl) hosts
+AD-safe replacements a package imports in its own source: the `cdf_ad_safe`
+family of evaluation hooks and the `primal`/`primal_distribution` tape
+strips.
+It is the org's staging ground for such workarounds, each documented
+against the upstream fix that will one day replace it, so reach for it
+before declaring a scenario broken.
+
 ## Reproducing this page
 
 The numbers above are measured on the docs-build machine, so they reflect
@@ -423,4 +434,8 @@ julia --project=docs docs/make.jl
   scenarios, backends, and broken/skip declarations all live there.
 - The shared harness and the `ADRegistry` contract live in
   [EpiAwarePackageTools.jl](https://github.com/EpiAware/EpiAwarePackageTools.jl).
+- [EpiAwareADTools.jl](https://github.com/EpiAware/EpiAwareADTools.jl) is the
+  org's home for AD-safe evaluation hooks (`cdf_ad_safe`, `primal`, ...) and
+  other AD workarounds a package's own source can import when a backend needs
+  help with a construct it cannot otherwise differentiate.
 """
