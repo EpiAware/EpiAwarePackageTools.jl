@@ -221,6 +221,61 @@
             end
         end
 
+        @testset "main/AD test-env templates are is_kit-aware, like the JET env (#60)" begin
+            # `test/Project.toml` (+ `.noad.toml`) and `test/ad/Project.toml`
+            # hardcoded an EpiAwarePackageTools `[deps]`/`[sources]` entry with
+            # no `is_kit` switch, unlike the JET env (`KIT_DEP_LINE`/
+            # `KIT_SOURCE_LINE`). Scaffolding the kit onto itself would then
+            # render `EpiAwarePackageTools = "<uuid>"` twice in `[deps]` (once
+            # from the hardcoded line, once from `{{PACKAGE}}`) — a duplicate
+            # TOML key — and a self-referential git `[sources]` pin clashing
+            # with the package's own `{path = ...}` entry. These templates now
+            # share the same `is_kit` placeholders as the JET env.
+            mktempdir() do dir
+                _fake_pkg(dir; name = EpiAwarePackageTools.KIT_NAME)
+                scaffold(dir; ad = true)
+                for f in ("test/Project.toml", "test/ad/Project.toml")
+                    path = joinpath(dir, f)
+                    txt = read(path, String)
+                    @test !occursin("rev = \"main\"", txt)
+                    @test !occursin("{{KIT_DEP_LINE}}", txt)
+                    @test !occursin("{{KIT_SOURCE_LINE}}", txt)
+                    # Valid TOML: a duplicate `EpiAwarePackageTools` [deps] key
+                    # (the pre-#60 bug — the hardcoded line plus `{{PACKAGE}}`
+                    # both resolving to the kit's own name) is a parse error.
+                    parsed = try
+                        Pkg.TOML.parsefile(path)
+                    catch err
+                        err
+                    end
+                    @test parsed isa AbstractDict
+                end
+            end
+            # A normal (non-kit) adopter is unaffected: it still gets the kit
+            # dep + git `[sources]` pin in both env variants.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = true)
+                for f in ("test/Project.toml", "test/ad/Project.toml")
+                    path = joinpath(dir, f)
+                    txt = read(path, String)
+                    @test occursin("rev = \"main\"", txt)
+                    @test occursin(
+                        "$(EpiAwarePackageTools.KIT_NAME) = " *
+                        "\"$(EpiAwarePackageTools.KIT_UUID)\"", txt)
+                    @test Pkg.TOML.parsefile(path) isa AbstractDict
+                end
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                path = joinpath(dir, "test/Project.toml")
+                txt = read(path, String)
+                @test occursin("rev = \"main\"", txt)
+                @test Pkg.TOML.parsefile(path) isa AbstractDict
+            end
+        end
+
         @testset "DocumenterVitepress docs setup present + parameterised" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
