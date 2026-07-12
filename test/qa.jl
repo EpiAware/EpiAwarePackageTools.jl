@@ -451,6 +451,13 @@
                 """
                 module ExtOrder189
                 _secret() = 42
+                # A genuine (non-extension) submodule: `_is_package_extension`
+                # must not mistake it for an extension (checked directly
+                # below), so `_extension_ignore_names` never even considers
+                # collecting names from a real submodule in the first place.
+                module Sub
+                helper() = 1
+                end
                 end
                 """)
             write(joinpath(dir, "ext", "ExtOrder189SparseArraysExt.jl"),
@@ -487,6 +494,18 @@
                 # But `test_explicit_imports` stays green: the verdict no longer
                 # depends on whether the extension was loaded.
                 @test !check_flags(() -> test_explicit_imports(Fix))
+
+                # `Sub` is a genuine submodule, not an extension — checked
+                # directly (`_is_package_extension` must say so for it, and
+                # for `mod` itself), so `_extension_ignore_names`'s loop over
+                # `find_submodules` skips it (only the loaded extension's
+                # `_secret` is folded into the ignore list).
+                SubMod = Fix.Sub
+                @test !EpiAwarePackageTools._is_package_extension(EI, SubMod, Fix)
+                @test !EpiAwarePackageTools._is_package_extension(EI, Fix, Fix)
+                ignored = Base.invokelatest(
+                    EpiAwarePackageTools._extension_ignore_names, EI, Fix)
+                @test :_secret in ignored
             finally
                 filter!(!=(dir), LOAD_PATH)
             end
