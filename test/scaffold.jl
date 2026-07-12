@@ -1178,6 +1178,37 @@
             end
         end
 
+        @testset "scaffold_update warns before clobbering a diverged, unmarked ad setup.jl" begin
+            # A managed test/ad/setup.jl that diverges from the fresh render
+            # but carries no ownership marker is a strong signal it was
+            # customised and the marker was simply never added — the exact
+            # footgun that nearly broke CensoredDistributions' AD CI:
+            # scaffold_update silently overwrote a heavily customised,
+            # unmarked driver. It still overwrites (managed files always
+            # resync), but now warns rather than proceeding silently.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric2")
+                scaffold(dir)
+                setup = joinpath(dir, "test/ad/setup.jl")
+                write(setup, "# hand-edited, no marker\n")
+                local res
+                @test_logs (:warn, r"test/ad/setup\.jl.*no.*marker"i) match_mode=:any begin
+                    res = scaffold_update(dir)
+                end
+                @test !isempty(res.warnings)
+                @test occursin("test/ad/setup.jl", res.warnings[1])
+                @test setup in res.updated
+            end
+            # A never-touched managed driver (fresh scaffold, never
+            # hand-edited) matches its own render exactly — no warning.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric3")
+                scaffold(dir)
+                res = scaffold_update(dir)
+                @test isempty(res.warnings)
+            end
+        end
+
         @testset "AD backends single source of truth (#821)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")
