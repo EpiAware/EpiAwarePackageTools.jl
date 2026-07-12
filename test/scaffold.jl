@@ -1608,6 +1608,34 @@
             end
         end
 
+        @testset "scaffold_update preserves a Dependabot-bumped action pin (#215)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # A managed workflow that directly pins third-party actions (not
+                # only the org reusables). Dependabot's github-actions ecosystem
+                # bumps these pins in the live repo just like a reusable SHA.
+                wf = joinpath(dir, ".github/workflows/claude.yml")
+                before = read(wf, String)
+                @test occursin("actions/checkout@v6", before)
+                # Simulate Dependabot bumping the third-party pin in the live
+                # workflow (the case #215 reports being reverted on resync).
+                bumped = replace(before,
+                    r"(uses:\s*actions/checkout@)\S+" => s"\1v99")
+                @test bumped != before
+                write(wf, bumped)
+                scaffold_update(dir)
+                after = read(wf, String)
+                # scaffold_update keeps the bumped pin (never reverts Dependabot,
+                # regardless of the branch the resync runs on) ...
+                @test occursin("actions/checkout@v99", after)
+                @test !occursin("actions/checkout@v6", after)
+                # ... and a second scaffold_update is idempotent on the pin.
+                scaffold_update(dir)
+                @test read(wf, String) == after
+            end
+        end
+
         @testset "scaffold_update merges a package key into a managed with: block (#183)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

@@ -790,6 +790,53 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
         end)
 end
 
+# A third-party action `uses:` pin in a managed workflow (e.g.
+# `actions/checkout@v6`, `julia-actions/cache@v3`), capturing the prefix up to
+# the action path, the action path, and the pinned ref. Local `./…` actions
+# carry no `@ref` and never match; the org reusable callers do match this shape
+# but are skipped in favour of `_preserve_reusable_refs`.
+const _ACTION_USES = r"(uses:[ \t]*)([A-Za-z0-9][A-Za-z0-9._/-]*)@(\S+)"
+
+"""
+    _preserve_action_pins(content, dest)
+
+Keep the destination's existing third-party action pins when re-emitting a
+managed workflow.
+
+Dependabot owns the github-actions pins in every adopting repo (the managed
+`dependabot.yml` enables the github-actions ecosystem), so a template that
+hard-pins `actions/checkout@v6` would revert a Dependabot bump on every resync.
+When template-sync re-applies on a branch it did not open (a Dependabot PR),
+that revert rides along silently into the merge (#215). When the destination
+already pins a version for an action, that pin wins and only the rest of the
+workflow is re-applied from the template; on first adoption (no destination yet)
+the template's seed pin is used. Mirrors `_preserve_reusable_refs`, which does
+the same for the org reusable-workflow callers (those lines are left to it).
+"""
+function _preserve_action_pins(content::AbstractString, dest::AbstractString)
+    occursin(_ACTION_USES, content) || return content
+    isfile(dest) || return content
+    existing = Dict{String, String}()
+    for line in eachline(dest)
+        # Reusable-workflow callers are `_preserve_reusable_refs`' job.
+        occursin(_REUSABLE_USES, line) && continue
+        m = match(_ACTION_USES, line)
+        m === nothing && continue
+        existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
+    end
+    isempty(existing) && return content
+    return replace(content,
+        _ACTION_USES => function (s)
+            occursin(_REUSABLE_USES, s) && return String(s)
+            m = match(_ACTION_USES, s)
+            m === nothing && return String(s)
+            prefix = String(something(m.captures[1]))
+            action = String(something(m.captures[2]))
+            seed = String(something(m.captures[3]))
+            return prefix * action * "@" * get(existing, action, seed)
+        end)
+end
+
 # A managed CI caller job's reusable `uses:` line, any interspersed blank/comment
 # lines documenting an override, its optional `with:` block, and the following
 # `secrets:` key. Reuses the same workflow-filename capture as `_REUSABLE_USES`
@@ -924,10 +971,11 @@ function _make_writable(path::AbstractString)
 end
 
 # Copy one template to `to`, substituting placeholders when requested. Managed
-# CI callers additionally keep any reusable-workflow ref the destination
-# already pins (see `_preserve_reusable_refs`) and any package-owned `with:`
-# input the destination already carries (see `_preserve_caller_with_inputs`),
-# so neither a Dependabot bump nor a deliberate caller override is reverted.
+# workflows additionally keep any reusable-workflow ref (see
+# `_preserve_reusable_refs`) and any third-party action pin (see
+# `_preserve_action_pins`) the destination already carries, plus any
+# package-owned `with:` input it holds (see `_preserve_caller_with_inputs`), so
+# neither a Dependabot bump nor a deliberate caller override is reverted.
 function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         inputs::NamedTuple)
     mkpath(dirname(to))
@@ -937,6 +985,7 @@ function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
     if substitute
         content = _substitute(read(from, String), inputs, from)
         content = _preserve_reusable_refs(content, to)
+        content = _preserve_action_pins(content, to)
         content = _preserve_caller_with_inputs(content, to)
         write(to, content)
     else
