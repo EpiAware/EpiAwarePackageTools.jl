@@ -872,10 +872,13 @@ function _parse_with_block(chunk::AbstractString)
     return (head = head, indent = indent, inputs = inputs, trailing = pending)
 end
 
-# Render a caller's preserved region back from its parts.
+# Render a caller's preserved region back from its parts. `trailing` has no
+# default: the sole call site (`_merge_with_blocks`) always supplies it
+# explicitly, and a default here would generate an unreachable, uncovered
+# 3-arg method (caught by codecov's patch-coverage check on #218).
 function _render_with_block(head::Vector{String}, indent::AbstractString,
         inputs::Vector{Pair{String, Vector{String}}},
-        trailing::Vector{String} = String[])
+        trailing::Vector{String})
     lines = copy(head)
     push!(lines, indent * "with:")
     for (_, value) in inputs
