@@ -74,6 +74,10 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
                            TYPEDFIELDS, TYPEDSIGNATURES
 import Dates
 import UUIDs
+# `Test` (the module) is needed for the test-runner machinery in
+# `run_tests.jl` (`Test.push_testset`/`get_testset`/`record`/`finish`); the
+# selective `using Test: ...` above only pulls in the assertion macros.
+import Test
 
 # Resolve a heavy dependency at call time via `Base.require`, rather than
 # making it a hard dependency of the kit: a package only needs it in the
@@ -99,6 +103,7 @@ include("docstrings.jl")
 include("quality.jl")
 include("qa.jl")
 include("scaffold.jl")
+include("run_tests.jl")
 include("setup_checklist.jl")
 include("ad_harness.jl")
 include("benchmarks.jl")

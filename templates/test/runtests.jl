@@ -10,25 +10,22 @@
 #   quality_only  — run only the QA testset
 #   readme_only   — run only `:readme`-tagged items (README/tutorial tests)
 
-using TestItemRunner
+using EpiAwarePackageTools: run_package_tests
 
-# Restrict discovery to this package's test tree so a nested worktree's items
-# are not globbed in. Trailing separator guards against sibling dirs sharing a
-# string prefix.
-const TEST_ROOT = normpath(@__DIR__) * Base.Filesystem.path_separator
-in_this_package(ti) = startswith(normpath(ti.filename), TEST_ROOT)
+# `run_package_tests` roots discovery at this package's own `test/` tree rather
+# than the whole package root, so a nested worktree checked out under the repo
+# (the `worktrees/wt-*` convention) is never scanned and cannot inject test
+# items or silently shadow a same-named `@testsnippet` (kit #191). It is
+# otherwise a drop-in for TestItemRunner's `@run_package_tests`: pass the same
+# `filter` predicate over `ti.tags`.
 
 if "skip_quality" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      !(:quality in ti.tags) &&
-                                      !(:ad in ti.tags)
+    run_package_tests(@__DIR__;
+        filter = ti -> !(:quality in ti.tags) && !(:ad in ti.tags))
 elseif "quality_only" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      :quality in ti.tags
+    run_package_tests(@__DIR__; filter = ti -> :quality in ti.tags)
 elseif "readme_only" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      :readme in ti.tags
+    run_package_tests(@__DIR__; filter = ti -> :readme in ti.tags)
 else
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      !(:ad in ti.tags)
+    run_package_tests(@__DIR__; filter = ti -> !(:ad in ti.tags))
 end

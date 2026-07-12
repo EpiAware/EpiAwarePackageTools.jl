@@ -16,17 +16,17 @@
 #   skip_quality  — skip the QA testset (fast local iteration)
 #   quality_only  — run only the QA testset
 
-using TestItemRunner
+using EpiAwarePackageTools: run_package_tests
 
-const TEST_ROOT = normpath(@__DIR__) * Base.Filesystem.path_separator
-in_this_package(ti) = startswith(normpath(ti.filename), TEST_ROOT)
+# `run_package_tests` roots discovery at this package's own `test/` tree so the
+# kit's ~40 dev worktrees under `worktrees/` are never scanned and cannot inject
+# test items or shadow a same-named `@testsnippet` (kit #191). Drop-in for
+# TestItemRunner's `@run_package_tests`.
 
 if "skip_quality" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      !(:quality in ti.tags)
+    run_package_tests(@__DIR__; filter = ti -> !(:quality in ti.tags))
 elseif "quality_only" in ARGS
-    @run_package_tests filter = ti -> in_this_package(ti) &&
-                                      :quality in ti.tags
+    run_package_tests(@__DIR__; filter = ti -> :quality in ti.tags)
 else
-    @run_package_tests filter = in_this_package
+    run_package_tests(@__DIR__)
 end
