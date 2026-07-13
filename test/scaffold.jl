@@ -1264,6 +1264,46 @@
             end
         end
 
+        @testset "no bundled template ships the override marker (#224)" begin
+            using EpiAwarePackageTools: _MANAGED_OVERRIDE_MARKER
+            # A managed template carrying the marker literal would hand every
+            # adopter a permanently self-preserving copy of that file on the
+            # next sync: the kit would silently stop managing its own file,
+            # everywhere. `_detect_managed_override` ignores a marker the fresh
+            # render also carries, and this test fails loudly if a template ever
+            # adds one, so the case is fixed in the kit rather than absorbed.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "MarkerFree")
+                inputs = scaffold_inputs(dir)
+                for t in SCAFFOLD_TEMPLATES
+                    src = joinpath(_templates_dir(), t.src)
+                    @test !occursin(_MANAGED_OVERRIDE_MARKER, read(src, String))
+                end
+                # ... and nothing a real render produces carries it either.
+                scaffold(dir)
+                for (root, _, files) in walkdir(dir), f in files
+
+                    path = joinpath(root, f)
+                    @test !occursin(
+                        _MANAGED_OVERRIDE_MARKER, read(path, String))
+                end
+            end
+            # A marker in the template itself means nothing: the file stays
+            # managed rather than pinning itself in every adopter forever.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "MarkerInTemplate")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/test.yaml")
+                marked = "# $(_MANAGED_OVERRIDE_MARKER) in the template\n"
+                write(wf, marked)
+                @test !EpiAwarePackageTools._detect_managed_override(
+                    dir, ".github/workflows/test.yaml"; rendered = marked)
+                @test EpiAwarePackageTools._detect_managed_override(
+                    dir, ".github/workflows/test.yaml";
+                    rendered = "name: Test\n")
+            end
+        end
+
         @testset "no divergence warning for stale managed files (#224)" begin
             # A managed file that diverges from a fresh render is the *normal*
             # state right before a routine scaffold_update (the adopter is

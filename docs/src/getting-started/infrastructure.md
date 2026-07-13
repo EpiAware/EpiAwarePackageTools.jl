@@ -53,6 +53,10 @@ no longer reach it, which is the opposite of what the kit is for. Prefer the
 supported hooks (the package-owned config values, the marker-delimited regions,
 and the `ad`/`benchmarks`/`downgrade_compat` flags) where they cover the need.
 
+The marker opts a file out of resyncing, not out of retirement. When the kit
+retires a path, a sync deletes it whether or not it carries the marker, because
+a retired path is infrastructure the kit no longer supports at all.
+
 The AD-harness driver `test/ad/setup.jl` is the original case: a package whose
 `ADFixtures` registry predates the current `ADRegistry` contract must keep a
 hand-written driver while it migrates. That file also honours its older marker

@@ -992,6 +992,18 @@ function _make_writable(path::AbstractString)
     return nothing
 end
 
+# The template's text as the kit would render it: placeholders substituted when
+# the template takes substitution, verbatim otherwise. The
+# destination-preserving passes `_emit` runs (`_preserve_*`) are deliberately
+# not applied — they merge the destination's own pins and inputs back in, so
+# they say nothing about what the kit's own template contains, which is what
+# the callers here ask about (does the template ship the override marker; has
+# the committed file diverged from the standard).
+function _render(from::AbstractString, substitute::Bool, inputs::NamedTuple)
+    text = read(from, String)
+    return substitute ? _substitute(text, inputs, from) : text
+end
+
 # Copy one template to `to`, substituting placeholders when requested. Managed
 # workflows additionally keep any reusable-workflow ref (see
 # `_preserve_reusable_refs`) and any third-party action pin (see
@@ -1931,7 +1943,7 @@ end
 const _MANAGED_OVERRIDE_MARKER = "EPIAWARE_MANAGED_OVERRIDE"
 
 """
-    _detect_managed_override(target_dir, dest)
+    _detect_managed_override(target_dir, dest; rendered = nothing)
 
 Whether the managed file at `dest` has been marked package-owned, so
 `scaffold_update()` preserves it rather than resyncing it (#224).
@@ -1944,20 +1956,35 @@ committed file is then the marker, the same detect-from-the-destination
 idempotency as `_detect_downgrade_compat` (#121), so the opt-out is explicit,
 self-documenting, and survives every sync.
 
+`rendered` is the freshly rendered template for `dest`, when the caller has it.
+A managed template that itself contained the marker literal (a workflow comment
+documenting this feature, say) would otherwise hand every adopter a
+self-preserving copy of that file on its next sync: the kit would silently stop
+managing its own file, everywhere, forever. So when the fresh render carries the
+marker, the marker means nothing and the file stays managed. The test suite
+additionally asserts that no bundled template renders the marker, so a template
+that ever adds it fails the kit's own CI loudly rather than being tacitly
+absorbed here.
+
 `test/ad/setup.jl` additionally still honours its original marker
-`$(_AD_SETUP_OWNED_MARKER)` (#162), which adopters carry today; either marker
-opts that file out.
+`$(_AD_SETUP_OWNED_MARKER)` (#162) via `_detect_ad_setup_owned`, which adopters
+carry today; either marker opts that file out.
 
 `scaffold`/`scaffold_generate` (`force = true`) ignore the marker and lay the
-managed file down fresh, so a new package always starts managed.
+managed file down fresh, so a new package always starts managed. The marker
+opts a file out of *resyncing*, not out of *retirement*: a path the kit retires
+(`RETIRED_PATHS`) is still deleted, marker or not.
 """
-function _detect_managed_override(
-        target_dir::AbstractString, dest::AbstractString)
+function _detect_managed_override(target_dir::AbstractString,
+        dest::AbstractString;
+        rendered::Union{Nothing, AbstractString} = nothing)
     f = joinpath(target_dir, dest)
     isfile(f) || return false
-    text = read(f, String)
-    occursin(_MANAGED_OVERRIDE_MARKER, text) && return true
-    return dest == _AD_SETUP_DEST && occursin(_AD_SETUP_OWNED_MARKER, text)
+    if rendered !== nothing && occursin(_MANAGED_OVERRIDE_MARKER, rendered)
+        return false
+    end
+    occursin(_MANAGED_OVERRIDE_MARKER, read(f, String)) && return true
+    return dest == _AD_SETUP_DEST && _detect_ad_setup_owned(target_dir)
 end
 
 # The opt-in `downgrade-compat` caller job spliced into `test.yaml` directly
@@ -2100,8 +2127,15 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         # (`force = true`) still (re)lays it down so a fresh package starts
         # managed. The marker lives in the file, so the opt-out is explicit and
         # visible to anyone reading it.
-        if exists && !force && t.managed &&
-           _detect_managed_override(target_dir, t.dest)
+        #
+        # The fresh render is passed in so a managed template that itself
+        # carried the marker literal cannot hand every adopter a permanently
+        # self-preserving file (see `_detect_managed_override`); the kit's own
+        # tests also assert no template ships the marker.
+        rendered = exists && !force && t.managed ?
+                   _render(from, t.substitute, inputs) : nothing
+        if rendered !== nothing &&
+           _detect_managed_override(target_dir, t.dest; rendered = rendered)
             push!(preserved, to)
             continue
         end
@@ -2120,18 +2154,16 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         # This warning stays scoped to `test/ad/setup.jl` and is deliberately
         # not generalised to every managed file (#224). Divergence from a fresh
         # render is the normal state of a managed file on an adopter running an
-        # older kit version — that is precisely what `scaffold_update` exists to
-        # fix — so a generic divergence check cannot tell "the adopter
-        # customised this" from "the adopter is simply behind" and would warn on
-        # every file on every sync. The AD driver is the one file where a
-        # clobber is silently fatal (a `MethodError` in every AD CI job) rather
-        # than merely a resync, which is what earns it the noise. A package that
-        # genuinely owns any other managed file says so with the
+        # older kit version, precisely what `scaffold_update` exists to fix, so
+        # a generic divergence check cannot tell "the adopter customised this"
+        # from "the adopter is simply behind" and would warn on every file on
+        # every sync. The AD driver is the one file where a clobber is
+        # silently fatal (a `MethodError` in every AD CI job) rather than merely
+        # a resync, which is what earns it the noise. A package that genuinely
+        # owns any other managed file says so with the
         # `$(_MANAGED_OVERRIDE_MARKER)` marker above, which needs no heuristic.
-        if exists && !force && t.dest == _AD_SETUP_DEST
-            current = read(to, String)
-            fresh = _substitute(read(from, String), inputs, from)
-            if current != fresh
+        if rendered !== nothing && t.dest == _AD_SETUP_DEST
+            if read(to, String) != rendered
                 msg = string(_AD_SETUP_DEST,
                     " differs from the managed driver but carries no ",
                     "ownership marker — overwriting. If this divergence is ",
@@ -2442,7 +2474,10 @@ resyncing it, so a package can keep its own version of a managed file; remove
 the marker to hand management back to the kit. `scaffold`/`scaffold_generate`
 (`force = true`) ignore the marker and lay the managed file down fresh, so a new
 package always starts managed. Use the marker sparingly: an overridden file no
-longer tracks the standard, which is the whole point of the kit.
+longer tracks the standard, which is the whole point of the kit. The marker opts
+a file out of resyncing, not out of retirement: a marked file whose path the kit
+has retired (`RETIRED_PATHS`, below) is still deleted, since a retired path is
+infrastructure the kit no longer supports at all.
 
 The AD-harness driver `test/ad/setup.jl` is where this began (#162): the generic
 driver assumes the package's `ADFixtures` registry satisfies the current
