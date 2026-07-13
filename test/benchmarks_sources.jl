@@ -159,7 +159,13 @@ end
     # must register it into a scratch registry inside a temp depot such that a
     # fresh environment on that depot resolves it BY NAME (which is what
     # benchpkg's temp project does). Everything is local, so no network.
-    root = mktempdir()
+    #
+    # The temp dirs are kept (`cleanup = false`): they hold live git repos (the
+    # dummy package, the scratch registry, the clone) and Windows refuses to
+    # unlink a file another handle still holds, so at-exit cleanup would raise
+    # an EBUSY error out of a passing test. The runner's temp dir is thrown
+    # away with the runner anyway.
+    root = mktempdir(; cleanup = false)
     pkg = joinpath(root, "DummyDep216.jl")
     mkpath(joinpath(pkg, "src"))
     write(joinpath(pkg, "Project.toml"), """
@@ -175,7 +181,12 @@ end
     run(`$git commit --quiet -m init`)
     rev = strip(read(`git -C $pkg rev-parse HEAD`, String))
 
-    consumer = mktempdir()
+    # A Windows temp path is full of backslashes, and `\U`, `\A`, `\D` are not
+    # valid TOML string escapes, so a raw path in the fixture's `[sources]`
+    # fails to parse before any of the code under test runs. Forward slashes
+    # are accepted by TOML, git and Pkg on every platform.
+    url = replace(pkg, '\\' => '/')
+    consumer = mktempdir(; cleanup = false)
     write(joinpath(consumer, "Project.toml"), """
     name = "Consumer216"
     uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a10"
@@ -185,11 +196,13 @@ end
     DummyDep216 = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a09"
 
     [sources]
-    DummyDep216 = {url = "$pkg", rev = "$rev"}
+    DummyDep216 = {url = "$url", rev = "$rev"}
     """)
 
-    depot = mktempdir()
-    registered = bootstrap_sources_registry(consumer; depot = depot)
+    depot = mktempdir(; cleanup = false)
+    work_dir = mktempdir(; cleanup = false)
+    registered = bootstrap_sources_registry(
+        consumer; depot = depot, work_dir = work_dir)
     @test registered == ["DummyDep216"]
 
     regdir = joinpath(depot, "registries", "EpiAwareScratch")
@@ -202,9 +215,11 @@ end
     @test haskey(versions, "0.1.0")
 
     # A second call is idempotent: the registry already carries the version,
-    # so it is left as it is rather than erroring on re-registration.
-    @test bootstrap_sources_registry(consumer; depot = depot) ==
-          ["DummyDep216"]
+    # so it is left as it is rather than erroring on re-registration. It clones
+    # afresh, so it gets its own work dir (as the default does).
+    again = bootstrap_sources_registry(consumer; depot = depot,
+        work_dir = mktempdir(; cleanup = false))
+    @test again == ["DummyDep216"]
 
     # The payoff: a fresh environment on that depot resolves the dep BY NAME,
     # with no `[sources]` pin in sight — exactly what benchpkg's temp project
