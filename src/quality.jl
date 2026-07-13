@@ -307,24 +307,74 @@ const STANDARD_README_SECTIONS = [
     ("Citing", "Citation", "Cite", "License", "Supporting")
 ]
 
+"""
+    MANAGED_README_SECTIONS
+
+The standard sections the kit manages, in the order `scaffold_update` renders
+them between the `standard-sections` markers (see [`scaffold`](@ref)).
+
+The managed block is *appended* to a README that carries none of these sections
+yet, so a package-owned section (commonly `## License`) can end up above,
+between, or below the sections the kit writes. Only the order *within* the block
+is the kit's to guarantee, and that is what [`test_readme_sections`](@ref)
+checks when the markers are present (#236).
+"""
+const MANAGED_README_SECTIONS = [
+    ("Contributing",), ("How to cite",), ("Code of conduct",)]
+
 # Render one section group as a human-readable label for failure messages.
 _section_label(group::Tuple) = join(group, " / ")
+
+# True when `heading` matches `group` (a tuple of accepted heading texts),
+# case-insensitively as a substring.
+function _matches_section(heading::AbstractString, group::Tuple)
+    return any(v -> occursin(lowercase(v), lowercase(heading)), group)
+end
 
 # True when any heading line of `readme` matches `group` (a tuple of accepted
 # heading texts), case-insensitively as a substring. `headings` is the ordered
 # vector of heading texts already extracted from the README.
 function _has_section(headings::Vector{String}, group::Tuple)
-    return any(headings) do h
-        any(v -> occursin(lowercase(v), lowercase(h)), group)
-    end
+    return any(h -> _matches_section(h, group), headings)
 end
 
-# Index of the first heading matching `group`, or `nothing` when absent.
-function _section_index(headings::Vector{String}, group::Tuple)
-    for (i, h) in pairs(headings)
-        any(v -> occursin(lowercase(v), lowercase(h)), group) && return i
+# Index of the first heading at or after `from` matching `group`, or `nothing`
+# when absent.
+function _section_index(headings::Vector{String}, group::Tuple; from::Int = 1)
+    return findnext(h -> _matches_section(h, group), headings, from)
+end
+
+# True when the `required` groups appear as an ordered *subsequence* of
+# `headings`: each present group matches a distinct heading, and those headings
+# run in the required order. Extra package-owned headings may be interleaved
+# anywhere, including ones that also match a group — a `## License` above the
+# managed block no longer stands in for the managed `## How to cite` below it
+# (#236). A group absent from `headings` is skipped here; its absence is
+# reported by the presence check rather than failing twice. Greedy
+# earliest-match is optimal for subsequence containment: taking the earliest
+# admissible heading never rules out a match for a later group.
+function _sections_in_order(headings::Vector{String}, required)
+    from = 1
+    for group in required
+        _has_section(headings, group) || continue
+        i = _section_index(headings, group; from = from)
+        i === nothing && return false
+        from = i + 1
     end
-    return nothing
+    return true
+end
+
+# The headings inside the managed standard-sections block, or `nothing` when the
+# README carries no markers (a package-owned README the kit does not manage).
+# Headings outside the markers are package-owned and excluded (`scaffold.jl`
+# owns the marker constants; this file is included first, so they are referenced
+# at call time).
+function _managed_block_headings(body::AbstractString)
+    si = findfirst(STANDARD_SECTIONS_START, body)
+    ei = findlast(STANDARD_SECTIONS_END, body)
+    (si === nothing || ei === nothing || first(ei) <= last(si)) &&
+        return nothing
+    return _readme_headings(body[(last(si) + 1):(first(ei) - 1)])
 end
 
 # Extract the ordered `##`-level (or deeper) Markdown heading texts from a
@@ -359,8 +409,18 @@ Assert the README at `path` carries the standard EpiAware section structure.
 `path` is a README file or the directory containing a `README.md`. The check
 reads the `##`-level (and deeper) headings, skipping the H1 title and any
 heading inside a fenced code block, then asserts each entry of `required` is
-present and (when `order = true`) that the present sections appear in the given
-order.
+present and (when `order = true`) that the present sections appear as an ordered
+subsequence of the headings.
+
+Ordering is a subsequence, not an exact sequence: a package-owned section may
+sit anywhere, including one whose heading also matches a `required` group (a
+`## License` above the managed standard-sections block does not stand in for the
+managed `## How to cite` below it, #236). When the README carries the managed
+markers, the sections inside the block are additionally required to be all
+present and in the order the kit renders them
+([`MANAGED_README_SECTIONS`](@ref)) — the block's internal order is the only
+section order the kit itself guarantees, since it appends the block to a README
+whose own sections it does not move.
 
 `required` is a vector of heading groups; each group is a tuple of accepted
 heading texts matched case-insensitively as a substring, so a package may title
@@ -410,12 +470,20 @@ function test_readme_sections(path::AbstractString;
         end
         if order
             @testset "section order" begin
-                idxs = Int[]
-                for group in required
-                    i = _section_index(headings, group)
-                    i === nothing || push!(idxs, i)
+                @test _sections_in_order(headings, required)
+            end
+            # When the managed markers are present, the block's internal order
+            # is the kit's to guarantee, so check it directly: a package-owned
+            # section outside the markers cannot mask a managed section that is
+            # missing from, or out of order inside, the block (#236).
+            managed = _managed_block_headings(body)
+            if managed !== nothing
+                @testset "managed section order" begin
+                    for group in MANAGED_README_SECTIONS
+                        @test _has_section(managed, group)
+                    end
+                    @test _sections_in_order(managed, MANAGED_README_SECTIONS)
                 end
-                @test issorted(idxs)
             end
         end
     end
