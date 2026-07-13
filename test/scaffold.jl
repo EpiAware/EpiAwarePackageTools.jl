@@ -2015,6 +2015,141 @@
             @test _merge_with_blocks(seed, merged) == merged
         end
 
+        @testset "scaffold_update preserves the downstreams list (#234)" begin
+            entry = "'[{\"repo\":\"FakeOrg/Downstream.jl\"}]'"
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/downstream.yaml")
+                before = read(wf, String)
+                # The template seeds an empty list; the list itself is adopter
+                # configuration, not managed content (#234).
+                @test occursin("downstreams: '[]'", before)
+                owned = replace(before, "downstreams: '[]'" =>
+                    "downstreams: " * entry)
+                # Also drift the managed part of the file, to prove the resync
+                # still repairs everything except the owned input.
+                owned = replace(owned, "name: Downstream" => "name: Bogus")
+                write(wf, owned)
+                res = scaffold_update(dir)
+                after = read(wf, String)
+                # The package-owned list survives the resync ...
+                @test occursin("downstreams: " * entry, after)
+                @test !occursin("downstreams: '[]'", after)
+                # ... the rest of the workflow is still managed and re-applied
+                # (the file stays a resynced managed file, not a preserved one)
+                @test occursin("name: Downstream", after)
+                @test !occursin("name: Bogus", after)
+                @test wf in res.updated
+                @test wf ∉ res.preserved
+                # ... and a second scaffold_update is idempotent on the list.
+                scaffold_update(dir)
+                @test read(wf, String) == after
+                # scaffold(force = true) still lays the seed down fresh.
+                scaffold(dir; force = true)
+                @test occursin("downstreams: '[]'", read(wf, String))
+            end
+            # A package that never set a list keeps the seed default: no
+            # spurious preservation.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat2")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/downstream.yaml")
+                before = read(wf, String)
+                scaffold_update(dir)
+                @test read(wf, String) == before
+                @test occursin("downstreams: '[]'", read(wf, String))
+            end
+        end
+
+        @testset "_detect_license recovers a committed licence (#235)" begin
+            using EpiAwarePackageTools: _detect_license
+            # A never-scaffolded target has nothing to recover.
+            mktempdir() do dir
+                @test _detect_license(dir) === nothing
+                _fake_pkg(dir; name = "Wombat")
+                @test _detect_license(dir) === nothing
+            end
+            # The managed README badge is the source of truth ...
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                @test _detect_license(dir) == "Apache-2.0"
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                @test _detect_license(dir) == "MIT"
+            end
+            # ... with the Project.toml `license` field as a fallback for a
+            # repo whose README carries no badge block yet.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"Apache-2.0\"\n")
+                end
+                @test _detect_license(dir) == "Apache-2.0"
+            end
+        end
+
+        @testset "scaffold_update preserves a non-MIT licence badge (#235)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                # A bare scaffold_update (as the scheduled template-sync runs,
+                # with no `license` kwarg) must not flip the badge to MIT.
+                scaffold_update(dir; ad = false)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: Apache-2.0", txt)
+                @test !occursin("License: MIT", txt)
+                # An explicit licence still overrides the detected one.
+                scaffold_update(dir; ad = false, license = "MIT")
+                txt2 = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: MIT", txt2)
+            end
+            # An MIT package is unaffected (no spurious preservation).
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat2")
+                scaffold(dir; ad = false)
+                scaffold_update(dir; ad = false)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: MIT", txt)
+                @test !occursin("License: Apache-2.0", txt)
+            end
+        end
+
+        @testset "override marker keeps a bespoke docs/make.jl (#237)" begin
+            using EpiAwarePackageTools: _MANAGED_OVERRIDE_MARKER
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Bespoke")
+                scaffold(dir)
+                mk = joinpath(dir, "docs", "make.jl")
+                @test occursin("build_docs", read(mk, String))
+                # A bespoke DocumenterVitepress build, unmarked, is still
+                # force-migrated to the managed `build_docs` entry point.
+                bespoke = "using Documenter\nmakedocs(; sitename = \"Bespoke\")\n"
+                write(mk, bespoke)
+                res = scaffold_update(dir)
+                @test mk in res.updated
+                @test occursin("build_docs", read(mk, String))
+                # Marking the file package-owned (#224) keeps it: the answer to
+                # the docs-migration opt-out #237 asks for.
+                marked = "# $(_MANAGED_OVERRIDE_MARKER): bespoke docs build\n" *
+                         bespoke
+                write(mk, marked)
+                res2 = scaffold_update(dir)
+                @test mk in res2.preserved
+                @test mk ∉ res2.updated
+                @test read(mk, String) == marked
+                # No divergence warning for a deliberate, marked opt-out.
+                @test isempty(res2.warnings)
+                # scaffold(force = true) still lays the managed make.jl down
+                # fresh, so a new package always starts managed.
+                scaffold(dir; force = true)
+                @test occursin("build_docs", read(mk, String))
+            end
+        end
+
         @testset "scaffold_update removes retired managed paths (#185)" begin
             using EpiAwarePackageTools: RETIRED_PATHS
             # The kit retires managed files (the `benchmark/comment/` env went
