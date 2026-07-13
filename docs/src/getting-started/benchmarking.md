@@ -114,13 +114,24 @@ created.
 Either way the step needs no configuration, and it retires itself as
 dependencies reach the General registry.
 
-The scratch registry is rebuilt on every run.
+The scratch registry is removed and rebuilt on every run, including runs with
+nothing to register.
 A runner restores its depot from a cache, so the previous run's registry is
 often still sitting there, and an unregistered dependency does not bump its
 version when its revision moves;
 reusing the cached registry would therefore pin the benchmark to whatever
 revision was registered first.
-The registration is not transitive: a pinned dependency that itself pins an
+Removing it unconditionally is also what lets the step retire itself: once the
+dependency reaches a registry and the package drops its pin, a leftover scratch
+registry carrying that name would fail the whole depot with a registry hash
+mismatch.
+
+Two limits are worth knowing.
+A `[sources]` pin on a package that a registry already knows cannot be
+honoured, because the benchmark environment resolves that dependency from the
+registry rather than from the pin;
+the step warns rather than leaving you to infer it from the numbers.
+Registration is also not transitive: a pinned dependency that itself pins an
 unregistered dependency must have that inner pin repeated in the benchmarked
 package.
 

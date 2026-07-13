@@ -153,7 +153,12 @@ end
         JSON3 = {url = "https://github.com/quinnj/JSON3.jl", rev = "main"}
         """)
         depot = mktempdir()
-        @test bootstrap_sources_registry(dir; depot = depot) == String[]
+        # The git pin on a registered name cannot be honoured (the benchmark
+        # environment resolves it from the registry), so it warns rather than
+        # letting the pin look effective. Nothing is cloned.
+        boot() = bootstrap_sources_registry(dir; depot = depot)
+        registered = @test_logs (:warn,) match_mode=:any boot()
+        @test registered == String[]
         @test !isdir(joinpath(depot, "registries"))
     end
 end
@@ -249,10 +254,13 @@ end
 
     # A moved pin must win over a scratch registry left behind by an earlier
     # run. CI restores the depot from a cache, so the registry from the last
-    # run is already there when the step runs; an unregistered dependency does
-    # not bump its version when its revision moves, so treating "the name is in
-    # the scratch registry" as "registered" would skip the pin and silently
-    # benchmark the stale revision. Same depot, new commit, same version.
+    # run is already there — and reachable — when the step runs; an
+    # unregistered dependency does not bump its version when its revision
+    # moves, so taking "the name is in the scratch registry" for "registered"
+    # would skip the pin and silently benchmark the stale revision. Same depot,
+    # new commit, same version. The temp depot goes on `DEPOT_PATH` for this,
+    # so the scratch registry really is among the reachable registries the
+    # bootstrap consults — otherwise the case under test could not arise.
     write(joinpath(pkg, "src", "DummyDep216.jl"),
         "module DummyDep216\nanswer() = 43\nend\n")
     run(`$git commit --quiet -a -m moved`)
@@ -262,11 +270,30 @@ end
         replace(read(joinpath(consumer, "Project.toml"), String),
             rev => rev2))
 
-    moved = bootstrap_sources_registry(consumer; depot = depot,
-        work_dir = mktempdir(; cleanup = false))
-    @test moved == ["DummyDep216"]
-    versions = Pkg.TOML.parsefile(joinpath(entry, "Versions.toml"))
-    tree2 = strip(read(`git -C $pkg rev-parse $(rev2 * "^{tree}")`, String))
-    @test tree2 != tree
-    @test versions["0.1.0"]["git-tree-sha1"] == tree2
+    push!(DEPOT_PATH, depot)
+    try
+        @test any(r -> r.name == "EpiAwareScratch",
+            Pkg.Registry.reachable_registries())
+        moved = bootstrap_sources_registry(consumer; depot = depot,
+            work_dir = mktempdir(; cleanup = false))
+        @test moved == ["DummyDep216"]
+        versions = Pkg.TOML.parsefile(joinpath(entry, "Versions.toml"))
+        tree2 = strip(read(`git -C $pkg rev-parse $(rev2 * "^{tree}")`, String))
+        @test tree2 != tree
+        @test versions["0.1.0"]["git-tree-sha1"] == tree2
+
+        # Once the dependency reaches a real registry the package drops its
+        # pin, and the scratch registry must go with it: a cached registry that
+        # still carries the name fails the whole depot with a hash mismatch.
+        # So a run with nothing to register still cleans up.
+        write(joinpath(consumer, "Project.toml"), """
+        name = "Consumer216"
+        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a10"
+        version = "0.1.0"
+        """)
+        @test bootstrap_sources_registry(consumer; depot = depot) == String[]
+        @test !isdir(regdir)
+    finally
+        filter!(!=(depot), DEPOT_PATH)
+    end
 end

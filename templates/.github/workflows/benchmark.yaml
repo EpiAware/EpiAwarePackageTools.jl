@@ -76,9 +76,16 @@ jobs:
       # is a no-op (nothing cloned, no registry created), and the shell guard
       # exits before installing anything, so a package with no `[sources]` at
       # all pays nothing and takes on no new failure surface.
+      #
+      # The scratch registry from an earlier run comes back with the cached
+      # depot and is stale by construction, so it is dropped first, before the
+      # guard: a package that has since dropped its pin (because the
+      # dependency reached a registry) must not be left with a registry that
+      # still carries the name, which fails the depot with a hash mismatch.
       - name: Bootstrap registry for unregistered [sources] deps
         run: |
-          if ! grep -q '^\[sources\]' Project.toml; then
+          rm -rf "${JULIA_DEPOT_PATH:-$HOME/.julia}/registries/EpiAwareScratch"
+          if ! grep -qE '^\[sources(\.|\])' Project.toml; then
             echo "no [sources] section: nothing to register"
             exit 0
           fi
