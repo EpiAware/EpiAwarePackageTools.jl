@@ -1195,6 +1195,97 @@ end
     end
 end
 
+@testitem "benchmark history: timing and allocation rows stay separate (#231)" begin
+    using Test
+    using Statistics
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # benchpkgtable's `--mode time,memory` output: a timing table stacked on
+    # an allocation table. Before #231 both tables' rows were concatenated
+    # into ONE flat suite, so each leaf appeared twice (once timing, once
+    # allocation) with no indication which was which, and the headline
+    # summary median folded microsecond timings together with allocation
+    # COUNTS (`24 allocs: ...` parses to its leading `24`).
+    time_only = """
+    |                             | aaaa1111...  | bbbb2222...  |
+    |:----------------------------|:------------:|:------------:|
+    | AD gradients/Enzyme forward | 10.3 ± 0.1 μs | 10.5 ± 0.2 μs |
+    | AD gradients/ForwardDiff    | 20.0 μs      | 30.0 μs      |
+    | Composition/compose         | 2.0 ms       | 1.9 ms       |
+    | time_to_load                | 0.865 s      | 0.870 s      |
+    """
+    memory = """
+    |                             | aaaa1111...  | bbbb2222...  |
+    |:----------------------------|:------------:|:------------:|
+    | AD gradients/Enzyme forward | 24 allocs: 1.3 kB | 24 allocs: 1.3 kB |
+    | AD gradients/ForwardDiff    | 40 allocs: 2.6 kB | 40 allocs: 2.6 kB |
+    | Composition/compose         | 10 allocs: 500 B | 10 allocs: 500 B |
+    | time_to_load                | 3 allocs: 100 B | 3 allocs: 100 B |
+    """
+    stacked = time_only * "\n" * memory
+
+    @testset "_looks_like_memory / _block_metric classify by cell content" begin
+        @test DB._looks_like_memory("24 allocs: 1.3 kB")
+        @test DB._looks_like_memory("500 B")
+        @test DB._looks_like_memory("1.30 KiB")
+        @test !DB._looks_like_memory("10.3 ± 0.1 μs")
+        @test !DB._looks_like_memory("0.865 s")
+        @test DB._block_metric(["a" => ["24 allocs: 1.3 kB"]]) == "Memory"
+        @test DB._block_metric(["a" => ["2.0 ms"]]) == "Time"
+        # An all-blank block defaults to the headline metric.
+        @test DB._block_metric(["a" => ["", ""]]) == "Time"
+    end
+
+    @testset "_history_metric_blocks splits Time and Memory" begin
+        cols, blocks = DB._history_metric_blocks(stacked)
+        @test cols == ["aaaa1111...", "bbbb2222..."]
+        @test first.(blocks) == ["Time", "Memory"]
+        # Each block keeps its own 4 data rows, with no cross-contamination.
+        @test length(blocks[1].second) == 4
+        @test length(blocks[2].second) == 4
+        @test all(!occursin("alloc", first(v)) for (_, v) in blocks[1].second)
+        @test all(occursin("alloc", first(v)) for (_, v) in blocks[2].second)
+        # A single (timing-only) table collapses to one "Time" block.
+        @test first.(DB._history_metric_blocks(time_only)[2]) == ["Time"]
+    end
+
+    @testset "no duplicate leaf labels within a rendered suite" begin
+        io = IOBuffer()
+        DB._render_ratio_table(io, stacked, mktempdir(); last_n = 5)
+        out = String(take!(io))
+        # One suite heading, both metric sub-tables nested beneath it.
+        @test occursin("### AD gradients", out)
+        @test occursin("#### Time", out)
+        @test occursin("#### Memory", out)
+        # `Enzyme forward` appears once per metric sub-table (Time + Memory),
+        # never as an ambiguous pair of rows inside a single table.
+        @test count(l -> startswith(strip(l), "| Enzyme forward |"),
+            split(out, '\n')) == 2
+        # No emitted heading is empty (the #204 empty-anchor guard still holds).
+        @test !any(!isnothing(match(r"^#+\s*$", ln)) for ln in split(out, '\n'))
+    end
+
+    @testset "summary ratio is computed from timings only" begin
+        # The headline (summary/plot) series must be identical with or without
+        # the allocation table: the allocation rows never touch it.
+        _, mg_stacked = DB._reshape_history_metrics(stacked, mktempdir())
+        _, mg_time = DB._reshape_history_metrics(time_only, mktempdir())
+        s_stacked = DB._suite_ratio_series_by_group(
+            DB._headline_groups(mg_stacked), 2)
+        s_time = DB._suite_ratio_series_by_group(
+            DB._headline_groups(mg_time), 2)
+        @test s_stacked == s_time
+        # Concretely: the AD gradients column-1 median is the TIMING median
+        # (median(10.3, 20.0) = 15.15), not the old mixed-unit
+        # median(10.3, 20.0, 24, 40).
+        ad = DB._headline_groups(mg_stacked)[1]
+        @test ad.first == "AD gradients"
+        @test DB._suite_column_medians(ad.second, 2)[1] ==
+              Statistics.median([10.3, 20.0])
+    end
+end
+
 @testitem "benchmarks branch fetched via explicit refspec (#192)" begin
     using Test
     using EpiAwarePackageTools

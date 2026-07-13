@@ -354,6 +354,85 @@ function _history_table_parts(md::AbstractString)
     return (col_labels, entries)
 end
 
+# ---- benchmark history: metric-aware parsing (#231) ------------------------
+
+# Whether a table cell holds an allocation/memory measurement (an `allocs`
+# count or a byte quantity) rather than a timing. benchpkgtable's
+# `--mode time,memory` stacks a timing table then an allocation table; their
+# cells are the only durable signal of which is which once the blocks are
+# parsed. The byte-unit alternatives cover `Base.format_bytes` output
+# (`bytes`, `KiB`, `MiB`, ...) and the `kB`/`MB` short forms; timing cells
+# (`10.3 ± 0.1 μs`, `2.0 ms`, `0.865 s`) match neither pattern.
+function _looks_like_memory(cell::AbstractString)
+    occursin(r"alloc"i, cell) ||
+        occursin(r"\b[0-9]+(?:\.[0-9]+)?\s*(?:bytes?|[kKMGT]i?B|B)\b", cell)
+end
+
+# The metric label (`"Time"` or `"Memory"`) for one parsed table block, by
+# majority vote over its non-blank data cells. Each stacked block is
+# homogeneous, but a stray unparseable cell should not flip the label, and an
+# all-blank block defaults to the headline metric (`"Time"`).
+function _block_metric(entries)
+    mem = 0
+    tot = 0
+    for (_, vals) in entries, v in vals
+
+        isempty(strip(v)) && continue
+        tot += 1
+        _looks_like_memory(v) && (mem += 1)
+    end
+    return (tot > 0 && 2mem > tot) ? "Memory" : "Time"
+end
+
+# Split a parsed `table.md` into its shared revision-column labels and its
+# stacked table blocks, each tagged with its metric. benchpkgtable's
+# `--mode time,memory` emits two stacked pipe tables (timings, then
+# allocations), each with its own header (a row followed by an alignment row,
+# #204); a new block begins at each header row. Header, alignment, empty and
+# empty-named rows are dropped, exactly as [`_history_table_parts`](@ref)
+# drops them, so no phantom empty-named suite can form. Unlike that flat
+# parse, the timing and allocation rows are kept as SEPARATE blocks so their
+# duplicate leaf labels never collide in one suite and the headline summary
+# ratio is never a median of times and allocation counts (#231). Blocks that
+# detect as the same metric are merged, collapsing the timings-only
+# single-table case (and any future repeated metric) into one block. Returns
+# `(col_labels, blocks)` with `blocks::Vector{metric => entries}` in
+# first-seen metric order.
+function _history_metric_blocks(md::AbstractString)
+    all_rows = _parse_pipe_table(md)
+    empty_blocks = Pair{String, Vector{Pair{String, Vector{String}}}}[]
+    isempty(all_rows) && return (String[], empty_blocks)
+    header = all_rows[1]
+    col_labels = length(header) > 1 ? header[2:end] : String[]
+    raw_blocks = Vector{Pair{String, Vector{String}}}[]
+    current = Pair{String, Vector{String}}[]
+    for (i, r) in enumerate(all_rows)
+        if _is_header_row(all_rows, i)
+            if !isempty(current)
+                push!(raw_blocks, current)
+                current = Pair{String, Vector{String}}[]
+            end
+            continue
+        end
+        (isempty(r) || _is_alignment_row(r) || isempty(r[1])) && continue
+        push!(current, r[1] => (length(r) > 1 ? r[2:end] : String[]))
+    end
+    isempty(current) || push!(raw_blocks, current)
+    blocks = empty_blocks
+    index = Dict{String, Int}()
+    for b in raw_blocks
+        isempty(b) && continue
+        m = _block_metric(b)
+        if haskey(index, m)
+            append!(blocks[index[m]].second, b)
+        else
+            push!(blocks, m => b)
+            index[m] = length(blocks)
+        end
+    end
+    return (col_labels, blocks)
+end
+
 # Keep only the last `n` revision columns (the most recent points on the
 # timeline). Rows whose width does not match the header are left untouched so a
 # malformed row never throws.
@@ -418,20 +497,67 @@ end
 # Parse, cap, relabel and group `table.md` into per-suite rows: the shared
 # reshaping step behind both the detail sub-tables
 # ([`_render_ratio_table`](@ref)) and the overall summary
-# ([`_benchmark_summary_rows`](@ref)). Returns `(col_labels, groups)`; `groups`
-# is empty when `suites` filters everything out (an unparseable `md` is the
-# caller's concern — check `_history_table_parts(md)` first).
-function _reshape_history_table(md::AbstractString,
+# ([`_benchmark_summary_rows`](@ref)). Returns `(col_labels, metric_groups)`
+# with `metric_groups::Vector{metric => groups}`, each `groups` the same
+# per-suite shape [`_group_rows_by_suite`](@ref) produces; the timing and
+# allocation tables are kept as SEPARATE metric entries (#231). Capping and
+# column relabelling are shared across metrics (the stacked tables share their
+# revision columns). `metric_groups` (or a metric's `groups`) is empty when
+# `suites` filters everything out (an unparseable `md` is the caller's
+# concern — check `_history_table_parts(md)` first).
+function _reshape_history_metrics(md::AbstractString,
         project_root::AbstractString; last_n::Integer = 5, suites = String[])
-    col_labels, entries = _history_table_parts(md)
-    col_labels, entries = _cap_columns(col_labels, entries, last_n)
-    col_labels = _relabel_history_columns(col_labels, project_root)
-    groups = _group_rows_by_suite(entries)
-    if !isempty(suites)
-        wanted = Set(String.(suites))
-        groups = filter(g -> g.first in wanted, groups)
+    col_labels, blocks = _history_metric_blocks(md)
+    wanted = isempty(suites) ? nothing : Set(String.(suites))
+    capped_labels = col_labels
+    metric_groups = Pair{String,
+        Vector{Pair{String, Vector{Pair{String, Vector{String}}}}}}[]
+    for (metric, entries) in blocks
+        capped_labels, capped = _cap_columns(col_labels, entries, last_n)
+        groups = _group_rows_by_suite(capped)
+        wanted === nothing || (groups = filter(g -> g.first in wanted, groups))
+        push!(metric_groups, metric => groups)
     end
-    return (col_labels, groups)
+    capped_labels = _relabel_history_columns(capped_labels, project_root)
+    return (capped_labels, metric_groups)
+end
+
+# The headline (summary/plot) metric's per-suite groups: the `"Time"` block if
+# present — runtime is the headline regression signal — else the first block,
+# so a memory-only or single-metric table still summarises. Empty when there
+# is no data. Keeping the summary to a single metric is the point of #231: a
+# median must never mix microsecond timings with allocation counts.
+function _headline_groups(metric_groups)
+    isempty(metric_groups) &&
+        return Pair{String, Vector{Pair{String, Vector{String}}}}[]
+    idx = findfirst(mg -> mg.first == "Time", metric_groups)
+    return metric_groups[something(idx, firstindex(metric_groups))].second
+end
+
+# Reorganise metric-first groups into suite-first order for the detail
+# section: `Vector{suite => Vector{metric => subrows}}`, suites in first-seen
+# order (across metrics), metrics in their table order. This is what keeps a
+# leaf's timing and allocation rows under ONE suite heading but in SEPARATE
+# per-metric sub-tables, so a benchmark never appears twice with no indication
+# of which cell is which (#231).
+function _suite_metric_detail(metric_groups)
+    suites = String[]
+    seen = Set{String}()
+    for (_, groups) in metric_groups, (suite, _) in groups
+
+        suite in seen || (push!(suites, suite); push!(seen, suite))
+    end
+    out = Pair{String,
+        Vector{Pair{String, Vector{Pair{String, Vector{String}}}}}}[]
+    for suite in suites
+        per_metric = Pair{String, Vector{Pair{String, Vector{String}}}}[]
+        for (metric, groups) in metric_groups
+            idx = findfirst(g -> g.first == suite, groups)
+            idx === nothing || push!(per_metric, metric => groups[idx].second)
+        end
+        push!(out, suite => per_metric)
+    end
+    return out
 end
 
 # Write one grouped markdown sub-table (`| Benchmark | <cols...> |`).
@@ -445,31 +571,38 @@ function _write_history_subtable(io, col_labels, subrows)
 end
 
 # Write the reshaped per-suite detail: the "_Most recent N revisions_"
-# caption, one grouped `###` sub-table per suite, or a "no suites matched"
-# note when `history_suites` filtered everything out. Takes the already
-# reshaped `(col_labels, groups)` ([`_reshape_history_table`](@ref)) so a
-# caller that already has them (the overall-summary orchestrator,
-# [`_render_benchmark_overview`](@ref)) does not re-parse `table.md` and
-# re-shell out to `git show` (once per column, for the commit-date
-# relabelling) a second time.
-function _write_reshaped_detail(io, col_labels, groups)
+# caption, one grouped `###` section per suite, or a "no suites matched"
+# note when `history_suites` filtered everything out. Under each suite the
+# timing and allocation tables are rendered as SEPARATE `#### Time` /
+# `#### Memory` sub-tables so a benchmark never appears twice with no
+# indication of which cell is which (#231); a single-metric suite skips the
+# `####` heading and renders one table directly. Takes the already reshaped
+# suite-first detail ([`_suite_metric_detail`](@ref)) so the overall-summary
+# orchestrator ([`_render_benchmark_overview`](@ref)) does not re-parse
+# `table.md` and re-shell out to `git show` (once per column, for the
+# commit-date relabelling) a second time.
+function _write_reshaped_detail(io, col_labels, suite_detail)
     if !isempty(col_labels)
         n = length(col_labels)
         println(io, "_Most recent ", n, n == 1 ? " revision" : " revisions",
             ", columns labelled by commit date._")
         println(io)
     end
-    if isempty(groups)
+    if isempty(suite_detail)
         println(io,
             "_No benchmark suites matched the configured `history_suites`._")
         println(io)
         return
     end
-    for (suite, subrows) in groups
+    for (suite, per_metric) in suite_detail
         println(io, "### ", suite)
         println(io)
-        _write_history_subtable(io, col_labels, subrows)
-        println(io)
+        single = length(per_metric) == 1
+        for (metric, subrows) in per_metric
+            single || (println(io, "#### ", metric); println(io))
+            _write_history_subtable(io, col_labels, subrows)
+            println(io)
+        end
     end
     return
 end
@@ -502,9 +635,9 @@ function _render_ratio_table(io, md::AbstractString,
         println(io)
         return
     end
-    col_labels, groups = _reshape_history_table(md, project_root;
+    col_labels, metric_groups = _reshape_history_metrics(md, project_root;
         last_n = last_n, suites = suites)
-    _write_reshaped_detail(io, col_labels, groups)
+    _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups))
     return
 end
 
@@ -618,9 +751,9 @@ end
 _fmt_ratio(::Missing) = "n/a"
 _fmt_ratio(r::Real) = isfinite(r) ? string(round(r; digits = 2)) : "n/a"
 
-# Per-suite ratio series from the same `(col_labels, groups)` shape
-# [`_reshape_history_table`](@ref) produces — the shared input to both the
-# summary table and the overall trend plot.
+# Per-suite ratio series from a single metric's `groups` (the headline
+# [`_headline_groups`](@ref) block) — the shared input to both the summary
+# table and the overall trend plot.
 function _suite_ratio_series_by_group(groups, ncol::Integer)
     return [(suite, _suite_ratio_series(_suite_column_medians(subrows, ncol)))
             for (suite, subrows) in groups]
@@ -796,9 +929,13 @@ function _render_benchmark_overview(io, md::AbstractString,
         !isempty(pngs) && _embed_history_plots(io, repo, pngs)
         return
     end
-    col_labels, groups = _reshape_history_table(md, project_root;
+    col_labels, metric_groups = _reshape_history_metrics(md, project_root;
         last_n = last_n, suites = suites)
-    series_by_suite = _suite_ratio_series_by_group(groups, length(col_labels))
+    # Summary and trend plot are computed from a single metric (the headline
+    # "Time" block), never a median that mixes timings with allocation counts
+    # (#231).
+    headline = _headline_groups(metric_groups)
+    series_by_suite = _suite_ratio_series_by_group(headline, length(col_labels))
     _write_benchmark_summary(io,
         _benchmark_summary_rows(series_by_suite;
             regression_threshold = regression_threshold))
@@ -807,13 +944,13 @@ function _render_benchmark_overview(io, md::AbstractString,
         println(io, "![Overall benchmark trend](", basename(plot_dest), ")")
         println(io)
     end
-    _write_benchmark_notes(io, notes, _unparsed_benchmarks(groups))
+    _write_benchmark_notes(io, notes, _unparsed_benchmarks(headline))
     println(io, "<details>")
     println(io, "<summary>Per-suite detail</summary>")
     println(io)
     println(io, "### Ratio summary")
     println(io)
-    _write_reshaped_detail(io, col_labels, groups)
+    _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups))
     !isempty(pngs) && _embed_history_plots(io, repo, pngs)
     println(io, "</details>")
     println(io)
