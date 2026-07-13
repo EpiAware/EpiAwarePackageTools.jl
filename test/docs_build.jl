@@ -1229,9 +1229,9 @@ end
 
 @testitem "empty-anchor inventory guard (#232)" begin
     using Test
-    using Logging
     using EpiAwarePackageTools
     const DB = EpiAwarePackageTools.DocsBuild
+    const Warn = Base.CoreLogging.Warn
 
     # DocumenterVitepress' writer pushes an inventory entry for every anchored
     # header, and `DocInventories.InventoryItem` rejects an empty `name`, so a
@@ -1257,7 +1257,7 @@ end
         out, items = result
         @test isempty(items)
         @test occursin("Culprit heading", out)
-        warns = filter(l -> l.level == Logging.Warn, logs)
+        warns = filter(l -> l.level == Warn, logs)
         @test length(warns) == 1
         @test occursin("empty anchor id", warns[1].message)
         kw = Dict(warns[1].kwargs)
@@ -1274,7 +1274,7 @@ end
         @test length(items) == 1
         @test items[1].name == "real-anchor"
         @test occursin("{#real-anchor}", out)
-        @test isempty(filter(l -> l.level == Logging.Warn, logs))
+        @test isempty(filter(l -> l.level == Warn, logs))
 
         # Self-retiring: with the writer no longer aborting (here because the
         # guard is in place; upstream, once LuxDL/DocumenterVitepress.jl#375
