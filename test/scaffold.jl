@@ -1213,6 +1213,11 @@
             using EpiAwarePackageTools: _detect_managed_override,
                                         _MANAGED_OVERRIDE_MARKER,
                                         _AD_SETUP_OWNED_MARKER
+            # The third argument is the fresh render of the template, which the
+            # guard reads only to check the kit is not itself shipping the
+            # marker (see the template-marker testset below); a marker-free
+            # stand-in is enough here.
+            unmarked_render = "name: Test\n"
             mktempdir() do dir
                 _fake_pkg(dir; name = "Override")
                 scaffold(dir)
@@ -1221,7 +1226,7 @@
                 # resync overwrites it (the load-bearing "managed files always
                 # resync" rule).
                 @test !_detect_managed_override(
-                    dir, ".github/workflows/test.yaml")
+                    dir, ".github/workflows/test.yaml", unmarked_render)
                 write(wf, "# hand-edited, no marker\n")
                 res = scaffold_update(dir)
                 @test wf in res.updated
@@ -1231,15 +1236,22 @@
                         "name: Test\non: [push]\n"
                 write(wf, owned)
                 @test _detect_managed_override(
-                    dir, ".github/workflows/test.yaml")
+                    dir, ".github/workflows/test.yaml", unmarked_render)
                 res2 = scaffold_update(dir)
                 @test wf in res2.preserved
                 @test wf ∉ res2.updated
                 @test read(wf, String) == owned
                 # A marked, diverged file is a deliberate opt-out: no warning.
                 @test isempty(res2.warnings)
+                # The match is case-sensitive, as documented: a mis-cased
+                # marker is not an opt-out and the file resyncs as usual.
+                write(wf, "# epiaware_managed_override\nname: Test\n")
+                @test !_detect_managed_override(
+                    dir, ".github/workflows/test.yaml", unmarked_render)
+                @test wf in scaffold_update(dir).updated
                 # scaffold(force = true) still re-lays the managed file, so a
                 # new package always starts managed.
+                write(wf, owned)
                 scaffold(dir; force = true)
                 @test occursin("jobs:", read(wf, String))
             end
@@ -1251,7 +1263,8 @@
                 setup = joinpath(dir, "test/ad/setup.jl")
                 legacy = "# $(_AD_SETUP_OWNED_MARKER): legacy driver\n"
                 write(setup, legacy)
-                @test _detect_managed_override(dir, "test/ad/setup.jl")
+                @test _detect_managed_override(
+                    dir, "test/ad/setup.jl", unmarked_render)
                 res = scaffold_update(dir)
                 @test setup in res.preserved
                 @test read(setup, String) == legacy
@@ -1297,10 +1310,35 @@
                 marked = "# $(_MANAGED_OVERRIDE_MARKER) in the template\n"
                 write(wf, marked)
                 @test !EpiAwarePackageTools._detect_managed_override(
-                    dir, ".github/workflows/test.yaml"; rendered = marked)
+                    dir, ".github/workflows/test.yaml", marked)
                 @test EpiAwarePackageTools._detect_managed_override(
-                    dir, ".github/workflows/test.yaml";
-                    rendered = "name: Test\n")
+                    dir, ".github/workflows/test.yaml", "name: Test\n")
+            end
+        end
+
+        @testset "override marker does not cover managed regions (#224)" begin
+            using EpiAwarePackageTools: _MANAGED_OVERRIDE_MARKER
+            # The marker governs whole template-emitted files. The
+            # marker-delimited regions the kit injects into otherwise
+            # package-owned files (the .gitignore managed block, the README
+            # badge and standard-sections blocks, Project.toml's [workspace])
+            # have their own appliers and are refreshed regardless — as the
+            # docs now say. Customisation there goes outside the markers.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Regions")
+                scaffold(dir; repo = "FakeOrg/Regions.jl")
+                gi = joinpath(dir, ".gitignore")
+                readme = joinpath(dir, "README.md")
+                write(gi, "# $(_MANAGED_OVERRIDE_MARKER)\nmy-own-rule\n")
+                write(readme, "# Regions\n\n# $(_MANAGED_OVERRIDE_MARKER)\n")
+                scaffold_update(dir; repo = "FakeOrg/Regions.jl")
+                # The managed blocks come back despite the marker.
+                @test occursin(
+                    EpiAwarePackageTools.GITIGNORE_START, read(gi, String))
+                body = read(readme, String)
+                @test occursin(EpiAwarePackageTools.BADGES_START, body)
+                @test occursin(
+                    EpiAwarePackageTools.STANDARD_SECTIONS_START, body)
             end
         end
 
