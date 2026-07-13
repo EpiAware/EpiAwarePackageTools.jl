@@ -1123,6 +1123,78 @@ end
     end
 end
 
+@testitem "benchmark history: stacked timing+allocation tables (#204)" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # benchpkgtable's real `--mode time,memory` output: TWO stacked pipe
+    # tables (timings, then allocations), separated by a blank line, each
+    # with its own header row whose leading (benchmark-name) cell is empty.
+    # Parsed as one table, the second header row becomes a data row named
+    # "", which groups into a phantom empty-named suite and renders as a
+    # bare `### ` heading — an anchored header with an empty anchor id,
+    # which aborts the DocumenterVitepress deploy build (#204).
+    tbl = """
+    |                             | aaaa1111...  | bbbb2222...  |
+    |:----------------------------|:------------:|:------------:|
+    | AD gradients/Enzyme forward | 10.3 ± 0.1 μs | 10.5 ± 0.2 μs |
+    | Composition/compose         | 2.0 ms       | 1.9 ms       |
+    | time_to_load                | 0.865 s      | 0.870 s      |
+
+    |                             | aaaa1111...  | bbbb2222...  |
+    |:----------------------------|:------------:|:------------:|
+    | AD gradients/Enzyme forward | 24 allocs: 1.3 kB | 24 allocs: 1.3 kB |
+    | Composition/compose         | 10 allocs: 500 B | 10 allocs: 500 B |
+    | time_to_load                | 3 allocs: 100 B | 3 allocs: 100 B |
+    """
+
+    @testset "the second table's header is not parsed as a data row" begin
+        cols, entries = DB._history_table_parts(tbl)
+        @test cols == ["aaaa1111...", "bbbb2222..."]
+        # No entry may carry an empty name: that is the leaked header row.
+        @test !any(isempty(first(e)) for e in entries)
+        # Both tables' data rows survive (timings AND allocations).
+        @test length(entries) == 6
+        @test any(e -> occursin("allocs", first(last(e))), entries)
+    end
+
+    @testset "no empty-named suite reaches the rendered page" begin
+        _, entries = DB._history_table_parts(tbl)
+        groups = DB._group_rows_by_suite(entries)
+        @test !any(isempty(first(g)) for g in groups)
+        @test first.(groups) == ["AD gradients", "Composition", "time_to_load"]
+    end
+
+    @testset "_render_ratio_table emits no empty heading" begin
+        io = IOBuffer()
+        DB._render_ratio_table(io, tbl, mktempdir(); last_n = 5,
+            suites = String[])
+        out = String(take!(io))
+        # A heading with no title is the empty-anchor node that kills the
+        # deploy build; there must be none.
+        @test !any(!isnothing(match(r"^#+\s*$", ln)) for ln in split(out, '\n'))
+        @test occursin("### AD gradients", out)
+        @test occursin("### Composition", out)
+    end
+
+    @testset "_group_rows_by_suite drops an empty-named row defensively" begin
+        # Belt and braces: whatever the input, no empty-named suite is formed.
+        groups = DB._group_rows_by_suite(["" => ["x"], "A/b" => ["1"]])
+        @test first.(groups) == ["A"]
+    end
+
+    @testset "the overall summary carries no empty-named row" begin
+        io = IOBuffer()
+        DB._render_benchmark_overview(io, tbl, mktempdir(), String[],
+            "EpiAware/Example.jl"; last_n = 5)
+        out = String(take!(io))
+        @test !any(!isnothing(match(r"^#+\s*$", ln)) for ln in split(out, '\n'))
+        # The phantom suite previously showed up as an empty `|  | n/a |` row.
+        @test !occursin(r"(?m)^\|\s*\|\s*n/a", out)
+    end
+end
+
 @testitem "benchmarks branch fetched via explicit refspec (#192)" begin
     using Test
     using EpiAwarePackageTools

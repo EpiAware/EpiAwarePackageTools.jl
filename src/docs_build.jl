@@ -318,17 +318,37 @@ end
 # i.e. the header separator row.
 _is_alignment_row(cells) = !isempty(cells) && all(c -> occursin(r"^:?-+:?$", c), cells)
 
+# Whether row `i` of `rows` is a table header: a row immediately followed by a
+# markdown alignment row. benchpkgtable's `--mode time,memory` output is two
+# stacked tables (timings, then allocations), each with its own header, so a
+# header row can appear anywhere in the parsed list, not only first (#204).
+_is_header_row(rows, i) = i < length(rows) && _is_alignment_row(rows[i + 1])
+
 # Split a parsed `table.md` into its revision-column labels and its data rows
 # (`name => values`). The header's first cell is the empty benchmark-name
 # column, so the revision labels are the remaining header cells.
+#
+# Every header row (and every alignment row) is skipped, not just the first
+# pair: the stacked second table's header would otherwise land in the data
+# rows as an empty-named entry, which groups into a phantom empty-named suite
+# and renders as a bare `### ` heading — an anchored header with an empty
+# anchor id, which aborts the DocumenterVitepress deploy build with
+# `ArgumentError: \`name\` must have non-zero length` (#204). Both tables'
+# data rows are kept, so the embedded page still shows timings and
+# allocations. An empty-named row is dropped outright as a last resort: no
+# emitted heading can then ever be empty, whatever a future benchpkgtable
+# format change produces.
 function _history_table_parts(md::AbstractString)
     all_rows = _parse_pipe_table(md)
     isempty(all_rows) && return (String[], Pair{String, Vector{String}}[])
     header = all_rows[1]
     col_labels = length(header) > 1 ? header[2:end] : String[]
     entries = Pair{String, Vector{String}}[]
-    for r in all_rows[2:end]
-        (isempty(r) || _is_alignment_row(r)) && continue
+    for (i, r) in enumerate(all_rows)
+        i == 1 && continue
+        (isempty(r) || _is_alignment_row(r) || _is_header_row(all_rows, i)) &&
+            continue
+        isempty(r[1]) && continue
         push!(entries, r[1] => (length(r) > 1 ? r[2:end] : String[]))
     end
     return (col_labels, entries)
@@ -369,11 +389,16 @@ end
 
 # Group `name => values` rows by the first `/`-segment of each name, preserving
 # first-seen order; the segment is stripped from the per-row label. A name with
-# no `/` (e.g. `time_to_load`) forms its own single-row suite.
+# no `/` (e.g. `time_to_load`) forms its own single-row suite. An empty name is
+# skipped: it would form an empty-named suite, which renders as a bare `### `
+# heading and aborts the deploy build (#204). `_history_table_parts` already
+# drops such rows; this is the second line of defence, so no caller of this
+# function can produce an empty anchor.
 function _group_rows_by_suite(entries)
     groups = Pair{String, Vector{Pair{String, Vector{String}}}}[]
     index = Dict{String, Int}()
     for (name, vals) in entries
+        isempty(strip(name)) && continue
         slash = findfirst('/', name)
         if slash === nothing
             suite, label = name, name
