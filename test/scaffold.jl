@@ -1209,6 +1209,78 @@
             end
         end
 
+        @testset "generic managed-override marker preserves any managed file (#224)" begin
+            using EpiAwarePackageTools: _detect_managed_override,
+                                        _MANAGED_OVERRIDE_MARKER,
+                                        _AD_SETUP_OWNED_MARKER
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Override")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/test.yaml")
+                # A freshly scaffolded managed file carries no marker, so a
+                # resync overwrites it (the load-bearing "managed files always
+                # resync" rule).
+                @test !_detect_managed_override(
+                    dir, ".github/workflows/test.yaml")
+                write(wf, "# hand-edited, no marker\n")
+                res = scaffold_update(dir)
+                @test wf in res.updated
+                @test occursin("jobs:", read(wf, String))
+                # Marking it makes scaffold_update() preserve it verbatim.
+                owned = "# $(_MANAGED_OVERRIDE_MARKER): package-owned CI\n" *
+                        "name: Test\non: [push]\n"
+                write(wf, owned)
+                @test _detect_managed_override(
+                    dir, ".github/workflows/test.yaml")
+                res2 = scaffold_update(dir)
+                @test wf in res2.preserved
+                @test wf ∉ res2.updated
+                @test read(wf, String) == owned
+                # A marked, diverged file is a deliberate opt-out: no warning.
+                @test isempty(res2.warnings)
+                # scaffold(force = true) still re-lays the managed file, so a
+                # new package always starts managed.
+                scaffold(dir; force = true)
+                @test occursin("jobs:", read(wf, String))
+            end
+            # The marker works on any managed file, including test/ad/setup.jl,
+            # whose older file-specific marker keeps working (back-compat).
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Override2")
+                scaffold(dir)
+                setup = joinpath(dir, "test/ad/setup.jl")
+                legacy = "# $(_AD_SETUP_OWNED_MARKER): legacy driver\n"
+                write(setup, legacy)
+                @test _detect_managed_override(dir, "test/ad/setup.jl")
+                res = scaffold_update(dir)
+                @test setup in res.preserved
+                @test read(setup, String) == legacy
+                # The generic marker is accepted on the same file.
+                generic = "# $(_MANAGED_OVERRIDE_MARKER): kept driver\n"
+                write(setup, generic)
+                res2 = scaffold_update(dir)
+                @test setup in res2.preserved
+                @test read(setup, String) == generic
+            end
+        end
+
+        @testset "no generic divergence warning for stale managed files (#224)" begin
+            # A managed file that diverges from a fresh render is the *normal*
+            # state right before a routine scaffold_update (the adopter is
+            # simply on an older kit version), so divergence alone cannot
+            # distinguish "customised" from "stale". Only test/ad/setup.jl —
+            # where a clobber breaks every AD CI job — warns.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Stale")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/test.yaml")
+                write(wf, "# an older template version\nname: Test\n")
+                res = scaffold_update(dir)
+                @test wf in res.updated
+                @test isempty(res.warnings)
+            end
+        end
+
         @testset "AD backends single source of truth (#821)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")
