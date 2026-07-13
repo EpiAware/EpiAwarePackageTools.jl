@@ -627,15 +627,18 @@ end
 # Whether any registry reachable from the current depot knows the name. A
 # registered dependency resolves by name everywhere already, so the bootstrap
 # leaves it alone.
-function _is_registered(name::AbstractString)
+function _is_registered(name::AbstractString;
+        ignore_registry::AbstractString = SCRATCH_REGISTRY)
     for reg in Pkg.Registry.reachable_registries()
+        reg.name == ignore_registry && continue
         any(p -> p.name == name, values(reg.pkgs)) && return true
     end
     return false
 end
 
 """
-    unregistered_sources(project) -> Vector{@NamedTuple{name, url, rev}}
+    unregistered_sources(project; ignore_registry = SCRATCH_REGISTRY)
+        -> Vector{@NamedTuple{name, url, rev}}
 
 The git-pinned `[sources]` entries of `project` ([`git_sources`](@ref)) whose
 package name no registry reachable from the current depot knows.
@@ -643,9 +646,18 @@ package name no registry reachable from the current depot knows.
 These are the pins that cannot resolve in an environment that installs the
 package as a dependency, and so the ones [`bootstrap_sources_registry`](@ref)
 registers.
+
+The scratch registry named by `ignore_registry` is not counted as knowing a
+name. A CI runner restores its depot from a cache, so a scratch registry
+written by an earlier run can still be sitting there; were it counted, a pin
+moved to a new revision since would look "registered" and be skipped, and the
+benchmark would silently resolve the stale revision.
 """
-function unregistered_sources(project::AbstractString)
-    return filter(s -> !_is_registered(s.name), git_sources(project))
+function unregistered_sources(project::AbstractString;
+        ignore_registry::AbstractString = SCRATCH_REGISTRY)
+    return filter(git_sources(project)) do s
+        !_is_registered(s.name; ignore_registry = ignore_registry)
+    end
 end
 
 """
@@ -663,30 +675,45 @@ that machine — including the temp project AirspeedVelocity's `benchpkg` builds
 which ignores a dependency's own `[sources]` (#216).
 
 A project with no unregistered git pins is a no-op: nothing is cloned, no
-registry is created, and an empty vector is returned. Re-running is idempotent
-(an already-registered version is left as it is). `git` must be on the path.
+registry is created, and an empty vector is returned.
+
+The scratch registry is rebuilt from scratch on every call, and a registry of
+that name is ignored when deciding whether a pin is already registered. A CI
+runner restores its depot from a cache, so an earlier run's scratch registry
+survives into the next one; reusing it would pin the benchmark to whatever
+revision was registered first, because an unregistered dependency does not bump
+its version when its revision moves.
+
+`git` must be on the path. The registration is not transitive: if a pinned
+dependency itself pins an unregistered dependency in *its* `[sources]`,
+registering the outer one is not enough and resolution still fails. Pin both in
+the benchmarked package to fix that.
 """
 function bootstrap_sources_registry(project::AbstractString = pwd();
         depot::AbstractString = first(DEPOT_PATH),
         registry_name::AbstractString = SCRATCH_REGISTRY,
         work_dir::AbstractString = mktempdir(),
         gitconfig::AbstractDict = _SCRATCH_GITCONFIG)
-    sources = unregistered_sources(project)
+    sources = unregistered_sources(project; ignore_registry = registry_name)
     isempty(sources) && return String[]
     LR = _localregistry()
     config = Dict{String, String}(gitconfig)
     registry = joinpath(depot, "registries", registry_name)
-    if !isfile(joinpath(registry, "Registry.toml"))
-        mkpath(dirname(registry))
-        Base.invokelatest(LR.create_registry, registry, "file://" * registry;
-            description = "Scratch registry for unregistered [sources] pins.",
-            push = false, gitconfig = config)
-    end
+    rm(registry; recursive = true, force = true)
+    mkpath(dirname(registry))
+    Base.invokelatest(LR.create_registry, registry, "file://" * registry;
+        description = "Scratch registry for unregistered [sources] pins.",
+        push = false, gitconfig = config)
     registered = String[]
     for s in sources
         clone = joinpath(work_dir, s.name)
-        run(`git clone --quiet $(s.url) $clone`)
-        isempty(s.rev) || run(`git -C $clone checkout --quiet $(s.rev)`)
+        try
+            run(`git clone --quiet $(s.url) $clone`)
+            isempty(s.rev) || run(`git -C $clone checkout --quiet $(s.rev)`)
+        catch e
+            error("could not clone the [sources] pin $(s.name) from " *
+                  "$(s.url) at rev \"$(s.rev)\": $e")
+        end
         Base.invokelatest(LR.register, clone; registry = registry,
             repo = s.url, push = false, gitconfig = config)
         push!(registered, s.name)

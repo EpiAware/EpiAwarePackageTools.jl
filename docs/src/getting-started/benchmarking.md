@@ -106,10 +106,23 @@ Registries, unlike sources, are depot-level, so the dependency then resolves by
 name in every environment on that runner, including benchpkg's temp projects.
 Nothing is pushed anywhere and the registry dies with the runner.
 
-The step is a no-op for a package whose `[sources]` are all path pins or
-already-registered names: nothing is cloned and no registry is created.
-It needs no configuration, and it retires itself as dependencies reach the
-General registry.
+A package with no `[sources]` section skips the step in shell, before anything
+is installed, so it pays nothing for machinery it does not use.
+A package whose `[sources]` are all path pins or already-registered names runs
+the check and does no registry work: nothing is cloned and no registry is
+created.
+Either way the step needs no configuration, and it retires itself as
+dependencies reach the General registry.
+
+The scratch registry is rebuilt on every run.
+A runner restores its depot from a cache, so the previous run's registry is
+often still sitting there, and an unregistered dependency does not bump its
+version when its revision moves;
+reusing the cached registry would therefore pin the benchmark to whatever
+revision was registered first.
+The registration is not transitive: a pinned dependency that itself pins an
+unregistered dependency must have that inner pin repeated in the benchmarked
+package.
 
 ## Adding scenarios
 

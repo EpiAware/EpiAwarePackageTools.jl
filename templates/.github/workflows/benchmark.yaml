@@ -73,9 +73,15 @@ jobs:
       # such pin into a throwaway registry in this runner's depot: registries,
       # unlike sources, are depot-level, so the dependency resolves by name in
       # every environment on the runner. A package with no unregistered pins
-      # is a no-op (nothing cloned, no registry created).
+      # is a no-op (nothing cloned, no registry created), and the shell guard
+      # exits before installing anything, so a package with no `[sources]` at
+      # all pays nothing and takes on no new failure surface.
       - name: Bootstrap registry for unregistered [sources] deps
         run: |
+          if ! grep -q '^\[sources\]' Project.toml; then
+            echo "no [sources] section: nothing to register"
+            exit 0
+          fi
           julia -e '
             using Pkg
             Pkg.activate(; temp = true)

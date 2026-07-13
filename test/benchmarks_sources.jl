@@ -110,6 +110,15 @@
         @test length(git_sources(dir)) == 2
         names = [s.name for s in unregistered_sources(dir)]
         @test names == ["NotInAnyRegistry216"]
+
+        # `ignore_registry` takes a registry out of the reckoning. The
+        # bootstrap ignores its own scratch registry this way, so a pin moved
+        # to a new revision since the last (cached) run is still re-registered
+        # rather than being taken for registered and skipped. Ignoring General
+        # here shows the mechanism against a registry that is really there.
+        ignored = unregistered_sources(dir; ignore_registry = "General")
+        @test [s.name for s in ignored] ==
+              ["JSON3", "NotInAnyRegistry216"]
     end
 end
 
@@ -213,13 +222,9 @@ end
     @test isfile(joinpath(entry, "Package.toml"))
     versions = Pkg.TOML.parsefile(joinpath(entry, "Versions.toml"))
     @test haskey(versions, "0.1.0")
-
-    # A second call is idempotent: the registry already carries the version,
-    # so it is left as it is rather than erroring on re-registration. It clones
-    # afresh, so it gets its own work dir (as the default does).
-    again = bootstrap_sources_registry(consumer; depot = depot,
-        work_dir = mktempdir(; cleanup = false))
-    @test again == ["DummyDep216"]
+    treeref = rev * "^{tree}"
+    tree = strip(read(`git -C $pkg rev-parse $treeref`, String))
+    @test versions["0.1.0"]["git-tree-sha1"] == tree
 
     # The payoff: a fresh environment on that depot resolves the dep BY NAME,
     # with no `[sources]` pin in sight — exactly what benchpkg's temp project
@@ -241,4 +246,27 @@ end
         read(`$(Base.julia_cmd()) --startup-file=no -e $script`, String)
     end
     @test occursin("resolved", out)
+
+    # A moved pin must win over a scratch registry left behind by an earlier
+    # run. CI restores the depot from a cache, so the registry from the last
+    # run is already there when the step runs; an unregistered dependency does
+    # not bump its version when its revision moves, so treating "the name is in
+    # the scratch registry" as "registered" would skip the pin and silently
+    # benchmark the stale revision. Same depot, new commit, same version.
+    write(joinpath(pkg, "src", "DummyDep216.jl"),
+        "module DummyDep216\nanswer() = 43\nend\n")
+    run(`$git commit --quiet -a -m moved`)
+    rev2 = strip(read(`git -C $pkg rev-parse HEAD`, String))
+    @test rev2 != rev
+    write(joinpath(consumer, "Project.toml"),
+        replace(read(joinpath(consumer, "Project.toml"), String),
+            rev => rev2))
+
+    moved = bootstrap_sources_registry(consumer; depot = depot,
+        work_dir = mktempdir(; cleanup = false))
+    @test moved == ["DummyDep216"]
+    versions = Pkg.TOML.parsefile(joinpath(entry, "Versions.toml"))
+    tree2 = strip(read(`git -C $pkg rev-parse $(rev2 * "^{tree}")`, String))
+    @test tree2 != tree
+    @test versions["0.1.0"]["git-tree-sha1"] == tree2
 end
