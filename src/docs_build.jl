@@ -384,6 +384,14 @@ function _block_metric(entries)
     return (tot > 0 && 2mem > tot) ? "Memory" : "Time"
 end
 
+# Whether a parsed block carries any measurement at all. A block whose cells
+# are all blank has no metric to detect, so it would default to `"Time"` and
+# merge into the timing block, adding a blank duplicate row and a spurious
+# "no data in the shown revisions" note. Such a block is dropped instead.
+function _block_has_data(entries)
+    return any(!isempty(strip(v)) for (_, vals) in entries for v in vals)
+end
+
 # Split a parsed `table.md` into its shared revision-column labels and its
 # stacked table blocks, each tagged with its metric. benchpkgtable's
 # `--mode time,memory` emits two stacked pipe tables (timings, then
@@ -421,7 +429,7 @@ function _history_metric_blocks(md::AbstractString)
     blocks = empty_blocks
     index = Dict{String, Int}()
     for b in raw_blocks
-        isempty(b) && continue
+        (isempty(b) || !_block_has_data(b)) && continue
         m = _block_metric(b)
         if haskey(index, m)
             append!(blocks[index[m]].second, b)

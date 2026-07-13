@@ -1284,6 +1284,50 @@ end
         @test DB._suite_column_medians(ad.second, 2)[1] ==
               Statistics.median([10.3, 20.0])
     end
+
+    @testset "a real slowdown is flagged, not masked by alloc counts" begin
+        # The headline consequence of the bug, at the Status level: a 2x
+        # slowdown alongside an unchanged allocation row whose leading number
+        # (2400) dwarfs the timings. Merged into one suite, the median ratio
+        # comes out 1.0 and the page reports `ok` for a doubling in runtime.
+        masking = """
+        |                             | aaaa1111... | bbbb2222... |
+        |:----------------------------|:-----------:|:-----------:|
+        | AD gradients/Enzyme forward | 10.3 ms     | 20.6 ms     |
+
+        |                             | aaaa1111...         | bbbb2222...         |
+        |:----------------------------|:-------------------:|:-------------------:|
+        | AD gradients/Enzyme forward | 2400 allocs: 1.3 kB | 2400 allocs: 1.3 kB |
+        """
+        io = IOBuffer()
+        DB._render_benchmark_overview(io, masking, mktempdir(), String[],
+            "EpiAware/Example.jl"; last_n = 5, regression_threshold = 1.1)
+        summary = first(split(String(take!(io)), "<details>"))
+        # The ratio is the timing ratio (20.6 / 10.3 == 2.0) and the suite is
+        # flagged as a regression — not diluted to 1.0 / `ok`.
+        @test occursin("| AD gradients | 2.0 |", summary)
+        @test occursin("⚠ reg", summary)
+        @test !occursin("| AD gradients | 1.0 |", summary)
+    end
+
+    @testset "an all-blank second block is dropped, not merged" begin
+        # A block with no measurements has no metric to detect: it would
+        # default to `Time`, merge into the timing block, and add a blank
+        # duplicate row plus a spurious no-data note.
+        blank = """
+        |                             | aaaa1111... | bbbb2222... |
+        |:----------------------------|:-----------:|:-----------:|
+        | AD gradients/Enzyme forward | 10.3 ms     | 20.6 ms     |
+
+        |                             | aaaa1111... | bbbb2222... |
+        |:----------------------------|:-----------:|:-----------:|
+        | AD gradients/Enzyme forward |             |             |
+        """
+        _, blocks = DB._history_metric_blocks(blank)
+        @test length(blocks) == 1
+        @test blocks[1].first == "Time"
+        @test length(blocks[1].second) == 1
+    end
 end
 
 @testitem "benchmarks branch fetched via explicit refspec (#192)" begin
