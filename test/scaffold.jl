@@ -2107,6 +2107,33 @@
             end
         end
 
+        @testset "sync never pushes to a branch it did not open (#215)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                sync = read(
+                    joinpath(dir, ".github/workflows/template-sync.yaml"),
+                    String)
+                # The re-apply step still runs on a Dependabot PR (drift is
+                # still detected and surfaced) ...
+                @test occursin("scaffold_update", sync)
+                # ... but the workflow must never commit/push the re-apply on
+                # a branch it did not open. Doing so silently reverted
+                # package-owned overrides living in managed files, turning a
+                # single-purpose Dependabot bump into a regression on merge.
+                @test !occursin("git push", sync)
+                @test !occursin("git commit", sync)
+                # Drift on such a branch is reported instead: a job summary
+                # plus a warning annotation a reviewer sees on the PR.
+                @test occursin("GITHUB_STEP_SUMMARY", sync)
+                @test occursin("::warning::", sync)
+                # The scheduled/manual path is unchanged: it opens (or
+                # refreshes) its own PR, which is a branch it does own.
+                @test occursin("peter-evans/create-pull-request", sync)
+                @test occursin("branch: chore/template-sync", sync)
+            end
+        end
+
         @testset "root [workspace] stanza injected + preserved" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
