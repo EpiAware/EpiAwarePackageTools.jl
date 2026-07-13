@@ -1226,3 +1226,60 @@ end
         @test isempty(DB.api_remotes([Base]))
     end
 end
+
+@testitem "empty-anchor inventory guard (#232)" begin
+    using Test
+    using Logging
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # DocumenterVitepress' writer pushes an inventory entry for every anchored
+    # header, and `DocInventories.InventoryItem` rejects an empty `name`, so a
+    # header with an empty anchor id (e.g. from a third-party docstring
+    # rendered through the widened `modules` list) aborts the whole docs
+    # build. The kit installs a warn-and-skip guard before `makedocs`.
+    Documenter = DB._documenter()
+    DocumenterVitepress = DB._vitepress()
+
+    @testset "unguarded writer aborts on an empty anchor id" begin
+        @test DB._empty_anchor_aborts(Documenter, DocumenterVitepress)
+    end
+
+    @testset "guard installs, warns and skips, then self-retires" begin
+        @test DB._guard_empty_anchors()
+
+        # An empty anchor id now warns (naming the page and the heading) and
+        # skips the inventory entry instead of throwing.
+        logs, result = Test.collect_test_logs() do
+            DB._anchor_probe_render(Documenter, DocumenterVitepress;
+                id = "", heading = "Culprit heading")
+        end
+        out, items = result
+        @test isempty(items)
+        @test occursin("Culprit heading", out)
+        warns = filter(l -> l.level == Logging.Warn, logs)
+        @test length(warns) == 1
+        @test occursin("empty anchor id", warns[1].message)
+        kw = Dict(warns[1].kwargs)
+        @test occursin("probe.md", string(kw[:page]))
+        @test occursin("Culprit heading", string(kw[:heading]))
+
+        # A non-empty anchor id still produces its inventory entry, with no
+        # warning.
+        logs, result = Test.collect_test_logs() do
+            DB._anchor_probe_render(Documenter, DocumenterVitepress;
+                id = "real-anchor", heading = "Real heading")
+        end
+        out, items = result
+        @test length(items) == 1
+        @test items[1].name == "real-anchor"
+        @test occursin("{#real-anchor}", out)
+        @test isempty(filter(l -> l.level == Logging.Warn, logs))
+
+        # Self-retiring: with the writer no longer aborting (here because the
+        # guard is in place; upstream, once LuxDL/DocumenterVitepress.jl#375
+        # lands) the kit does not patch again.
+        @test !DB._empty_anchor_aborts(Documenter, DocumenterVitepress)
+        @test !DB._guard_empty_anchors()
+    end
+end
