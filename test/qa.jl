@@ -325,6 +325,132 @@
                 test_readme_sections(dir)
             end
 
+            # The managed standard-sections block, as `_apply_standard_sections`
+            # appends it to a README that carries none of these sections yet
+            # (#236). `sections` renders the managed headings in the order the
+            # kit writes them, between the markers.
+            managed_block(sections = ["## Contributing\nc.",
+                "## How to cite\ncite it.", "## Code of conduct\nbe kind."]) = string(
+                EpiAwarePackageTools.STANDARD_SECTIONS_START, "\n\n",
+                join(sections, "\n\n"), "\n\n",
+                EpiAwarePackageTools.STANDARD_SECTIONS_END, "\n")
+
+            # A package-owned `## License` sitting above the appended managed
+            # block passes: the block is appended at the end of the README, so a
+            # section that already lived at the bottom ends up above it. The kit
+            # guarantees only the order of the sections it manages, so an earlier
+            # package-owned License must not be mistaken for the managed citation
+            # section (#236).
+            license_above = """
+            # MyPkg
+
+            $badges
+
+            ## Overview
+            why.
+
+            ## Usage
+            how.
+
+            ## Documentation
+            links.
+
+            ## License
+            MIT.
+
+            $(managed_block())
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), license_above)
+                test_readme_sections(dir)
+            end
+
+            # Package-owned sections interleaved before, around, and after the
+            # managed block are ignored by the order check (#236).
+            interleaved = """
+            # MyPkg
+
+            $badges
+
+            ## Overview
+            why.
+
+            ## Usage
+            how.
+
+            ## Installation
+            add it.
+
+            ## Documentation
+            links.
+
+            ## License
+            MIT.
+
+            ## Acknowledgements
+            thanks.
+
+            $(managed_block())
+
+            ## Related packages
+            others.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), interleaved)
+                test_readme_sections(dir)
+            end
+
+            # The same README with the package-owned License below the block
+            # (the kit's own layout) also passes.
+            license_below = """
+            # MyPkg
+
+            $badges
+
+            ## Overview
+            why.
+
+            ## Usage
+            how.
+
+            ## Documentation
+            links.
+
+            $(managed_block())
+
+            ## License
+            MIT.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), license_below)
+                test_readme_sections(dir)
+            end
+
+            # A managed section missing from the block is still flagged.
+            missing_managed = replace(license_below,
+                managed_block() =>
+                    managed_block(["## How to cite\ncite it.",
+                        "## Code of conduct\nbe kind."]))
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), missing_managed)
+                @test check_flags(() -> test_readme_sections(dir))
+            end
+
+            # Managed sections out of order *inside* the block are still
+            # flagged, in both layouts — including the one where the
+            # package-owned License below the block would otherwise supply an
+            # in-order citation match.
+            for base in (license_above, license_below)
+                managed_disordered = replace(base,
+                    managed_block() =>
+                        managed_block(["## How to cite\ncite it.",
+                            "## Contributing\nc.", "## Code of conduct\nbe kind."]))
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), managed_disordered)
+                    @test check_flags(() -> test_readme_sections(dir))
+                end
+            end
+
             # A custom required list can extend the standard set.
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), conforming)
