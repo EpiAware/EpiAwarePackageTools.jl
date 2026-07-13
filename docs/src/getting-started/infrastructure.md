@@ -33,6 +33,37 @@ while anything you add outside the markers is preserved. The managed "How to
 cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
 "Cite this repository" widget and the citation content stays yours to edit.
 
+## Overriding a managed file
+
+A package that must keep its own version of a managed file says so in the file.
+Put the marker `EPIAWARE_MANAGED_OVERRIDE` in a comment anywhere in it, and
+`scaffold_update` preserves the file rather than resyncing it, reporting it
+under `preserved` in the manifest.
+
+```yaml
+# EPIAWARE_MANAGED_OVERRIDE: this package needs its own test matrix.
+```
+
+Remove the marker to hand the file back to the kit. `scaffold` with
+`force = true` ignores the marker and lays the managed file down fresh, so a new
+package always starts fully managed.
+
+Use this sparingly. An overridden file stops tracking the standard, so kit fixes
+no longer reach it, which is the opposite of what the kit is for. Prefer the
+supported hooks (the package-owned config values, the marker-delimited regions,
+and the `ad`/`benchmarks`/`downgrade_compat` flags) where they cover the need.
+
+The AD-harness driver `test/ad/setup.jl` is the original case: a package whose
+`ADFixtures` registry predates the current `ADRegistry` contract must keep a
+hand-written driver while it migrates. That file also honours its older marker
+`EPIAWARE_AD_SETUP_OWNED`; either marker preserves it. It is also the one file
+where `scaffold_update` warns before overwriting a version that has diverged
+from the kit's and carries no marker, because a clobber there breaks every AD CI
+job. No such warning exists for managed files generally: divergence from the
+current template is the normal state of an adopter that is simply on an older
+kit version, so a general divergence warning would fire on every sync and tell
+you nothing. Mark the files you own instead.
+
 ## Staying in sync
 
 Two workflows keep an adopting package aligned with the kit.

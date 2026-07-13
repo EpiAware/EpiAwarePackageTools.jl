@@ -54,4 +54,6 @@ package's docs would be.
 
 Editing a managed file directly works until the next `scaffold_update` or
 template-sync run reverts it — put customisation in the package-owned
-files above instead.
+files above instead. If a package genuinely has to own a managed file, add
+an `EPIAWARE_MANAGED_OVERRIDE` comment to it and the sync preserves it; see
+[Infrastructure and template sync](@ref infrastructure).

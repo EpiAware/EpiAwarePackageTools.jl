@@ -1209,7 +1209,7 @@
             end
         end
 
-        @testset "generic managed-override marker preserves any managed file (#224)" begin
+        @testset "override marker preserves any managed file (#224)" begin
             using EpiAwarePackageTools: _detect_managed_override,
                                         _MANAGED_OVERRIDE_MARKER,
                                         _AD_SETUP_OWNED_MARKER
@@ -1264,7 +1264,7 @@
             end
         end
 
-        @testset "no generic divergence warning for stale managed files (#224)" begin
+        @testset "no divergence warning for stale managed files (#224)" begin
             # A managed file that diverges from a fresh render is the *normal*
             # state right before a routine scaffold_update (the adopter is
             # simply on an older kit version), so divergence alone cannot
