@@ -1229,57 +1229,103 @@ end
 
 @testitem "empty-anchor inventory guard (#232)" begin
     using Test
-    using EpiAwarePackageTools
-    const DB = EpiAwarePackageTools.DocsBuild
-    const Warn = Base.CoreLogging.Warn
 
     # DocumenterVitepress' writer pushes an inventory entry for every anchored
     # header, and `DocInventories.InventoryItem` rejects an empty `name`, so a
     # header with an empty anchor id (e.g. from a third-party docstring
     # rendered through the widened `modules` list) aborts the whole docs
     # build. The kit installs a warn-and-skip guard before `makedocs`.
+    #
+    # The guard mutates process-global state (DocumenterVitepress' method
+    # table), and the "unguarded writer aborts" assertion below only holds
+    # while nothing else in the process has patched it. So the whole scenario
+    # runs in a fresh subprocess, which reports its observations as `key=value`
+    # lines that the assertions here read back; no test-item ordering can
+    # perturb it, and nothing leaks into the rest of the suite.
+    script = """
+    using Test
+    using EpiAwarePackageTools
+    DB = EpiAwarePackageTools.DocsBuild
     Documenter = DB._documenter()
     DocumenterVitepress = DB._vitepress()
 
-    @testset "unguarded writer aborts on an empty anchor id" begin
-        @test DB._empty_anchor_aborts(Documenter, DocumenterVitepress)
+    println("version=", pkgversion(DocumenterVitepress))
+    println("aborts=", DB._empty_anchor_aborts(Documenter, DocumenterVitepress))
+    println("patched=", DB._guard_empty_anchors())
+
+    # An empty anchor id now warns (naming the page and the heading) and skips
+    # the inventory entry instead of throwing.
+    logs, (out, items) = Test.collect_test_logs() do
+        DB._anchor_probe_render(Documenter, DocumenterVitepress;
+            id = "", heading = "Culprit heading")
+    end
+    warns = filter(l -> l.level == Base.CoreLogging.Warn, logs)
+    println("empty_items=", length(items))
+    println("empty_out=", occursin("Culprit heading", out))
+    println("empty_warns=", length(warns))
+    if length(warns) == 1
+        kw = Dict(warns[1].kwargs)
+        println("warn_msg=", warns[1].message)
+        println("warn_page=", kw[:page])
+        println("warn_heading=", kw[:heading])
     end
 
-    @testset "guard installs, warns and skips, then self-retires" begin
-        @test DB._guard_empty_anchors()
+    # A non-empty anchor id still produces its inventory entry, with no
+    # warning.
+    logs, (out, items) = Test.collect_test_logs() do
+        DB._anchor_probe_render(Documenter, DocumenterVitepress;
+            id = "real-anchor", heading = "Real heading")
+    end
+    println("real_items=", length(items))
+    println("real_name=", isempty(items) ? "" : items[1].name)
+    println("real_out=", occursin("{#real-anchor}", out))
+    println("real_warns=",
+        length(filter(l -> l.level == Base.CoreLogging.Warn, logs)))
 
-        # An empty anchor id now warns (naming the page and the heading) and
-        # skips the inventory entry instead of throwing.
-        logs, result = Test.collect_test_logs() do
-            DB._anchor_probe_render(Documenter, DocumenterVitepress;
-                id = "", heading = "Culprit heading")
-        end
-        out, items = result
-        @test isempty(items)
-        @test occursin("Culprit heading", out)
-        warns = filter(l -> l.level == Warn, logs)
-        @test length(warns) == 1
-        @test occursin("empty anchor id", warns[1].message)
-        kw = Dict(warns[1].kwargs)
-        @test occursin("probe.md", string(kw[:page]))
-        @test occursin("Culprit heading", string(kw[:heading]))
+    # Idempotent + self-retiring: with the writer no longer aborting (here
+    # because the guard is in place; upstream, once
+    # LuxDL/DocumenterVitepress.jl#375 lands) the kit does not patch again.
+    println("aborts_after=",
+        DB._empty_anchor_aborts(Documenter, DocumenterVitepress))
+    println("patched_again=", DB._guard_empty_anchors())
+    """
+    file = joinpath(mktempdir(), "guard232.jl")
+    write(file, script)
+    output = read(`$(Base.julia_cmd()) --project=$(Base.active_project()) \
+        --startup-file=no $file`, String)
+    obs = Dict{String, String}()
+    for line in eachsplit(output, '\n')
+        occursin('=', line) || continue
+        key, value = split(line, '='; limit = 2)
+        obs[strip(key)] = strip(value)
+    end
 
-        # A non-empty anchor id still produces its inventory entry, with no
-        # warning.
-        logs, result = Test.collect_test_logs() do
-            DB._anchor_probe_render(Documenter, DocumenterVitepress;
-                id = "real-anchor", heading = "Real heading")
-        end
-        out, items = result
-        @test length(items) == 1
-        @test items[1].name == "real-anchor"
-        @test occursin("{#real-anchor}", out)
-        @test isempty(filter(l -> l.level == Warn, logs))
+    if obs["aborts"] == "false"
+        # Upstream fixed (or the writer changed): the shim is dead weight and
+        # should be deleted, but that is a maintenance task, not a red suite on
+        # an unrelated PR — so record it loudly and assert only that the kit
+        # stops monkey-patching.
+        @info "DocumenterVitepress $(obs["version"]) no longer aborts on an " *
+              "empty anchor id: delete the DocsBuild empty-anchor shim (#232)"
+        @test obs["patched"] == "false"
+    else
+        # The guard installs, and the warning names the culprit.
+        @test obs["patched"] == "true"
+        @test obs["empty_items"] == "0"
+        @test obs["empty_out"] == "true"
+        @test obs["empty_warns"] == "1"
+        @test occursin("empty anchor id", obs["warn_msg"])
+        @test occursin("probe.md", obs["warn_page"])
+        @test occursin("Culprit heading", obs["warn_heading"])
 
-        # Self-retiring: with the writer no longer aborting (here because the
-        # guard is in place; upstream, once LuxDL/DocumenterVitepress.jl#375
-        # lands) the kit does not patch again.
-        @test !DB._empty_anchor_aborts(Documenter, DocumenterVitepress)
-        @test !DB._guard_empty_anchors()
+        # A non-empty anchor id is untouched.
+        @test obs["real_items"] == "1"
+        @test obs["real_name"] == "real-anchor"
+        @test obs["real_out"] == "true"
+        @test obs["real_warns"] == "0"
+
+        # Idempotent, and no second patch once the writer no longer aborts.
+        @test obs["aborts_after"] == "false"
+        @test obs["patched_again"] == "false"
     end
 end

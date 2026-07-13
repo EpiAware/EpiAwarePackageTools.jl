@@ -95,11 +95,20 @@ end
 # CI log) and skips the entry, instead of throwing. A skipped entry is a
 # missing cross-reference, so it is never silent.
 #
-# Self-retiring: `_guard_empty_anchors` only patches when the installed writer
-# is observed to abort on an empty anchor id (`_empty_anchor_aborts`). Once the
-# upstream fix (LuxDL/DocumenterVitepress.jl#375) lands and the writer skips
-# empty ids itself, the probe stops aborting, no method is overwritten, and
-# this whole section can be deleted.
+# Self-retiring, on two conditions. The patch is applied only when
+#
+#   1. the installed writer is observed to abort on an empty anchor id
+#      (`_empty_anchor_aborts`) — the retirement trigger: once the upstream
+#      fix (LuxDL/DocumenterVitepress.jl#375) lands, the probe stops aborting,
+#      no method is overwritten, and this whole section can be deleted; and
+#   2. the installed DocumenterVitepress is no newer than
+#      `_VITEPRESS_LAST_KNOWN_BROKEN` — the body below is a copy of that
+#      release's writer method, and adopters pin `DocumenterVitepress = "0.3"`,
+#      so a newer 0.3.x resolves everywhere automatically. Overwriting the
+#      method on a version whose body we have not checked would silently revert
+#      any other upstream change to it. A newer version that still aborts warns
+#      loudly and is left alone (refresh the copy below, and the bound).
+const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.4"
 
 # The quoted replacement method. Evaluated inside DocumenterVitepress so every
 # name (`render`, `InventoryItem`, `sanitized_anchor_label`, the
@@ -187,7 +196,13 @@ end
 # longer understands.
 function _empty_anchor_aborts(Documenter, DocumenterVitepress)
     try
-        _anchor_probe_render(Documenter, DocumenterVitepress; id = "")
+        # Silence the probe: on an already-guarded writer it renders an
+        # empty-anchor header and would otherwise log a fake culprit
+        # (`page = "probe.md"`) into every adopter's real docs log — the very
+        # log this guard exists to keep legible.
+        Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+            _anchor_probe_render(Documenter, DocumenterVitepress; id = "")
+        end
         return false
     catch err
         e = err isa LoadError ? err.error : err
@@ -205,13 +220,25 @@ end
 
 Make the DocumenterVitepress inventory writer warn-and-skip (rather than abort)
 on an anchored header with an empty anchor id. Returns `true` when the writer
-was patched, `false` when no patch was needed. Idempotent, and self-retiring
-once the upstream fix (LuxDL/DocumenterVitepress.jl#375) lands.
+was patched, `false` when no patch was needed (upstream fixed, or too new to
+patch safely). Idempotent, and self-retiring once the upstream fix
+(LuxDL/DocumenterVitepress.jl#375) lands.
 """
 function _guard_empty_anchors()
     Documenter = _documenter()
     DocumenterVitepress = _vitepress()
     _empty_anchor_aborts(Documenter, DocumenterVitepress) || return false
+    version = pkgversion(DocumenterVitepress)
+    if version > _VITEPRESS_LAST_KNOWN_BROKEN
+        @warn "DocumenterVitepress $version still aborts the docs build on " *
+              "an anchored header with an empty anchor id, but its writer is " *
+              "newer than the version this shim copies " *
+              "($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it unpatched " *
+              "rather than silently reverting unseen upstream changes. " *
+              "Refresh the kit's copy of the method and the version bound " *
+              "(kit #232)."
+        return false
+    end
     Base.eval(DocumenterVitepress, _empty_anchor_writer())
     return true
 end
