@@ -2127,6 +2127,13 @@
                 # plus a warning annotation a reviewer sees on the PR.
                 @test occursin("GITHUB_STEP_SUMMARY", sync)
                 @test occursin("::warning::", sync)
+                # Drift detection stages first and diffs the index: a re-apply
+                # that CREATES a managed file (the kit shipped a new one)
+                # leaves it untracked, and a bare `git diff` would report no
+                # drift at all.
+                @test occursin("git add -A", sync)
+                @test occursin("git diff --cached --quiet", sync)
+                @test !occursin("if git diff --quiet", sync)
                 # The scheduled/manual path is unchanged: it opens (or
                 # refreshes) its own PR, which is a branch it does own.
                 @test occursin("peter-evans/create-pull-request", sync)

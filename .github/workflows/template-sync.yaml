@@ -75,7 +75,13 @@ jobs:
       - name: Report drift without pushing
         if: github.event_name == 'pull_request'
         run: |
-          if git diff --quiet; then
+          # `git add -A` first: a re-apply that CREATES a managed file (the kit
+          # shipped a new one) leaves it untracked, and a bare `git diff` is
+          # blind to untracked files — the drift would be reported as "none".
+          # Staging first makes both modified and new files visible to the
+          # diff. Nothing is committed; the index is scratch.
+          git add -A
+          if git diff --cached --quiet; then
             echo "No drift from the standard."
             exit 0
           fi
@@ -88,12 +94,13 @@ jobs:
             echo "\`chore/template-sync\` PR with the refresh."
             echo
             echo '```'
-            git --no-pager diff --stat
+            git --no-pager diff --cached --stat
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning::Managed infra drifts from the EpiAware standard. \
-          Template sync did not push to this branch; the scheduled sync will \
-          open a PR with the refresh."
+          msg="Managed infra drifts from the EpiAware standard. Template sync"
+          msg="$msg did not push to this branch; the scheduled sync will open"
+          msg="$msg a PR with the refresh."
+          echo "::warning::$msg"
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted
         if: github.event_name != 'pull_request'
