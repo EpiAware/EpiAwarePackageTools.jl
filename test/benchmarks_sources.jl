@@ -208,7 +208,10 @@ end
 
     # The payoff: a fresh environment on that depot resolves the dep BY NAME,
     # with no `[sources]` pin in sight — exactly what benchpkg's temp project
-    # needs. Run in a subprocess so the temp depot never touches this one.
+    # needs. Run in a subprocess whose *first* depot is the temp one, so
+    # everything Pkg writes (the install, the manifest) lands there and this
+    # depot is only read: its precompile caches are reused, which keeps the
+    # subprocess to a few seconds rather than recompiling Pkg from scratch.
     script = """
     using Pkg
     Pkg.activate(; temp = true)
@@ -217,7 +220,8 @@ end
     DummyDep216.answer() == 42 || error("wrong answer")
     print("resolved")
     """
-    out = withenv("JULIA_DEPOT_PATH" => depot, "JULIA_LOAD_PATH" => nothing,
+    depots = join([depot; DEPOT_PATH], Sys.iswindows() ? ';' : ':')
+    out = withenv("JULIA_DEPOT_PATH" => depots, "JULIA_LOAD_PATH" => nothing,
         "JULIA_PROJECT" => nothing) do
         read(`$(Base.julia_cmd()) --startup-file=no -e $script`, String)
     end

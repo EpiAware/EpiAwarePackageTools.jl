@@ -62,9 +62,11 @@ the environment that runs the benchmark job, not as package dependencies.
 module Benchmarks
 
 import ..EpiAwarePackageTools: _require_pkg
+import Pkg
 
 export flatten_asv, asv_comment, compare_comment, run_suite
 export fmt_time, fmt_ratio
+export git_sources, unregistered_sources, bootstrap_sources_registry
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -80,6 +82,11 @@ end
 function _benchmarktools()
     return _require_pkg(
         "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf", "BenchmarkTools")
+end
+
+function _localregistry()
+    return _require_pkg(
+        "89398ba2-070a-4b16-a995-9893c55d93cf", "LocalRegistry")
 end
 
 # ---- shared formatting -----------------------------------------------------
@@ -553,6 +560,138 @@ function run_suite(suite; out_file::Union{Nothing, AbstractString} = nothing,
         Base.invokelatest(BT.save, out_file, results)
     end
     return results
+end
+
+# ---- unregistered `[sources]` bootstrap ------------------------------------
+
+# AirspeedVelocity's `benchpkg` installs the benchmarked package into its own
+# temp project, and Pkg only honours the `[sources]` section of the *active*
+# project. A dependency pinned there by git url/rev because it is not yet in a
+# registry therefore cannot resolve in that temp project, and the benchmark
+# fails with "<Dep> has no known versions!" (#216). The same applies to any
+# environment that installs the package as a dependency rather than activating
+# it.
+#
+# Registries, unlike sources, are depot-level: a registry in
+# `<depot>/registries` is visible to every environment on the machine,
+# including benchpkg's temp projects. So the fix is to give the runner a
+# throwaway registry carrying exactly the pinned revisions, which
+# [`bootstrap_sources_registry`] builds with `LocalRegistry` (lazily loaded, so
+# it stays out of the kit's dependencies). Path sources are not registered:
+# they resolve relative to the environment, or are staged into place (the
+# ADFixtures trick, #125).
+#
+# The bootstrap is a no-op for a package whose `[sources]` are all path pins or
+# already-registered names, which is every package until it adopts an
+# unregistered dependency.
+
+"""
+The scratch registry the benchmark CI bootstraps into the runner's depot.
+"""
+const SCRATCH_REGISTRY = "EpiAwareScratch"
+
+# The registry's git commits need an identity, and a bare CI runner has none
+# configured. Pass it explicitly rather than depending on the runner's git
+# config; the registry is thrown away with the runner, so the identity is
+# cosmetic.
+const _SCRATCH_GITCONFIG = Dict(
+    "user.name" => "EpiAwarePackageTools",
+    "user.email" => "noreply@epiaware.invalid")
+
+const _Source = @NamedTuple{name::String, url::String, rev::String}
+
+"""
+    git_sources(project) -> Vector{@NamedTuple{name, url, rev}}
+
+The git-pinned entries of a project's `[sources]` section, sorted by name.
+
+`project` is a package directory or a path to a `Project.toml`. Entries pinned
+by `path` are skipped (they need no registration) and a missing file yields an
+empty vector. `rev` is `""` when the pin names no revision.
+"""
+function git_sources(project::AbstractString)
+    file = isdir(project) ? joinpath(project, "Project.toml") : project
+    isfile(file) || return _Source[]
+    toml = Pkg.TOML.parsefile(file)
+    out = _Source[]
+    for (name, entry) in get(toml, "sources", Dict{String, Any}())
+        entry isa AbstractDict || continue
+        haskey(entry, "url") || continue
+        push!(out, (name = String(name), url = String(entry["url"]),
+            rev = String(get(entry, "rev", ""))))
+    end
+    sort!(out; by = s -> s.name)
+    return out
+end
+
+# Whether any registry reachable from the current depot knows the name. A
+# registered dependency resolves by name everywhere already, so the bootstrap
+# leaves it alone.
+function _is_registered(name::AbstractString)
+    for reg in Pkg.Registry.reachable_registries()
+        any(p -> p.name == name, values(reg.pkgs)) && return true
+    end
+    return false
+end
+
+"""
+    unregistered_sources(project) -> Vector{@NamedTuple{name, url, rev}}
+
+The git-pinned `[sources]` entries of `project` ([`git_sources`](@ref)) whose
+package name no registry reachable from the current depot knows.
+
+These are the pins that cannot resolve in an environment that installs the
+package as a dependency, and so the ones [`bootstrap_sources_registry`](@ref)
+registers.
+"""
+function unregistered_sources(project::AbstractString)
+    return filter(s -> !_is_registered(s.name), git_sources(project))
+end
+
+"""
+    bootstrap_sources_registry(project = pwd(); depot, registry_name,
+        work_dir, gitconfig) -> Vector{String}
+
+Register `project`'s unregistered git-pinned `[sources]` dependencies into a
+scratch registry in `depot`, and return the names registered.
+
+Each pin is cloned at its `rev` and registered with `LocalRegistry` (loaded at
+call time, so it is only needed in the environment that runs this) into
+`<depot>/registries/<registry_name>`, without pushing anywhere. Registries are
+depot-level, so the dependency then resolves *by name* in every environment on
+that machine — including the temp project AirspeedVelocity's `benchpkg` builds,
+which ignores a dependency's own `[sources]` (#216).
+
+A project with no unregistered git pins is a no-op: nothing is cloned, no
+registry is created, and an empty vector is returned. Re-running is idempotent
+(an already-registered version is left as it is). `git` must be on the path.
+"""
+function bootstrap_sources_registry(project::AbstractString = pwd();
+        depot::AbstractString = first(DEPOT_PATH),
+        registry_name::AbstractString = SCRATCH_REGISTRY,
+        work_dir::AbstractString = mktempdir(),
+        gitconfig::AbstractDict = _SCRATCH_GITCONFIG)
+    sources = unregistered_sources(project)
+    isempty(sources) && return String[]
+    LR = _localregistry()
+    config = Dict{String, String}(gitconfig)
+    registry = joinpath(depot, "registries", registry_name)
+    if !isfile(joinpath(registry, "Registry.toml"))
+        mkpath(dirname(registry))
+        Base.invokelatest(LR.create_registry, registry, "file://" * registry;
+            description = "Scratch registry for unregistered [sources] pins.",
+            push = false, gitconfig = config)
+    end
+    registered = String[]
+    for s in sources
+        clone = joinpath(work_dir, s.name)
+        run(`git clone --quiet $(s.url) $clone`)
+        isempty(s.rev) || run(`git -C $clone checkout --quiet $(s.rev)`)
+        Base.invokelatest(LR.register, clone; registry = registry,
+            repo = s.url, push = false, gitconfig = config)
+        push!(registered, s.name)
+    end
+    return registered
 end
 
 end # module Benchmarks

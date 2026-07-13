@@ -86,6 +86,31 @@ That page combines a managed skeleton, your package-owned prose in
 `docs/benchmarks.md`, and the rendered performance history, so the narrative you
 write sits above the accumulated timeline.
 
+### Unregistered `[sources]` dependencies
+
+Both benchmark workflows install the package as a *dependency*, and Pkg honours
+only the active project's `[sources]` section.
+A package that pins a dependency there by git url and revision because that
+dependency is not yet registered (an EpiAware package in its pre-registration
+window, say) would therefore fail to resolve it, with `has no known versions!`.
+AirspeedVelocity's `benchpkg` hits the same wall in the temp project it builds
+per revision, which is why the existing staging trick for *path* sources cannot
+help: this is registry-level absence, not a relative path.
+
+Both workflows head this off with a step that calls
+`EpiAwarePackageTools.Benchmarks.bootstrap_sources_registry`.
+It reads the package's `[sources]`, clones each unregistered git pin at its
+revision, and registers it into a throwaway `LocalRegistry` in the runner's
+depot.
+Registries, unlike sources, are depot-level, so the dependency then resolves by
+name in every environment on that runner, including benchpkg's temp projects.
+Nothing is pushed anywhere and the registry dies with the runner.
+
+The step is a no-op for a package whose `[sources]` are all path pins or
+already-registered names: nothing is cloned and no registry is created.
+It needs no configuration, and it retires itself as dependencies reach the
+General registry.
+
 ## Adding scenarios
 
 Add benchmarks by extending `SUITE` in `benchmark/benchmarks.jl`.
