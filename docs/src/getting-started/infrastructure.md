@@ -68,6 +68,31 @@ current template is the normal state of an adopter that is simply on an older
 kit version, so a general divergence warning would fire on every sync and tell
 you nothing. Mark the files you own instead.
 
+A bespoke `docs/make.jl` is the other case the marker is meant for. The managed
+`make.jl` is a thin [`build_docs`](@ref) entry point, which regenerates
+`docs/src/index.md` from the README and reads a package-owned
+`docs/docs_config.jl`. A package that has deliberately kept a direct
+`DocumenterVitepress` build with a hand-authored home page marks its `make.jl`,
+and `scaffold_update` then leaves the build alone instead of migrating it on a
+routine sync.
+
+## What the kit preserves without a marker
+
+Some parts of a managed file are adopter configuration rather than standard, and
+the kit recovers them from the committed repository on every sync, so the file
+keeps tracking the standard while the customisation survives. No marker is
+needed, and none of these values has to be re-passed to `scaffold_update`.
+
+- The reviewer handle, the docs-hosting choice, the benchmark and
+  downgrade-compat opt-ins, Dependabot's action and reusable-workflow pins, and
+  any package-owned `with:` input added to a managed CI caller.
+- The Zenodo DOI badge and the licence badge in the README. A non-MIT package
+  keeps its licence badge across a sync; pass `license` explicitly only to
+  change it.
+- The `downstreams` list in `.github/workflows/downstream.yaml`. Which packages
+  depend on yours is a fact about your package, so the list you commit wins over
+  the template's empty seed, while the rest of the workflow stays managed.
+
 ## Staying in sync
 
 Two workflows keep an adopting package aligned with the kit.

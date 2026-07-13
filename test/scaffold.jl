@@ -2016,6 +2016,7 @@
         end
 
         @testset "scaffold_update preserves the downstreams list (#234)" begin
+            using EpiAwarePackageTools: _preserve_downstreams
             entry = "'[{\"repo\":\"FakeOrg/Downstream.jl\"}]'"
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
@@ -2045,9 +2046,13 @@
                 # ... and a second scaffold_update is idempotent on the list.
                 scaffold_update(dir)
                 @test read(wf, String) == after
-                # scaffold(force = true) still lays the seed down fresh.
+                # scaffold(force = true) re-lays the managed workflow but, like
+                # every other destination-reading pass in `_emit` (Dependabot
+                # pins, package-owned `with:` inputs), still keeps the committed
+                # list: `force` overwrites package-owned *files*, it does not
+                # discard configuration recovered from the repo.
                 scaffold(dir; force = true)
-                @test occursin("downstreams: '[]'", read(wf, String))
+                @test occursin("downstreams: " * entry, read(wf, String))
             end
             # A package that never set a list keeps the seed default: no
             # spurious preservation.
@@ -2059,6 +2064,18 @@
                 scaffold_update(dir)
                 @test read(wf, String) == before
                 @test occursin("downstreams: '[]'", read(wf, String))
+            end
+            # First adoption (no destination yet) and a committed workflow that
+            # sets no list at all both leave the template's seed alone.
+            mktempdir() do dir
+                seed = "    with:\n      downstreams: '[]'\n"
+                dest = joinpath(dir, "downstream.yaml")
+                @test _preserve_downstreams(seed, dest) == seed
+                write(dest, "jobs:\n  downstream:\n    uses: x\n")
+                @test _preserve_downstreams(seed, dest) == seed
+                # A template with no `downstreams:` key is untouched.
+                plain = "name: Test\n"
+                @test _preserve_downstreams(plain, dest) == plain
             end
         end
 

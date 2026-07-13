@@ -528,10 +528,45 @@ function _detect_doi(target_dir::AbstractString)
 end
 
 """
+    _detect_license(target_dir)
+
+Recover an already-scaffolded repo's licence so a resync (`scaffold_update`
+with no `license` kwarg) keeps it instead of resetting the README badge to
+`$(repr(DEFAULT_LICENSE))` (#235).
+
+The README "License & DOI" badge cell is managed and re-rendered on every
+sync, but `license` defaults to `$(repr(DEFAULT_LICENSE))` and the scheduled
+template-sync never re-passes it, so a non-MIT adopter's badge was flipped to
+MIT on every automated sync — a licensing-correctness regression, and the
+same failure mode `_detect_doi` fixed for the DOI badge (#161). The value is
+therefore read back from the destination: first the managed License badge the
+kit renders, then the `Project.toml` `license` field for a repo whose README
+has no badge block yet. Returns the SPDX id, or `nothing` when neither
+carries one (so a never-configured repo takes the scaffold default). Only a
+`SUPPORTED_LICENSES` id is recovered, since that is what `scaffold_inputs`
+accepts; an explicit `license` keyword still wins, so a deliberate change is
+never blocked.
+"""
+function _detect_license(target_dir::AbstractString)
+    readme = joinpath(target_dir, "README.md")
+    if isfile(readme)
+        m = match(r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
+            read(readme, String))
+        if m !== nothing
+            spdx = String(something(m.captures[1]))
+            spdx in SUPPORTED_LICENSES && return spdx
+        end
+    end
+    proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
+    proj !== nothing && proj in SUPPORTED_LICENSES && return proj
+    return nothing
+end
+
+"""
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
         holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
         reviewer = nothing, year = <current year>,
-        license = $(repr(DEFAULT_LICENSE))) -> NamedTuple
+        license = nothing) -> NamedTuple
 
 Resolve the placeholder substitution values for [`scaffold`](@ref) /
 [`scaffold_update`](@ref).
@@ -556,8 +591,12 @@ into a template:
   - `year` — copyright year (`{{YEAR}}`); default the current year.
   - `license` — the SPDX licence identifier (one of
     `$(join(SUPPORTED_LICENSES, ", "))`) selecting which `LICENSE` text
-    [`scaffold`](@ref) writes; default `$(repr(DEFAULT_LICENSE))`. This is a
-    scaffold-time choice, not a substitution placeholder, and the `LICENSE` is
+    [`scaffold`](@ref) writes and which README badge is rendered. Default
+    `nothing`, in which case the licence already committed to the repo (its
+    README badge, else its `Project.toml` `license` field) is recovered and
+    kept (`#235`), falling back to `$(repr(DEFAULT_LICENSE))` for a
+    never-configured target — so a bare `scaffold_update`/template-sync does
+    not flip a non-MIT adopter's badge to MIT. The `LICENSE` text itself is
     written once and never overwritten by [`scaffold_update`](@ref) so a deliberate
     licence is never reverted.
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
@@ -584,11 +623,19 @@ function scaffold_inputs(target_dir::AbstractString;
         repo::Union{Nothing, AbstractString} = nothing,
         reviewer::Union{Nothing, AbstractString} = nothing,
         year::Union{Nothing, Integer} = nothing,
-        license::AbstractString = DEFAULT_LICENSE,
+        license::Union{Nothing, AbstractString} = nothing,
         docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
         docs_timeout::Union{Nothing, Integer} = nothing)
+    # When no `license` is passed, recover the one the repo already committed
+    # (its README badge, else its `Project.toml` `license` field) so a bare
+    # `scaffold_update`/template-sync keeps a non-MIT adopter's badge instead of
+    # resetting it to the default (#235) — the same read-back-the-destination
+    # idempotency `_detect_doi` provides. A never-configured target falls back
+    # to the scaffold default.
+    license = license === nothing ?
+              something(_detect_license(target_dir), DEFAULT_LICENSE) : license
     license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
         join(repr.(SUPPORTED_LICENSES), ", "))
@@ -956,6 +1003,49 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
     return _render_with_block(s.head, s.indent, vcat(s.inputs, extra), trailing)
 end
 
+# The `downstreams:` input of the managed `downstream.yaml` caller: its indent
+# and key (group 1) and its single-line value (group 2). Only that one template
+# renders the key, so the `occursin` guard in `_preserve_downstreams` scopes the
+# pass to it.
+const _DOWNSTREAMS_INPUT = r"(?m)^([ \t]+downstreams:[ \t]*)(\S.*?)[ \t]*$"
+
+"""
+    _preserve_downstreams(content, dest)
+
+Keep the destination's reverse-dependency list when re-emitting the managed
+`downstream.yaml`.
+
+Which packages depend on this one is a fact about the adopting package, not a
+standard the kit sets: the template seeds `downstreams: '[]'` with a worked
+example, and re-applying that seed on every sync silently reset an adopter's
+list (#234). So the committed value wins and only the rest of the workflow is
+re-applied from the template — the same read-back-the-destination shape as
+`_preserve_reusable_refs`/`_preserve_action_pins`, and preferable to marking the
+whole file package-owned (`EPIAWARE_MANAGED_OVERRIDE`, see
+`_detect_managed_override`), which would stop the workflow tracking the standard
+for the sake of one line.
+
+A bespoke pass rather than a `_preserve_caller_with_inputs` case. That
+machinery keys off the `uses:`→`with:`→`secrets:` shape, which this caller
+does not have (it puts `secrets:` first), and the key is one the template
+itself renders, so `_merge_with_blocks` would let the template's seed win on
+it (#183). On first adoption, or when the committed workflow sets no list,
+the template's seed stands.
+"""
+function _preserve_downstreams(content::AbstractString, dest::AbstractString)
+    occursin(_DOWNSTREAMS_INPUT, content) || return content
+    isfile(dest) || return content
+    m = match(_DOWNSTREAMS_INPUT, read(dest, String))
+    m === nothing && return content
+    value = String(something(m.captures[2]))
+    return replace(content,
+        _DOWNSTREAMS_INPUT => function (s)
+            mm = match(_DOWNSTREAMS_INPUT, s)
+            mm === nothing && return String(s)
+            return String(something(mm.captures[1])) * value
+        end)
+end
+
 function _preserve_caller_with_inputs(content::AbstractString,
         dest::AbstractString)
     occursin(_CALLER_JOB, content) || return content
@@ -1008,8 +1098,9 @@ end
 # workflows additionally keep any reusable-workflow ref (see
 # `_preserve_reusable_refs`) and any third-party action pin (see
 # `_preserve_action_pins`) the destination already carries, plus any
-# package-owned `with:` input it holds (see `_preserve_caller_with_inputs`), so
-# neither a Dependabot bump nor a deliberate caller override is reverted.
+# package-owned `with:` input it holds (see `_preserve_caller_with_inputs`) and
+# its reverse-dependency list (see `_preserve_downstreams`), so neither a
+# Dependabot bump nor a deliberate caller override is reverted.
 function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         inputs::NamedTuple)
     mkpath(dirname(to))
@@ -1021,6 +1112,7 @@ function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         content = _preserve_reusable_refs(content, to)
         content = _preserve_action_pins(content, to)
         content = _preserve_caller_with_inputs(content, to)
+        content = _preserve_downstreams(content, to)
         write(to, content)
     else
         cp(from, to; force = true)
