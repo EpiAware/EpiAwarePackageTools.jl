@@ -3052,7 +3052,7 @@ function _emit_package_skeleton(target_dir::AbstractString, package::AbstractStr
     DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 
     [compat]
-    DocStringExtensions = "0.9"
+    DocStringExtensions = "0.9.5"
     julia = "$(_JULIA_COMPAT)"
     """)
     write(joinpath(target_dir, "src", "$package.jl"), """
