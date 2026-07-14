@@ -121,6 +121,7 @@
                     ".github/workflows/TagBot.yaml",
                     ".github/workflows/docpreviewcleanup.yaml",
                     ".github/workflows/cancel-on-close.yaml",
+                    ".github/workflows/registrability.yaml",
                     ".github/workflows/try-this-pr.yaml",
                     ".github/workflows/claude.yml",
                     ".github/workflows/claude-code-review.yml",
@@ -142,6 +143,18 @@
                     String)
                 @test occursin(
                     "EpiAware/.github/.github/workflows/cancel-on-close.yml", coc)
+                # The registrability caller invokes the org reusable, pins it
+                # by SHA (like the other callers, so Dependabot can bump it),
+                # and triggers only on a Project.toml change / dispatch / main.
+                reg = read(
+                    joinpath(dir, ".github/workflows/registrability.yaml"),
+                    String)
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/registrability.yml@",
+                    reg)
+                @test occursin("workflow_dispatch", reg)
+                @test occursin("'Project.toml'", reg)
+                @test !occursin("{{ORG}}", reg)
                 # Coverage hard-fails on upload error (org policy: red on a
                 # missing CODECOV_TOKEN as a loud reminder to add it).
                 cov_caller = read(
@@ -2103,22 +2116,28 @@
         end
 
         @testset "reusable-workflow seed refs are single-sourced (#186)" begin
-            using EpiAwarePackageTools: _DOWNGRADE_SEED_REF, _templates_dir
+            using EpiAwarePackageTools: _DOWNGRADE_SEED_REF,
+                                        _REGISTRABILITY_SEED_REF, _templates_dir
             # Every template pins the org reusables at the same seed commit, so
             # a fresh scaffold never starts life behind on some workflows and
             # current on others (#186: the seed had drifted from `.github` head
-            # on some callers and not others).
+            # on some callers and not others). The registrability caller is the
+            # one documented exception: `registrability.yml` post-dates the
+            # shared seed, so it pins its own newer seed until that commit
+            # merges to `.github` main and Dependabot converges the pins.
             wf = joinpath(_templates_dir(), ".github", "workflows")
             pins = String[]
             for f in readdir(wf; join = true)
+                expected = endswith(f, "registrability.yaml") ?
+                           _REGISTRABILITY_SEED_REF : _DOWNGRADE_SEED_REF
                 for m in eachmatch(
                     r"/\.github/\.github/workflows/[^@\s]+@([0-9a-f]{40})",
                     read(f, String))
+                    @test String(m.captures[1]) == expected
                     push!(pins, String(m.captures[1]))
                 end
             end
             @test !isempty(pins)
-            @test all(==(_DOWNGRADE_SEED_REF), pins)
         end
 
         @testset "docs_timeout sets the Documenter build timeout (#154)" begin
