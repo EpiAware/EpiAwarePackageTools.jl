@@ -29,6 +29,14 @@ const TUTORIAL_STUBS = Pair{String, String}[]
 
 # Regexes for URLs to skip during the (full-build) linkcheck, e.g. a page
 # published by a separate workflow that is not yet live.
+# Whether this package advertises itself as part of the EpiAware ecosystem: a
+# "Part of the EpiAware ecosystem" section in the managed README block, and the
+# EpiAware logo + org links in the docs footer. Opt-in and off by default — the
+# kit scaffolds packages outside the org too, and they should carry no EpiAware
+# branding. The kit is itself an EpiAware package, so it opts in, dogfooding the
+# feature it ships (#242).
+const ORG_BRANDING = true
+
 const LINKCHECK_IGNORE = Regex[]
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,

@@ -73,6 +73,10 @@ Pkg.add("EpiAwarePackageTools")
      markers. These standard sections are re-rendered on every scaffold_update;
      edit the package-owned sections outside them, or CITATION.cff. -->
 
+## Part of the EpiAware ecosystem
+
+EpiAwarePackageTools is part of [EpiAware](https://epiaware.org), a set of composable tools for infectious disease modelling. See the [other packages](https://github.com/EpiAware) in the ecosystem.
+
 ## Contributing
 
 We welcome contributions and new contributors! Please open an issue or pull request on [GitHub](https://github.com/EpiAware/EpiAwarePackageTools.jl). This package follows [ColPrac](https://github.com/SciML/ColPrac) and the [SciML style](https://github.com/SciML/SciMLStyle).
