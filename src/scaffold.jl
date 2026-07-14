@@ -414,7 +414,11 @@ const _JULIA_DOWNGRADE_VERSION = "'1.11'"
 function _julia_versions_below_floor(content::AbstractString)
     below = String[]
     for m in eachmatch(r"(?m)^[ \t]*julia_versions?:[ \t]*(\S.*?)[ \t]*$", content)
-        value = String(something(m.captures[1]))
+        # Drop a trailing inline comment before scanning: a note explaining
+        # which leg was dropped (`julia_versions: '["1"]'  # was ["1","lts"]`)
+        # would otherwise be read as the value and warn about a leg that is not
+        # there.
+        value = replace(String(something(m.captures[1])), r"\s+#.*$" => "")
         occursin("lts", value) && push!(below, "lts")
         for v in eachmatch(r"(\d+\.\d+)", value)
             text = String(something(v.captures[1]))
@@ -1111,12 +1115,26 @@ end
 # next sync — and `_julia_versions_below_floor` warns if a package's own
 # override reaches back below the floor, rather than the kit overwriting a
 # deliberate choice.
-const _WITH_SEED_DEFAULT_KEYS = Set(["julia_versions", "julia_version"])
+# Scoped to the reusable workflow that renders the key, not global by name:
+# `codecoverage.yaml`'s `coverage.yml` caller renders a `julia_version` of its
+# own, which is *managed* (the kit moves the whole fleet's coverage job when it
+# moves), and a set keyed on the bare name would quietly un-manage that too —
+# freezing every adopter's coverage version and, worse, letting one sit on 1.10,
+# the exact version this floor exists to keep them off.
+const _WITH_SEED_DEFAULT_KEYS = Dict(
+    "tests.yml" => Set(["julia_versions"]),
+    "downgrade.yml" => Set(["julia_version"]))
+
+function _seed_default_keys(workflow::AbstractString)
+    get(_WITH_SEED_DEFAULT_KEYS, workflow, Set{String}())
+end
 
 # Merge the template's `with:` block (`seed`) with the destination's, keeping
 # every key the template manages, letting the destination win on a seed-default
-# key it names, and appending the keys only the package carries.
-function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
+# key it names (scoped to `workflow`, the reusable being called), and appending
+# the keys only the package carries.
+function _merge_with_blocks(seed::AbstractString, existing::AbstractString,
+        workflow::AbstractString = "")
     s = _parse_with_block(seed)
     e = _parse_with_block(existing)
     e.indent === nothing && return seed
@@ -1128,7 +1146,8 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
     named = Dict(first(p) => p for p in e.inputs)
     # A seed-default key the destination names is the package's, comments and
     # all; every other seeded key is the kit's.
-    overridden = Set(k for k in keys(named) if k in _WITH_SEED_DEFAULT_KEYS)
+    defaults = _seed_default_keys(workflow)
+    overridden = Set(k for k in keys(named) if k in defaults)
     merged = Pair{String, Vector{String}}[]
     for p in s.inputs
         key = first(p)
@@ -1214,7 +1233,8 @@ function _preserve_caller_with_inputs(content::AbstractString,
             seed = String(something(m.captures[3], ""))
             suffix = String(something(m.captures[5]))
             kept = get(existing, workflow, "")
-            replacement = isempty(kept) ? seed : _merge_with_blocks(seed, kept)
+            replacement = isempty(kept) ? seed :
+                          _merge_with_blocks(seed, kept, workflow)
             return prefix * replacement * suffix
         end)
 end
@@ -2503,16 +2523,22 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # and the kit does not overwrite it (`_WITH_SEED_DEFAULT_KEYS`). But a leg
     # below the floor tests a kit resolved from the registry rather than the
     # pinned rev, so an override that reaches back below it is never silent.
-    test_wf = joinpath(target_dir, ".github", "workflows", "test.yaml")
-    if isfile(test_wf)
-        legs = _julia_versions_below_floor(read(test_wf, String))
-        isempty(legs) || push!(warnings,
-            string(".github/workflows/test.yaml tests Julia ",
-                join(legs, ", "), ", below the ", _JULIA_FLOOR,
-                " the managed standard needs: `[sources]` is ignored there, so ",
-                "that leg resolves the registered kit rather than the pinned ",
-                "rev and tests a stale kit while appearing to test this one. ",
-                "Drop it from julia_versions (#246)."))
+    # Scanned across every managed caller, not just test.yaml: `codecoverage.yaml`
+    # names a Julia version of its own, and a coverage job below the floor is the
+    # same silent staleness, measured and published as if it were current.
+    wf_dir = joinpath(target_dir, ".github", "workflows")
+    if isdir(wf_dir)
+        for f in sort(readdir(wf_dir))
+            endswith(f, ".yaml") || endswith(f, ".yml") || continue
+            legs = _julia_versions_below_floor(read(joinpath(wf_dir, f), String))
+            isempty(legs) || push!(warnings,
+                string(".github/workflows/", f, " tests Julia ",
+                    join(legs, ", "), ", below the ", _JULIA_FLOOR,
+                    " the managed standard needs: `[sources]` is ignored there, ",
+                    "so that leg resolves the registered kit rather than the ",
+                    "pinned rev and tests a stale kit while appearing to test ",
+                    "this one. Drop it (#246)."))
+        end
     end
     # `.gitignore` is managed between markers so package-owned additions below
     # the block survive `scaffold_update` (#65). Reported separately for the same

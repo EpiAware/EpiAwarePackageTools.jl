@@ -1972,7 +1972,12 @@
                 @test occursin("coverage_directories: 'src,ext'", after)
                 # ... and the kit-rendered keys in the same block are still
                 # managed (the template's value wins on a key collision).
-                @test occursin("julia_version:", after)
+                #
+                # Asserted on the VALUE, not merely the key's presence: the
+                # coverage caller's `julia_version` shares its name with the
+                # downgrade caller's seed-default key (#246), and a key-presence
+                # check stays green even if this one were quietly un-managed.
+                @test occursin("julia_version: '1'", after)
                 # Idempotent on the merged block.
                 scaffold_update(dir)
                 @test read(caller, String) == after
@@ -3083,6 +3088,66 @@ end # @testitem "scaffold + scaffold_update (logic)"
             @test any(w -> occursin("lts", w) && occursin("stale kit", w),
                 res.warnings)
         end
+    end
+
+    @testset "seed-defaults are scoped to their caller, not the key name" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            # `codecoverage.yaml`'s coverage caller renders a `julia_version` of
+            # its own, and it is MANAGED — the kit moves the whole fleet's
+            # coverage job when it moves. It happens to share a name with the
+            # downgrade caller's seed-default key, so a seed-default set keyed on
+            # the bare name would quietly un-manage it: every adopter frozen at
+            # whatever they carry, and one able to sit on 1.10 — the very version
+            # this floor exists to keep them off — unwarned.
+            cov = _p(dir, ".github/workflows/codecoverage.yaml")
+            @test occursin("julia_version: '1'", read(cov, String))
+            write(cov,
+                replace(read(cov, String),
+                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.10'"))
+            res = scaffold_update(dir)
+            after = read(cov, String)
+            # The kit reclaims its managed value ...
+            @test occursin("julia_version: '1'", after)
+            @test !occursin("julia_version: '1.10'", after)
+            # ... and the downgrade caller's same-named key is still the
+            # package's to override, in the same run.
+            caller = _p(dir, ".github/workflows/test.yaml")
+            write(caller,
+                replace(read(caller, String),
+                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'"))
+            scaffold_update(dir)
+            @test occursin("julia_version: '1.12'",
+                read(caller, String))
+            @test occursin("julia_version: '1'", read(cov, String))
+        end
+    end
+
+    @testset "the floor scan reads every workflow, not just test.yaml" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            # The scan runs after the managed files are re-applied, so a MANAGED
+            # below-floor value is already gone by then — the kit fixed it, and
+            # there is nothing to warn about (asserted above). The scan exists
+            # for the values the kit does not overwrite: the seed-default keys,
+            # and anything in a workflow the package owns outright.
+            own = _p(dir, ".github/workflows/nightly.yaml")
+            write(own,
+                "jobs:\n  x:\n    with:\n      julia_version: '1.10'\n")
+            res = scaffold_update(dir)
+            @test any(w -> occursin("nightly.yaml", w) && occursin("1.10", w),
+                res.warnings)
+        end
+    end
+
+    @testset "an inline comment is not read as a version" begin
+        # A note explaining which leg was dropped must not warn about a leg that
+        # is not there.
+        @test _julia_versions_below_floor(
+            "      julia_versions: '[\"1\", \"pre\"]'  # was [\"1\",\"lts\"]\n") ==
+              String[]
     end
 
     @testset "_julia_versions_below_floor names the offending legs" begin
