@@ -1346,8 +1346,12 @@ end
     # would silently revert unseen upstream changes to it. Refuse, loudly.
     broken = DB._VITEPRESS_LAST_KNOWN_BROKEN
     @test DB._vitepress_patchable(broken)
-    @test DB._vitepress_patchable(VersionNumber(broken.major, broken.minor,
-        broken.patch - 1))
+    # An older version is patchable. Written as a literal rather than as
+    # `broken.patch - 1`: the fields are `UInt32`, so once the bound is
+    # refreshed to an `x.y.0` (the likely next value, and exactly what the
+    # shim's own comment tells the next maintainer to do) that subtraction
+    # underflows and throws an InexactError from a test about something else.
+    @test DB._vitepress_patchable(v"0.0.1")
     newer = VersionNumber(broken.major, broken.minor, broken.patch + 1)
     msg = (:warn, r"newer than the version this shim copies")
     @test_logs msg @test !DB._vitepress_patchable(newer)
