@@ -108,7 +108,7 @@ end
 #      method on a version whose body we have not checked would silently revert
 #      any other upstream change to it. A newer version that still aborts warns
 #      loudly and is left alone (refresh the copy below, and the bound).
-const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.4"
+const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.5"
 
 # The quoted replacement method. Evaluated inside DocumenterVitepress so every
 # name (`render`, `InventoryItem`, `sanitized_anchor_label`, the
