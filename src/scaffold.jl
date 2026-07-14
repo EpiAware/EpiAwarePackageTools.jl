@@ -1660,7 +1660,13 @@ then preserves the package's choice instead of reverting it. Defaults to
 function _detect_org_branding(target_dir::AbstractString)
     cfg = joinpath(target_dir, "docs", "docs_config.jl")
     isfile(cfg) || return false
-    m = match(r"const\s+ORG_BRANDING\s*=\s*(true|false)", read(cfg, String))
+    # Anchored to the start of a line: commenting the const out
+    # (`# const ORG_BRANDING = true`) is the obvious way to turn branding off,
+    # and an unanchored match would read that as still on — branding a repo
+    # whose owner had just opted out. A `const` is a top-level statement, so
+    # only leading whitespace may precede it.
+    m = match(r"(?m)^\s*const\s+ORG_BRANDING\s*=\s*(true|false)\s*$",
+        read(cfg, String))
     m === nothing && return false
     return something(m.captures[1]) == "true"
 end
@@ -1717,25 +1723,40 @@ Write (or remove) the bundled EpiAware org logo asset, following the package's
 
 Bundled but deliberately not a `SCAFFOLD_TEMPLATES` entry, like the `LICENSE`
 variants: the template table is emitted wholesale, and a third-party adopter
-must not be handed an EpiAware logo. Returns `:created`, `:refreshed`,
-`:removed`, or `:skipped`.
+must not be handed an EpiAware logo.
 
-Managed, so the asset is re-applied when it drifts, and removed when branding
-is turned back off — leaving a repo that opts out with no EpiAware asset, and
-`scaffold_update` a fixed point either way.
+Returns `:created` (written fresh), `:refreshed` (drifted, rewritten),
+`:unchanged` (already byte-correct, nothing written), `:removed` (branding off,
+the kit's asset withdrawn), or `:skipped` (branding off, nothing of ours there).
+
+Managed, so the asset is re-applied when it drifts and removed when branding is
+turned back off — leaving a repo that opts out with no EpiAware asset, and
+`scaffold_update` a fixed point in both states.
+
+Turning branding off deletes the asset only when it is byte-identical to the one
+the kit shipped. A file the package put at that path is *not* the kit's to
+remove, so it is left alone with a warning, rather than silently destroying
+package content — the same care `_detect_managed_override` takes elsewhere.
 """
 function _apply_org_branding(target_dir::AbstractString, org_branding::Bool)
     dest = joinpath(target_dir, _ORG_LOGO_SEGMENTS...)
-    if !org_branding
-        isfile(dest) || return :skipped
-        rm(dest; force = true)
-        return :removed
-    end
     from = joinpath(_templates_dir(), _ORG_LOGO_SRC)
     isfile(from) || error("missing bundled org logo at $from")
     content = read(from, String)
+    if !org_branding
+        isfile(dest) || return :skipped
+        if read(dest, String) != content
+            @warn "$(_ORG_LOGO_REL) is not the logo this kit ships, so it is " *
+                  "the package's, not the kit's to delete — leaving it in " *
+                  "place though ORG_BRANDING is off. Remove it by hand if it " *
+                  "is a leftover (#242)."
+            return :skipped
+        end
+        rm(dest; force = true)
+        return :removed
+    end
     exists = isfile(dest)
-    exists && read(dest, String) == content && return :refreshed
+    exists && read(dest, String) == content && return :unchanged
     mkpath(dirname(dest))
     write(dest, content)
     return exists ? :refreshed : :created
@@ -1813,7 +1834,8 @@ managed block is a deliberate, maintainer-signed per-repo wording change, #67).
 Mirrors `_apply_badges`/`_apply_gitignore`: only the marked region is rewritten.
 """
 function _apply_standard_sections(
-        target_dir::AbstractString, inputs::NamedTuple)
+        target_dir::AbstractString, inputs::NamedTuple;
+        org_branding::Bool = false)
     readme = joinpath(target_dir, "README.md")
     isfile(readme) || return (:skipped, false)
     pkg = inputs.PACKAGE
@@ -1822,7 +1844,7 @@ function _apply_standard_sections(
     (pkg === nothing || org === nothing || repo === nothing) &&
         return (:skipped, false)
     body = _render_standard_sections(String(pkg), String(org), String(repo);
-        doi = inputs.DOI, org_branding = _detect_org_branding(target_dir))
+        doi = inputs.DOI, org_branding = org_branding)
     block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *
             "\n\n" * body * STANDARD_SECTIONS_END
     text = read(readme, String)
@@ -2223,11 +2245,22 @@ overwritten).
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
-    # Read once, before anything is written: the opt-in lives in the
-    # package-owned `docs/docs_config.jl`, which `scaffold` seeds (defaulting
-    # the flag off) in this same pass, so a fresh package is unbranded and a
-    # resync sees the choice the package actually committed (#242).
-    org_branding = _detect_org_branding(target_dir)
+    # The opt-in (#242). Read once, and used by every branding surface (README
+    # section, docs footer, logo asset), so they cannot disagree with each other
+    # or with the flag left on disk.
+    #
+    # It must be the value the config will hold when this run *finishes*, not
+    # merely when it starts, because `docs/docs_config.jl` is package-owned and
+    # this same pass can rewrite it. `force` (and only `force`) re-lays the
+    # package-owned files, so it resets the config — and the flag with it — to
+    # the template default, off. Every other path leaves an existing config
+    # alone (`managed_only` skips package-owned files; an unforced `scaffold`
+    # writes them only when absent), so the committed choice stands. Reading the
+    # destination naively here would brand the footer and the logo from the old
+    # value while `force` reset the flag underneath, leaving a repo whose README
+    # says one thing, whose footer says another, and whose next sync strips both.
+    org_branding = (force && !managed_only) ? false :
+                   _detect_org_branding(target_dir)
     # Expose the AD + benchmarks + downgrade-compat flags as substitution values
     # so the scheduled template-sync workflow re-applies the standard with the
     # same choices the package adopted. `BENCHMARKS_NAV` is the benchmark docs
@@ -2370,7 +2403,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # managed between markers, like the badge block: refreshed on every sync but
     # only within the markers, so a package's own body sections are preserved.
     # Reported separately (`standard_sections`) for the same reason as `readme`.
-    sections_action = first(_apply_standard_sections(target_dir, inputs))
+    sections_action = first(_apply_standard_sections(target_dir, inputs;
+        org_branding = org_branding))
     # CITATION.cff is package-owned and write-once (like LICENSE): only
     # `scaffold`/`scaffold_generate` (`managed_only = false`) seed it, and only when
     # absent. `scaffold_update` (`managed_only = true`) never touches it, so a package's

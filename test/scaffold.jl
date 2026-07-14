@@ -2832,10 +2832,10 @@ end # @testitem "scaffold + scaffold_update (logic)"
             readme_on = read(joinpath(dir, "README.md"), String)
             mts_on = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
 
-            # A second sync changes nothing (the asset is refreshed, not
-            # re-created) — the sync is a fixed point with branding on.
+            # A second sync writes nothing — the sync is a fixed point with
+            # branding on.
             res2 = scaffold_update(dir)
-            @test res2.org_branding == :refreshed
+            @test res2.org_branding == :unchanged
             @test read(joinpath(dir, "README.md"), String) == readme_on
             @test read(_p(dir, "docs/src/.vitepress/config.mts"), String) ==
                   mts_on
@@ -2865,13 +2865,89 @@ end # @testitem "scaffold + scaffold_update (logic)"
             scaffold(dir)
             _set_branding!(dir, true)
             # scaffold_update passes no branding kwarg — it must read the
-            # package's committed choice, not revert it to the default.
+            # package's committed choice, not revert it to the default. This is
+            # the scheduled template-sync's path.
             scaffold_update(dir)
             @test _detect_org_branding(dir)
             @test occursin("const ORG_BRANDING = true", read(_cfg(dir), String))
-            # Even a forced re-scaffold leaves the package-owned config alone.
+            # An unforced re-scaffold leaves the package-owned config alone too.
             scaffold(dir)
             @test _detect_org_branding(dir)
+            @test occursin("## Part of the EpiAware ecosystem",
+                read(joinpath(dir, "README.md"), String))
+        end
+    end
+
+    @testset "force re-lays the config, and the result is self-consistent" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            _set_branding!(dir, true)
+            scaffold_update(dir)
+            @test isfile(_p(dir, _ORG_LOGO_REL))
+
+            # `force` re-lays the package-owned files, docs_config.jl included,
+            # so it resets the flag to the template default — that is what force
+            # means. What must NOT happen is the flag being reset while the
+            # branding is applied from the pre-reset value: that leaves a repo
+            # with a branded footer, an unbranded README and a flag saying off,
+            # whose next sync then strips the branding it never agreed to lose.
+            # Every surface must agree with the flag left on disk.
+            res = scaffold(dir; force = true)
+            @test !_detect_org_branding(dir)
+            @test occursin("const ORG_BRANDING = false", read(_cfg(dir), String))
+            @test res.org_branding == :removed
+            @test !isfile(_p(dir, _ORG_LOGO_REL))
+            @test !occursin("EpiAware ecosystem",
+                read(joinpath(dir, "README.md"), String))
+            mts = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
+            @test !occursin("epiaware-logo.svg", mts)
+
+            # And the following sync agrees: nothing left to strip.
+            res2 = scaffold_update(dir)
+            @test res2.org_branding == :skipped
+            @test !_detect_org_branding(dir)
+        end
+    end
+
+    @testset "a commented-out flag reads as off, not on" begin
+        mktempdir() do dir
+            mkpath(joinpath(dir, "docs"))
+            # Commenting the const out is the obvious way to turn branding off.
+            # An unanchored match would read this as still on and brand a repo
+            # whose owner had just opted out.
+            write(_cfg(dir),
+                "# To join the org, uncomment:\n" *
+                "# const ORG_BRANDING = true\n")
+            @test !_detect_org_branding(dir)
+            # A commented-out line above the real one does not win either.
+            write(_cfg(dir),
+                "# const ORG_BRANDING = true\n" *
+                "const ORG_BRANDING = false\n")
+            @test !_detect_org_branding(dir)
+            # And the live line is still read when it is genuinely set.
+            write(_cfg(dir),
+                "# const ORG_BRANDING = false\n" *
+                "const ORG_BRANDING = true\n")
+            @test _detect_org_branding(dir)
+        end
+    end
+
+    @testset "opting out never deletes a file the kit did not write" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            # Branding is off, but the package has its own file at the org
+            # logo's path. It is not the kit's to delete.
+            own = _p(dir, _ORG_LOGO_REL)
+            mkpath(dirname(own))
+            write(own, "<svg><!-- the package's own file --></svg>")
+            res = @test_logs (:warn, r"not the logo this kit ships") begin
+                scaffold_update(dir)
+            end
+            @test res.org_branding == :skipped
+            @test isfile(own)
+            @test occursin("the package's own file", read(own, String))
         end
     end
 
