@@ -395,7 +395,16 @@ const _JULIA_TEST_VERSIONS = "'[\"1\", \"pre\"]'"
 # `'1.10'` — the exact version where `[sources]` is ignored. Left unset, every
 # adopter's downgrade job resolves the registered kit rather than the pinned rev
 # (the downgrade half of #115).
-const _JULIA_DOWNGRADE_VERSION = "'1.11'"
+#
+# The current release (`'1'`), not the floor. The floor is what `[sources]`
+# needs, and any version at or above it satisfies that; the job additionally has
+# to be a version the *test environment* can resolve on, and 1.11 is not one:
+# JET publishes no release for 1.11 beyond 0.9.19/0.9.20, and those require
+# JuliaSyntax 0.4, which cannot coexist with the pinned JuliaFormatter 2.10.1
+# (JuliaSyntax 1). So the standard's test env is unresolvable on 1.11 whatever
+# the downgrade job does, and pinning the job to the floor would only make CI
+# red on a conflict that has nothing to do with the package under test.
+const _JULIA_DOWNGRADE_VERSION = "'1'"
 
 # Whether a package's `[compat] julia` admits a version below the floor, i.e. it
 # claims support for a Julia on which the managed test infrastructure cannot

@@ -1907,14 +1907,14 @@
                 before = read(caller, String)
                 overridden = replace(before,
                     r"(?m)^      julia_versions: .*$" => "      julia_versions: '[\"1.11\", \"1\"]'",
-                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.11'")
+                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'")
                 @test overridden != before
                 write(caller, overridden)
                 scaffold_update(dir)
                 after = read(caller, String)
                 # The `with:` overrides survive the resync ...
                 @test occursin("julia_versions: '[\"1.11\", \"1\"]'", after)
-                @test occursin("julia_version: '1.11'", after)
+                @test occursin("julia_version: '1.12'", after)
                 # ... the rest of the caller is still managed and re-applied,
                 # and a second scaffold_update is idempotent on the preserved inputs.
                 scaffold_update(dir)
@@ -3007,9 +3007,31 @@ end # @testitem "scaffold + scaffold_update (logic)"
             wf = read(_p(dir, ".github/workflows/test.yaml"), String)
             @test occursin("downgrade-compat:", wf)
             # downgrade.yml's own default is '1.10' — exactly the version where
-            # the [sources] pin is ignored — so it must be given the floor.
-            @test occursin("julia_version: '1.11'", wf)
+            # the [sources] pin is ignored — so the job must be given a version
+            # above the floor. The current release, not the floor itself: the
+            # standard's test env cannot resolve on 1.11 (JET ships nothing for
+            # 1.11 past 0.9.20, and that needs JuliaSyntax 0.4, which the pinned
+            # JuliaFormatter 2.10.1 rules out), so pinning the job to the floor
+            # would only go red on a conflict unrelated to the package.
+            @test occursin("julia_version: '1'", wf)
             @test !occursin("julia_version: '1.10'", wf)
+        end
+    end
+
+    @testset "the JET lower bound is one downgrade can actually resolve" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            compat = read(_p(dir, "test/Project.toml"), String)
+            # The downgrade job pins every dep to the LOWEST version its compat
+            # admits, so a lower bound that cannot resolve is not a lower bound
+            # — it is a red CI job waiting to happen. JET 0.9 admits only
+            # 0.9.19/0.9.20 on 1.11 and nothing at all on 1.12, and both need
+            # JuliaSyntax 0.4, which the pinned JuliaFormatter 2.10.1
+            # (JuliaSyntax 1) rules out. 0.10.2 is the lowest JET that resolves
+            # alongside it. Declaring 0.9 claimed support the standard never had.
+            @test occursin("JET = \"0.10.2\"", compat)
+            @test !occursin("JET = \"0.9", compat)
         end
     end
 
