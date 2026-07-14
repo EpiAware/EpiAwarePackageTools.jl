@@ -215,6 +215,24 @@ function _empty_anchor_aborts(Documenter, DocumenterVitepress)
     end
 end
 
+# Is `version`'s writer the one the shim's copied body was taken from, and so
+# safe to overwrite? The body below is a copy of `_VITEPRESS_LAST_KNOWN_BROKEN`'s
+# method, so overwriting it on a newer release would silently revert any other
+# upstream change to that method. A newer version that still aborts warns
+# loudly and is left alone. Kept as a pure predicate of the version so the
+# refuse-to-patch branch is directly testable without a newer release installed.
+function _vitepress_patchable(version::VersionNumber)
+    version > _VITEPRESS_LAST_KNOWN_BROKEN || return true
+    @warn "DocumenterVitepress $version still aborts the docs build on " *
+          "an anchored header with an empty anchor id, but its writer is " *
+          "newer than the version this shim copies " *
+          "($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it unpatched " *
+          "rather than silently reverting unseen upstream changes. " *
+          "Refresh the kit's copy of the method and the version bound " *
+          "(kit #232)."
+    return false
+end
+
 """
     _guard_empty_anchors()
 
@@ -228,17 +246,7 @@ function _guard_empty_anchors()
     Documenter = _documenter()
     DocumenterVitepress = _vitepress()
     _empty_anchor_aborts(Documenter, DocumenterVitepress) || return false
-    version = pkgversion(DocumenterVitepress)
-    if version > _VITEPRESS_LAST_KNOWN_BROKEN
-        @warn "DocumenterVitepress $version still aborts the docs build on " *
-              "an anchored header with an empty anchor id, but its writer is " *
-              "newer than the version this shim copies " *
-              "($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it unpatched " *
-              "rather than silently reverting unseen upstream changes. " *
-              "Refresh the kit's copy of the method and the version bound " *
-              "(kit #232)."
-        return false
-    end
+    _vitepress_patchable(pkgversion(DocumenterVitepress)) || return false
     Base.eval(DocumenterVitepress, _empty_anchor_writer())
     return true
 end

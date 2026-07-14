@@ -1329,3 +1329,40 @@ end
         @test obs["patched_again"] == "false"
     end
 end
+
+@testitem "empty-anchor guard refuses to patch (#232)" begin
+    using Test
+    using EpiAwarePackageTools
+
+    # The two branches on which the guard declines to touch the writer. Neither
+    # patches anything, so unlike the guard's happy path (above) these need no
+    # subprocess isolation: `_vitepress_patchable` is a pure predicate of the
+    # version, and the probe below is driven with a stand-in module, leaving the
+    # real DocumenterVitepress method table untouched.
+    DB = EpiAwarePackageTools.DocsBuild
+
+    # Too new to patch: the shim's body is a copy of
+    # `_VITEPRESS_LAST_KNOWN_BROKEN`'s method, so overwriting a newer writer
+    # would silently revert unseen upstream changes to it. Refuse, loudly.
+    broken = DB._VITEPRESS_LAST_KNOWN_BROKEN
+    @test DB._vitepress_patchable(broken)
+    @test DB._vitepress_patchable(VersionNumber(broken.major, broken.minor,
+        broken.patch - 1))
+    newer = VersionNumber(broken.major, broken.minor, broken.patch + 1)
+    msg = (:warn, r"newer than the version this shim copies")
+    @test_logs msg @test !DB._vitepress_patchable(newer)
+    @test_logs msg @test !DB._vitepress_patchable(v"1.0.0")
+
+    # Upstream API drift: the probe fails in a way that is not the known
+    # `InventoryItem` abort, so the kit does not claim the writer is broken and
+    # does not overwrite a method it no longer understands. Driven with a
+    # stand-in for DocumenterVitepress whose `render` fails some other way, so
+    # the real writer is neither probed nor patched here.
+    @eval module DriftedVitepress
+    render(args...; kwargs...) = error("upstream renamed the writer")
+    end
+    Documenter = DB._documenter()
+    @test_logs (:warn, r"probe failed unexpectedly") begin
+        @test !DB._empty_anchor_aborts(Documenter, DriftedVitepress)
+    end
+end
