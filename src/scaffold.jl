@@ -1680,7 +1680,7 @@ end
 # `:injected`, `:preserved`, or `:skipped` (no logo file, or no README title to
 # amend).
 function _apply_logo_title(target_dir::AbstractString, pkg::AbstractString)
-    isfile(joinpath(target_dir, _LOGO_REL)) || return :skipped
+    isfile(_dest_path(target_dir, _LOGO_REL)) || return :skipped
     readme = joinpath(target_dir, "README.md")
     isfile(readme) || return :skipped
     text = read(readme, String)
@@ -2037,7 +2037,7 @@ as `_detect_downgrade_compat` (#121). A never-scaffolded or unmarked file is
 managed as before, so the opt-out is explicit and self-documenting.
 """
 function _detect_ad_setup_owned(target_dir::AbstractString)
-    f = joinpath(target_dir, _AD_SETUP_DEST)
+    f = _dest_path(target_dir, _AD_SETUP_DEST)
     isfile(f) || return false
     return occursin(_AD_SETUP_OWNED_MARKER, read(f, String))
 end
@@ -2090,7 +2090,7 @@ opts a file out of *resyncing*, not out of *retirement*: a path the kit retires
 """
 function _detect_managed_override(target_dir::AbstractString,
         dest::AbstractString, rendered::AbstractString)
-    f = joinpath(target_dir, dest)
+    f = _dest_path(target_dir, dest)
     isfile(f) || return false
     occursin(_MANAGED_OVERRIDE_MARKER, rendered) && return false
     occursin(_MANAGED_OVERRIDE_MARKER, read(f, String)) && return true

@@ -1481,8 +1481,14 @@
                 scaffold(dir; ad = false)
                 res = scaffold_update(dir; ad = false)
                 # No AD managed file appears in the scaffold_update manifest.
-                @test !any(p -> occursin("workflows/ad.yaml", p), res.updated)
-                @test !any(p -> occursin("test/ad/", p), res.updated)
+                # Compared as whole native paths, not by `/`-bearing substring:
+                # the manifest holds platform-separated paths, so an
+                # `occursin("test/ad/", p)` here would simply never match on
+                # Windows and the assertion would pass whatever the manifest
+                # said.
+                @test _dest(dir, ".github/workflows/ad.yaml") ∉ res.updated
+                ad_dir = _dest(dir, "test/ad")
+                @test !any(p -> startswith(p, ad_dir), res.updated)
                 # The no-AD codecov is re-applied (not the AD-flagged one).
                 @test !occursin("ad-forwarddiff",
                     read(joinpath(dir, "codecov.yml"), String))
@@ -2224,6 +2230,50 @@
             for p in RETIRED_PATHS
                 @test !(p in dests)
                 @test !any(startswith(d, p * "/") for d in dests)
+            end
+
+            # Destinations are relative posix paths, so `_dest_path` can split
+            # them into path segments. A leading/trailing slash or an empty
+            # segment would make it emit a malformed path (and would defeat the
+            # `p * "/"` prefix check above), so hold the manifests to that.
+            for d in union(dests, Set(RETIRED_PATHS))
+                @test !startswith(d, '/')
+                @test !endswith(d, '/')
+                @test !occursin("//", d)
+                @test !isempty(d)
+            end
+        end
+
+        @testset "scaffold results report native paths (#237)" begin
+            using EpiAwarePackageTools: _dest_path
+            # Destinations are stored posix-style, so joining one onto a root
+            # with a plain `joinpath` keeps the inner `/` and yields a mixed
+            # separator path on Windows (`C:\pkg\docs/make.jl`). Windows
+            # tolerates that for io, so the scaffold still works — but the
+            # result manifests are public API, and a caller comparing against
+            # their own `joinpath(dir, "docs", "make.jl")` would never match.
+            # Asserted OS-independently (both sides are native by
+            # construction), so a regression to plain `joinpath` fails here and
+            # not only on Windows CI.
+            @test _dest_path("root", "docs/make.jl") ==
+                  joinpath("root", "docs", "make.jl")
+            @test _dest_path("root", ".github/workflows/test.yaml") ==
+                  joinpath("root", ".github", "workflows", "test.yaml")
+            # A slash-free destination is just a child of the root.
+            @test _dest_path("root", "Taskfile.yml") ==
+                  joinpath("root", "Taskfile.yml")
+            # And every reported path is already normalised: `normpath` rewrites
+            # a separator that is not the platform's own, so a mixed path like
+            # `C:\pkg\docs/make.jl` is not a fixed point of it. On a posix
+            # platform `/` is the native separator, so this holds trivially —
+            # it is the Windows run that has teeth.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                reported = vcat(res.created, res.updated, res.preserved,
+                    res.removed)
+                @test !isempty(reported)
+                @test all(p -> p == normpath(p), reported)
             end
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
