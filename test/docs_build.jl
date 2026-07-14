@@ -1433,3 +1433,154 @@ end
         @test isempty(DB.api_remotes([Base]))
     end
 end
+
+@testitem "empty-anchor inventory guard (#232)" begin
+    using Test
+
+    # DocumenterVitepress' writer pushes an inventory entry for every anchored
+    # header, and `DocInventories.InventoryItem` rejects an empty `name`, so a
+    # header with an empty anchor id (e.g. from a third-party docstring
+    # rendered through the widened `modules` list) aborts the whole docs
+    # build. The kit installs a warn-and-skip guard before `makedocs`.
+    #
+    # The guard mutates process-global state (DocumenterVitepress' method
+    # table), and the "unguarded writer aborts" assertion below only holds
+    # while nothing else in the process has patched it. So the whole scenario
+    # runs in a fresh subprocess, which reports its observations as `key=value`
+    # lines that the assertions here read back; no test-item ordering can
+    # perturb it, and nothing leaks into the rest of the suite.
+    script = """
+    using Test
+    using EpiAwarePackageTools
+    DB = EpiAwarePackageTools.DocsBuild
+    Documenter = DB._documenter()
+    DocumenterVitepress = DB._vitepress()
+
+    println("version=", pkgversion(DocumenterVitepress))
+    println("aborts=", DB._empty_anchor_aborts(Documenter, DocumenterVitepress))
+    println("patched=", DB._guard_empty_anchors())
+
+    # An empty anchor id now warns (naming the page and the heading) and skips
+    # the inventory entry instead of throwing.
+    logs, (out, items) = Test.collect_test_logs() do
+        DB._anchor_probe_render(Documenter, DocumenterVitepress;
+            id = "", heading = "Culprit heading")
+    end
+    warns = filter(l -> l.level == Base.CoreLogging.Warn, logs)
+    println("empty_items=", length(items))
+    println("empty_out=", occursin("Culprit heading", out))
+    println("empty_warns=", length(warns))
+    if length(warns) == 1
+        kw = Dict(warns[1].kwargs)
+        println("warn_msg=", warns[1].message)
+        println("warn_page=", kw[:page])
+        println("warn_heading=", kw[:heading])
+    end
+
+    # A non-empty anchor id still produces its inventory entry, with no
+    # warning.
+    logs, (out, items) = Test.collect_test_logs() do
+        DB._anchor_probe_render(Documenter, DocumenterVitepress;
+            id = "real-anchor", heading = "Real heading")
+    end
+    println("real_items=", length(items))
+    println("real_name=", isempty(items) ? "" : items[1].name)
+    println("real_out=", occursin("{#real-anchor}", out))
+    println("real_warns=",
+        length(filter(l -> l.level == Base.CoreLogging.Warn, logs)))
+
+    # Idempotent + self-retiring: with the writer no longer aborting (here
+    # because the guard is in place; upstream, once
+    # LuxDL/DocumenterVitepress.jl#375 lands) the kit does not patch again.
+    println("aborts_after=",
+        DB._empty_anchor_aborts(Documenter, DocumenterVitepress))
+    println("patched_again=", DB._guard_empty_anchors())
+    """
+    file = joinpath(mktempdir(), "guard232.jl")
+    write(file, script)
+    output = read(`$(Base.julia_cmd()) --project=$(Base.active_project()) \
+        --startup-file=no $file`, String)
+    obs = Dict{String, String}()
+    for line in eachsplit(output, '\n')
+        occursin('=', line) || continue
+        key, value = split(line, '='; limit = 2)
+        obs[strip(key)] = strip(value)
+    end
+
+    if obs["aborts"] == "false"
+        # Upstream fixed (or the writer changed): the shim is dead weight and
+        # should be deleted, but that is a maintenance task, not a red suite on
+        # an unrelated PR — so record it loudly and assert only that the kit
+        # stops monkey-patching.
+        @info "DocumenterVitepress $(obs["version"]) no longer aborts on an " *
+              "empty anchor id: delete the DocsBuild empty-anchor shim (#232)"
+        @test obs["patched"] == "false"
+    else
+        # The guard installs, and the warning names the culprit.
+        @test obs["patched"] == "true"
+        @test obs["empty_items"] == "0"
+        @test obs["empty_out"] == "true"
+        @test obs["empty_warns"] == "1"
+        @test occursin("empty anchor id", obs["warn_msg"])
+        @test occursin("probe.md", obs["warn_page"])
+        @test occursin("Culprit heading", obs["warn_heading"])
+
+        # A non-empty anchor id is untouched.
+        @test obs["real_items"] == "1"
+        @test obs["real_name"] == "real-anchor"
+        @test obs["real_out"] == "true"
+        @test obs["real_warns"] == "0"
+
+        # Idempotent, and no second patch once the writer no longer aborts.
+        @test obs["aborts_after"] == "false"
+        @test obs["patched_again"] == "false"
+    end
+end
+
+@testitem "empty-anchor guard refuses to patch (#232)" begin
+    using Test
+    using EpiAwarePackageTools
+
+    # The two branches on which the guard declines to touch the writer. Neither
+    # patches anything, so unlike the guard's happy path (above) these need no
+    # subprocess isolation: `_vitepress_patchable` is a pure predicate of the
+    # version, and the probe below is driven with a stand-in module, leaving the
+    # real DocumenterVitepress method table untouched.
+    DB = EpiAwarePackageTools.DocsBuild
+
+    # Too new to patch: the shim's body is a copy of
+    # `_VITEPRESS_LAST_KNOWN_BROKEN`'s method, so overwriting a newer writer
+    # would silently revert unseen upstream changes to it. Refuse, loudly.
+    broken = DB._VITEPRESS_LAST_KNOWN_BROKEN
+    @test DB._vitepress_patchable(broken)
+    # An older version is patchable. Written as a literal rather than as
+    # `broken.patch - 1`: the fields are `UInt32`, so once the bound is
+    # refreshed to an `x.y.0` (the likely next value, and exactly what the
+    # shim's own comment tells the next maintainer to do) that subtraction
+    # underflows and throws an InexactError from a test about something else.
+    @test DB._vitepress_patchable(v"0.0.1")
+    newer = VersionNumber(broken.major, broken.minor, broken.patch + 1)
+    msg = (:warn, r"newer than the version this shim copies")
+    @test_logs msg @test !DB._vitepress_patchable(newer)
+    @test_logs msg @test !DB._vitepress_patchable(v"1.0.0")
+
+    # Unknown version: `pkgversion` returns `nothing` for a module carrying no
+    # version, and an unknown version is the same question as a too-new one —
+    # we cannot show the installed writer is the one we copied, so we decline.
+    @test_logs (:warn, r"[Cc]ould not determine the installed") begin
+        @test !DB._vitepress_patchable(nothing)
+    end
+
+    # Upstream API drift: the probe fails in a way that is not the known
+    # `InventoryItem` abort, so the kit does not claim the writer is broken and
+    # does not overwrite a method it no longer understands. Driven with a
+    # stand-in for DocumenterVitepress whose `render` fails some other way, so
+    # the real writer is neither probed nor patched here.
+    @eval module DriftedVitepress
+    render(args...; kwargs...) = error("upstream renamed the writer")
+    end
+    Documenter = DB._documenter()
+    @test_logs (:warn, r"probe failed unexpectedly") begin
+        @test !DB._empty_anchor_aborts(Documenter, DriftedVitepress)
+    end
+end

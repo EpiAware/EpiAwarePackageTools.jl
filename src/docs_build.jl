@@ -78,6 +78,193 @@ function _plots()
     _require_pkg("91a5bcdd-55d7-5caf-9e0b-520d859cae80", "Plots")
 end
 
+# ---- empty-anchor inventory guard (#232) ----------------------------------
+
+# Temporary shim, keyed to a known-broken upstream (DocumenterVitepress 0.3.x,
+# every release up to and including 0.3.4). Its writer pushes a
+# `DocInventories.InventoryItem` for every anchored header, and that
+# constructor rejects an empty `name` with
+# `ArgumentError: "name" must have non-zero length` — so a single header with
+# an empty anchor id hard-aborts the whole docs build. The kit's own markdown
+# no longer emits such a header (#204/#211), but a rendered docstring owned by
+# a third party can (the widened `modules` list of #175 renders dependency
+# docstrings), and no amount of sanitising our own markdown fixes that.
+#
+# The guard replaces that one writer method with a copy whose inventory push
+# warns (naming the page and the heading, so the culprit is identifiable in the
+# CI log) and skips the entry, instead of throwing. A skipped entry is a
+# missing cross-reference, so it is never silent.
+#
+# Self-retiring, on two conditions. The patch is applied only when
+#
+#   1. the installed writer is observed to abort on an empty anchor id
+#      (`_empty_anchor_aborts`) — the retirement trigger: once the upstream
+#      fix (LuxDL/DocumenterVitepress.jl#375) lands, the probe stops aborting,
+#      no method is overwritten, and this whole section can be deleted; and
+#   2. the installed DocumenterVitepress is no newer than
+#      `_VITEPRESS_LAST_KNOWN_BROKEN` — the body below is a copy of that
+#      release's writer method, and adopters pin `DocumenterVitepress = "0.3"`,
+#      so a newer 0.3.x resolves everywhere automatically. Overwriting the
+#      method on a version whose body we have not checked would silently revert
+#      any other upstream change to it. A newer version that still aborts warns
+#      loudly and is left alone (refresh the copy below, and the bound).
+const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.4"
+
+# The quoted replacement method. Evaluated inside DocumenterVitepress so every
+# name (`render`, `InventoryItem`, `sanitized_anchor_label`, the
+# `_get_inventory_*` helpers, `Documenter`) resolves in that module, exactly as
+# the original does.
+function _empty_anchor_writer()
+    return quote
+        function render(io::IO, mime::MIME"text/plain",
+                node::Documenter.MarkdownAST.Node,
+                header::Documenter.AnchoredHeader, page, doc; kwargs...)
+            anchor = header.anchor
+            id = replace(sanitized_anchor_label(anchor), " " => "-")
+            heading = first(node.children)
+            println(io)
+            print(io, "#"^(heading.element.level), " ")
+            heading_iob = IOBuffer()
+            render(heading_iob, mime, node, heading.children, page, doc;
+                kwargs...)
+            heading_text = rstrip(String(take!(heading_iob)))
+            print(io, heading_text)
+            print(io, " {#$(id)}")
+            if haskey(kwargs, :inventory)
+                if isempty(anchor.id)
+                    # Patched by EpiAwarePackageTools (kit #232).
+                    @warn "Skipping inventory entry: anchored header has "*
+                    "an empty anchor id" page=page.source heading=heading_text
+                else
+                    item = InventoryItem(
+                        name = anchor.id,
+                        domain = "std",
+                        role = "label",
+                        dispname = _get_inventory_dispname(
+                            anchor.id,
+                            Documenter.MDFlatten.mdflatten(anchor.node)),
+                        priority = -1,
+                        uri = _get_inventory_uri(doc, page, id)
+                    )
+                    push!(kwargs[:inventory], item)
+                end
+            end
+            println(io)
+        end
+    end
+end
+
+# Render a synthetic anchored header (heading text `heading`, anchor id `id`)
+# through DocumenterVitepress' writer with an inventory attached, returning the
+# rendered markdown and the collected inventory items. `page`/`doc` are
+# duck-typed stand-ins: the writer only reads `page.source`, `page.build` and
+# `doc.user.build` on this path, and touches no files. Used both by the probe
+# below and by the regression test.
+function _anchor_probe_render(Documenter, DocumenterVitepress;
+        id::AbstractString = "", heading::AbstractString = "Probe heading")
+    # `Base.eval` runs in the latest world age, so the freshly `require`d (and,
+    # after patching, freshly redefined) methods are visible without a pile of
+    # `invokelatest` calls.
+    return Base.eval(@__MODULE__,
+        quote
+            let D = $Documenter, V = $DocumenterVitepress
+                MA = D.MarkdownAST
+                head = MA.Node(MA.Heading(2))
+                push!(head.children, MA.Node(MA.Text($heading)))
+                anchor = D.Anchor(nothing)
+                anchor.id = $id
+                anchor.node = head
+                node = MA.Node(D.AnchoredHeader(anchor))
+                push!(node.children, head)
+                page = (source = "probe.md",
+                    build = joinpath("build", "probe.md"),
+                    globals = nothing)
+                doc = (user = (build = "build",),)
+                io = IOBuffer()
+                items = Any[]
+                V.render(io, MIME("text/plain"), node, node.element, page, doc;
+                    inventory = items)
+                (String(take!(io)), items)
+            end
+        end)
+end
+
+# Does the installed writer still abort on an empty anchor id? `true` only for
+# the known-broken behaviour (the `InventoryItem` `ArgumentError`); anything
+# else — a clean render (upstream fixed) or an unexpected failure (upstream
+# API drift) — returns `false` so the kit never overwrites a method it no
+# longer understands.
+function _empty_anchor_aborts(Documenter, DocumenterVitepress)
+    try
+        # Silence the probe: on an already-guarded writer it renders an
+        # empty-anchor header and would otherwise log a fake culprit
+        # (`page = "probe.md"`) into every adopter's real docs log — the very
+        # log this guard exists to keep legible.
+        Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+            _anchor_probe_render(Documenter, DocumenterVitepress; id = "")
+        end
+        return false
+    catch err
+        e = err isa LoadError ? err.error : err
+        if e isa ArgumentError && occursin("non-zero length", e.msg)
+            return true
+        end
+        @warn "Empty-anchor probe failed unexpectedly; leaving the " *
+              "DocumenterVitepress writer unpatched (kit #232)" exception=e
+        return false
+    end
+end
+
+# Is `version`'s writer the one the shim's copied body was taken from, and so
+# safe to overwrite? The body below is a copy of `_VITEPRESS_LAST_KNOWN_BROKEN`'s
+# method, so overwriting it on a newer release would silently revert any other
+# upstream change to that method. A newer version that still aborts warns
+# loudly and is left alone. Kept as a pure predicate of the version so the
+# refuse-to-patch branch is directly testable without a newer release installed.
+#
+# `pkgversion` returns `nothing` when the loaded module carries no version (a
+# module loaded from a bare path rather than a package, say), so an unknown
+# version is a real case, not a theoretical one — and it is the same question
+# as "too new": we cannot show the installed writer is the one we copied, so we
+# do not overwrite it.
+function _vitepress_patchable(version::Union{Nothing, VersionNumber})
+    if version === nothing
+        @warn "Could not determine the installed DocumenterVitepress " *
+              "version, so cannot confirm its writer is the one this shim " *
+              "copies ($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it " *
+              "unpatched rather than overwriting a method body that may not " *
+              "match (kit #232)."
+        return false
+    end
+    version > _VITEPRESS_LAST_KNOWN_BROKEN || return true
+    @warn "DocumenterVitepress $version still aborts the docs build on " *
+          "an anchored header with an empty anchor id, but its writer is " *
+          "newer than the version this shim copies " *
+          "($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it unpatched " *
+          "rather than silently reverting unseen upstream changes. " *
+          "Refresh the kit's copy of the method and the version bound " *
+          "(kit #232)."
+    return false
+end
+
+"""
+    _guard_empty_anchors()
+
+Make the DocumenterVitepress inventory writer warn-and-skip (rather than abort)
+on an anchored header with an empty anchor id. Returns `true` when the writer
+was patched, `false` when no patch was needed (upstream fixed, or too new to
+patch safely). Idempotent, and self-retiring once the upstream fix
+(LuxDL/DocumenterVitepress.jl#375) lands.
+"""
+function _guard_empty_anchors()
+    Documenter = _documenter()
+    DocumenterVitepress = _vitepress()
+    _empty_anchor_aborts(Documenter, DocumenterVitepress) || return false
+    _vitepress_patchable(pkgversion(DocumenterVitepress)) || return false
+    Base.eval(DocumenterVitepress, _empty_anchor_writer())
+    return true
+end
+
 # ---- README -> index.md ---------------------------------------------------
 
 """
@@ -1595,6 +1782,10 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     # --- render ------------------------------------------------------------
     Documenter = _documenter()
     DocumenterVitepress = _vitepress()
+    # Belt and braces for headers the kit does not generate (a third-party
+    # docstring can carry an empty anchor id): warn and skip that inventory
+    # entry rather than abort the build (#232). No-op once upstream fixes it.
+    _guard_empty_anchors()
     Base.invokelatest(Documenter.DocMeta.setdocmeta!, mod, :DocTestSetup,
         Expr(:using, Expr(:., nameof(mod))); recursive = true)
 
