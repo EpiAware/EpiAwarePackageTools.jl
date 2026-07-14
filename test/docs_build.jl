@@ -1457,8 +1457,20 @@ end
     DocumenterVitepress = DB._vitepress()
 
     println("version=", pkgversion(DocumenterVitepress))
-    println("aborts=", DB._empty_anchor_aborts(Documenter, DocumenterVitepress))
-    println("patched=", DB._guard_empty_anchors())
+    aborts = DB._empty_anchor_aborts(Documenter, DocumenterVitepress)
+    println("aborts=", aborts)
+    patched = DB._guard_empty_anchors()
+    println("patched=", patched)
+
+    # A writer that still aborts but is newer than the shim's bound is left
+    # unpatched on purpose, so every probe below would throw the very
+    # ArgumentError the guard exists to prevent — taking the whole subprocess
+    # down and reporting it as an opaque `failed process`. Stop here instead and
+    # let the assertions name the actual problem: the bound needs refreshing.
+    if aborts && !patched
+        println("stale_bound=true")
+        exit(0)
+    end
 
     # An empty anchor id now warns (naming the page and the heading) and skips
     # the inventory entry instead of throwing.
@@ -1515,6 +1527,20 @@ end
         @info "DocumenterVitepress $(obs["version"]) no longer aborts on an " *
               "empty anchor id: delete the DocsBuild empty-anchor shim (#232)"
         @test obs["patched"] == "false"
+    elseif get(obs, "stale_bound", "false") == "true"
+        # The writer still aborts, but its version is newer than the one the
+        # shim's copied body was taken from, so `_vitepress_patchable` declined
+        # to overwrite it — correctly. That is not a bug in the guard; it is the
+        # guard telling us the bound is stale. Fail with that, in those words,
+        # rather than letting the unpatched writer throw a bare ArgumentError
+        # from inside a subprocess.
+        @test false ||
+              error("DocumenterVitepress $(obs["version"]) still aborts on an " *
+                    "empty anchor id but is newer than " *
+                    "_VITEPRESS_LAST_KNOWN_BROKEN, so the guard declined to " *
+                    "patch it. Diff its render(::AnchoredHeader) against the " *
+                    "shim's copy; if unchanged, raise the bound to " *
+                    "$(obs["version"]) (#232).")
     else
         # The guard installs, and the warning names the culprit.
         @test obs["patched"] == "true"
