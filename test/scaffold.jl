@@ -627,6 +627,12 @@
                 @test occursin("Manifest.toml", txt)
                 @test occursin("docs/build", txt)
                 @test occursin("docs/node_modules", txt)
+                # Both worktree layouts: the sibling `worktree-*` glob and the
+                # nested `worktrees/<name>/` convention these repos actually use
+                # (#247), so a live worktree is never one `git add -A` from being
+                # committed.
+                @test occursin("worktree-*", txt)
+                @test occursin(r"(?m)^worktrees/\s*$", txt)
                 # Generated docs pages: the release-notes page is generic; the
                 # tutorial markdown path tracks docs_config.jl's TUTORIALS_SUBDIR
                 # (the template default until the package customises it).
