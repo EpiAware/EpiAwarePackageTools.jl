@@ -314,13 +314,25 @@ const RETIRED_PATHS = String[
     "benchmark/comment"
 ]
 
+# Absolute native path of a template destination. Every `dest`/`RETIRED_PATHS`
+# entry is written posix-style (`docs/make.jl`), so a plain
+# `joinpath(target_dir, dest)` leaves the inner `/` untouched and yields a mixed
+# separator path on Windows (`C:\pkg\docs/make.jl`). Windows accepts that for
+# io, but the scaffold results (`created`/`updated`/`preserved`/`removed`) are
+# public API that callers compare against their own `joinpath(dir, "docs",
+# "make.jl")`, which is backslash-separated and would never match. Splitting on
+# `/` and re-joining gives the platform's own separator on both.
+function _dest_path(target_dir::AbstractString, dest::AbstractString)
+    joinpath(target_dir, split(dest, '/')...)
+end
+
 # Remove the retired managed paths from `target_dir`, returning those actually
 # deleted. Only paths the kit itself once shipped are listed, so this never
 # reaches package-owned content.
 function _remove_retired(target_dir::AbstractString)
     removed = String[]
     for rel in RETIRED_PATHS
-        path = joinpath(target_dir, rel)
+        path = _dest_path(target_dir, rel)
         ispath(path) || continue
         rm(path; recursive = true, force = true)
         push!(removed, path)
@@ -2206,7 +2218,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         _bench_selected(t, benchmarks) || continue
         from = joinpath(src_dir, t.src)
         isfile(from) || error("missing bundled template $(t.src) at $from")
-        to = joinpath(target_dir, t.dest)
+        to = _dest_path(target_dir, t.dest)
         exists = isfile(to)
         # Any managed file can be opted out of management by marking it
         # package-owned (#224), generalising the AD driver's original
