@@ -5,12 +5,18 @@
 # committed infra has drifted from
 # the kit, opens (or refreshes) a PR with the refresh. This is the auto-refresh
 # half of the self-sync loop: the `self-drift` check guards every push/PR, and
-# this workflow proactively pulls the newest standard on a schedule and reacts
-# to Dependabot action bumps so a repo never silently falls behind.
+# this workflow proactively pulls the newest standard on a schedule and reports
+# drift on Dependabot action bumps so a repo never silently falls behind.
 #
 # Refs are preserved: `scaffold_update` keeps whatever reusable-workflow SHA Dependabot
 # has pinned in this repo, so a sync never reverts a Dependabot bump — it only
 # re-applies the rest of the managed standard.
+#
+# The sync only ever pushes to a branch it opened itself (#215). On a
+# Dependabot PR it re-applies the standard to detect drift and reports it, but
+# does not commit: pushing a re-apply onto someone else's branch silently
+# reverted package-owned overrides that live in managed files, so a merged
+# bump carried an unrelated regression that never appeared in its own diff.
 
 name: Template sync
 
@@ -57,21 +63,44 @@ jobs:
               using EpiAwarePackageTools
               res = scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = true)
               println("re-applied ", length(res.updated), " managed files")'
-      # Dependabot PR: commit the refresh onto the PR branch so the action bump
-      # and the infra refresh land together. Needs "Allow GitHub Actions to
-      # create and approve pull requests" enabled and Dependabot write access.
-      - name: Fold the refresh into the Dependabot PR
+      # A branch this workflow did not open (a Dependabot PR) is reported on,
+      # never pushed to (#215). Re-applying the standard on such a branch and
+      # pushing the result silently reverted package-owned overrides that live
+      # in managed files — a routine, single-purpose action bump then merged
+      # carrying an unrelated revert of hand-maintained config, invisible in
+      # the PR's own diff. Drift is surfaced instead (a job summary plus a
+      # warning annotation on the PR); the scheduled run below is what
+      # actually applies it, in a `chore/template-sync` PR that a reviewer
+      # sees as its own reviewable change.
+      - name: Report drift without pushing
         if: github.event_name == 'pull_request'
         run: |
-          if git diff --quiet; then
+          # `git add -A` first: a re-apply that CREATES a managed file (the kit
+          # shipped a new one) leaves it untracked, and a bare `git diff` is
+          # blind to untracked files — the drift would be reported as "none".
+          # Staging first makes both modified and new files visible to the
+          # diff. Nothing is committed; the index is scratch.
+          git add -A
+          if git diff --cached --quiet; then
             echo "No drift from the standard."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "ci: re-apply the managed EpiAware standard"
-          git push
+          {
+            echo "### Managed infra drifts from the EpiAware standard"
+            echo
+            echo "This branch was **not** auto-corrected: template sync never"
+            echo "pushes to a branch it did not open (EpiAwarePackageTools"
+            echo "issue #215). The scheduled sync opens a"
+            echo "\`chore/template-sync\` PR with the refresh."
+            echo
+            echo '```'
+            git --no-pager diff --cached --stat
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          msg="Managed infra drifts from the EpiAware standard. Template sync"
+          msg="$msg did not push to this branch; the scheduled sync will open"
+          msg="$msg a PR with the refresh."
+          echo "::warning::$msg"
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted
         if: github.event_name != 'pull_request'
