@@ -53,9 +53,23 @@ no longer reach it, which is the opposite of what the kit is for. Prefer the
 supported hooks (the package-owned config values, the marker-delimited regions,
 and the `ad`/`benchmarks`/`downgrade_compat` flags) where they cover the need.
 
-The marker opts a file out of resyncing, not out of retirement. When the kit
-retires a path, a sync deletes it whether or not it carries the marker, because
-a retired path is infrastructure the kit no longer supports at all.
+What the marker does **not** cover:
+
+- The marker-delimited regions described above, in files that are otherwise
+  package-owned: the README badge block, the README standard sections, the
+  `.gitignore` managed block, and the `[workspace]` stanza in `Project.toml`.
+  Those are refreshed on every sync whether or not the file carries the marker.
+  Customise them by editing outside their markers, which is what the markers are
+  for. There is no region-level opt-out.
+- Retirement. When the kit retires a path, a sync deletes it whether or not it
+  carries the marker, because a retired path is infrastructure the kit no longer
+  supports at all.
+- The two managed JSON files (`docs/package.json` and `.secrets.baseline`). The
+  marker has to live in a comment and JSON has no comments, so these cannot be
+  overridden this way.
+
+The match is case-sensitive: write `EPIAWARE_MANAGED_OVERRIDE` in capitals. A
+mis-cased marker does nothing and the file is resynced as usual.
 
 The AD-harness driver `test/ad/setup.jl` is the original case: a package whose
 `ADFixtures` registry predates the current `ADRegistry` contract must keep a

@@ -2047,10 +2047,11 @@ end
 const _MANAGED_OVERRIDE_MARKER = "EPIAWARE_MANAGED_OVERRIDE"
 
 """
-    _detect_managed_override(target_dir, dest; rendered = nothing)
+    _detect_managed_override(target_dir, dest, rendered)
 
-Whether the managed file at `dest` has been marked package-owned, so
-`scaffold_update()` preserves it rather than resyncing it (#224).
+Whether the template-emitted managed file at `dest` has been marked
+package-owned, so `scaffold_update()` preserves it rather than resyncing it
+(#224).
 
 Managed files always resync — that is what keeps an adopter on the current
 standard. A package that must keep its own version of one (a hand-kept AD
@@ -2058,17 +2059,25 @@ driver mid-migration, a workflow the package genuinely owns) says so in the
 file, by putting the marker `$(_MANAGED_OVERRIDE_MARKER)` in a comment. The
 committed file is then the marker, the same detect-from-the-destination
 idempotency as `_detect_downgrade_compat` (#121), so the opt-out is explicit,
-self-documenting, and survives every sync.
+self-documenting, and survives every sync. The match is a plain case-sensitive
+`occursin`, so a mis-cased marker does nothing.
 
-`rendered` is the freshly rendered template for `dest`, when the caller has it.
-A managed template that itself contained the marker literal (a workflow comment
-documenting this feature, say) would otherwise hand every adopter a
-self-preserving copy of that file on its next sync: the kit would silently stop
-managing its own file, everywhere, forever. So when the fresh render carries the
-marker, the marker means nothing and the file stays managed. The test suite
-additionally asserts that no bundled template renders the marker, so a template
-that ever adds it fails the kit's own CI loudly rather than being tacitly
-absorbed here.
+This governs whole files emitted from a template (`SCAFFOLD_TEMPLATES`) only.
+The marker-delimited regions the kit injects into otherwise package-owned
+files (the `.gitignore` managed block, the README badge and standard-sections
+blocks, `Project.toml`'s `[workspace]` stanza) are refreshed by their own
+appliers (`_apply_gitignore` and friends), which never consult this, so they
+cannot be opted out this way.
+
+`rendered` is the freshly rendered template for `dest`, and is required rather
+than defaulted: a managed template that itself contained the marker literal (a
+workflow comment documenting this feature, say) would otherwise hand every
+adopter a self-preserving copy of that file on its next sync, and the kit would
+silently stop managing its own file, everywhere, forever. So when the fresh
+render carries the marker, the marker means nothing and the file stays managed.
+A caller cannot omit the guard by accident. The test suite additionally asserts
+that no bundled template renders the marker, so a template that ever adds it
+fails the kit's own CI loudly rather than being tacitly absorbed here.
 
 `test/ad/setup.jl` additionally still honours its original marker
 `$(_AD_SETUP_OWNED_MARKER)` (#162) via `_detect_ad_setup_owned`, which adopters
@@ -2080,13 +2089,10 @@ opts a file out of *resyncing*, not out of *retirement*: a path the kit retires
 (`RETIRED_PATHS`) is still deleted, marker or not.
 """
 function _detect_managed_override(target_dir::AbstractString,
-        dest::AbstractString;
-        rendered::Union{Nothing, AbstractString} = nothing)
+        dest::AbstractString, rendered::AbstractString)
     f = joinpath(target_dir, dest)
     isfile(f) || return false
-    if rendered !== nothing && occursin(_MANAGED_OVERRIDE_MARKER, rendered)
-        return false
-    end
+    occursin(_MANAGED_OVERRIDE_MARKER, rendered) && return false
     occursin(_MANAGED_OVERRIDE_MARKER, read(f, String)) && return true
     return dest == _AD_SETUP_DEST && _detect_ad_setup_owned(target_dir)
 end
@@ -2239,7 +2245,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         rendered = exists && !force && t.managed ?
                    _render(from, t.substitute, inputs) : nothing
         if rendered !== nothing &&
-           _detect_managed_override(target_dir, t.dest; rendered = rendered)
+           _detect_managed_override(target_dir, t.dest, rendered)
             push!(preserved, to)
             continue
         end
@@ -2571,17 +2577,31 @@ package-owned tail after the block left untouched.
 The README logo title (see `scaffold`) is also (re)checked: once a package has
 a `docs/src/assets/logo.svg`, the tag is added to the title if missing.
 
-Any managed file has a package-owned opt-out (#224). Putting the marker
-`$(_MANAGED_OVERRIDE_MARKER)` in a comment in the committed file tells
-`scaffold_update()` to preserve it (leaving it in `preserved`) instead of
-resyncing it, so a package can keep its own version of a managed file; remove
+Every managed file written from a template has a package-owned opt-out (#224).
+Putting the marker `$(_MANAGED_OVERRIDE_MARKER)` in a comment in the committed
+file tells `scaffold_update()` to preserve it (leaving it in `preserved`)
+instead of resyncing it, so a package keeps its own version of that file; remove
 the marker to hand management back to the kit. `scaffold`/`scaffold_generate`
 (`force = true`) ignore the marker and lay the managed file down fresh, so a new
 package always starts managed. Use the marker sparingly: an overridden file no
-longer tracks the standard, which is the whole point of the kit. The marker opts
-a file out of resyncing, not out of retirement: a marked file whose path the kit
-has retired (`RETIRED_PATHS`, below) is still deleted, since a retired path is
-infrastructure the kit no longer supports at all.
+longer tracks the standard, which is the whole point of the kit.
+
+Three limits on the marker, all deliberate:
+
+  - It covers whole files emitted from a template, not the marker-delimited
+    *regions* the kit injects into otherwise package-owned files. The
+    `.gitignore` managed block, the README badge and standard-sections blocks,
+    and `Project.toml`'s `[workspace]` stanza are refreshed on every sync
+    regardless of any `$(_MANAGED_OVERRIDE_MARKER)`; a package customises those
+    by editing outside their markers, which is what the markers are for.
+  - It opts a file out of resyncing, not out of retirement: a marked file whose
+    path the kit has retired (`RETIRED_PATHS`, below) is still deleted, since a
+    retired path is infrastructure the kit no longer supports at all.
+  - The marker must appear in a comment, so the two managed JSON files
+    (`docs/package.json`, `.secrets.baseline`) cannot carry it — JSON has no
+    comment syntax — and cannot be overridden this way. The match is
+    case-sensitive: `$(_MANAGED_OVERRIDE_MARKER)`, in capitals, or it does
+    nothing.
 
 The AD-harness driver `test/ad/setup.jl` is where this began (#162): the generic
 driver assumes the package's `ADFixtures` registry satisfies the current
