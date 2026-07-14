@@ -1899,12 +1899,15 @@
                 # Simulate a package pinning a Julia floor/matrix on the
                 # managed `test`/`downgrade-compat` callers, exactly the
                 # override #73 reports being silently reverted.
+                #
+                # Both callers now carry a kit-seeded `with:` block (#246),
+                # so a package overrides the seeded key rather than adding a
+                # block of its own — the key is a seed default, and the
+                # destination wins on it.
                 before = read(caller, String)
                 overridden = replace(before,
-                    r"(uses: \S+/tests\.yml@\S+\r?\n)" =>
-                        s"\1    with:\n      julia_versions: '[\"1.11\", \"1\"]'\n",
-                    r"(uses: \S+/downgrade\.yml@\S+\r?\n)" =>
-                        s"\1    with:\n      julia_version: '1.11'\n")
+                    r"(?m)^      julia_versions: .*$" => "      julia_versions: '[\"1.11\", \"1\"]'",
+                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.11'")
                 @test overridden != before
                 write(caller, overridden)
                 scaffold_update(dir)
@@ -2382,14 +2385,17 @@
                 # comment between `uses:` and `with:` (as EpiAwarePrototype.jl
                 # does). #117: comments between the two used to break the
                 # `uses:`->`with:` adjacency and silently drop the override.
+                # The caller now carries a kit-seeded `with:` block (#246), so
+                # the package's rationale comments sit above it and its override
+                # replaces the seeded key.
                 before = read(caller, String)
                 overridden = replace(before,
                     r"(uses: \S+/tests\.yml@\S+\r?\n)" =>
                         s"""\1    # Floor is Julia 1.11 (Turing 0.45 needs it).
     # Test the floor and the latest release.
-    with:
-      julia_versions: '["1.11", "1", "pre"]'
 """)
+                overridden = replace(overridden,
+                    r"(?m)^      julia_versions: .*$" => "      julia_versions: '[\"1.11\", \"1\", \"pre\"]'")
                 @test overridden != before
                 write(caller, overridden)
                 scaffold_update(dir)
@@ -2942,3 +2948,172 @@
         end
     end # @testset "scaffold + scaffold_update"
 end # @testitem "scaffold + scaffold_update (logic)"
+
+@testitem "Julia 1.11 floor in the managed standard (#246)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _JULIA_FLOOR, _JULIA_COMPAT,
+                                _julia_compat_below_floor,
+                                _julia_versions_below_floor
+
+    function _fake_pkg(dir; name = "Wombat", julia = nothing)
+        compat = julia === nothing ? "" : "\n[compat]\njulia = \"$(julia)\"\n"
+        write(joinpath(dir, "Project.toml"),
+            "name = \"$name\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n" * compat)
+        return dir
+    end
+    _p(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    @testset "the floor is 1.11 (where [sources] starts working)" begin
+        # `[sources]` — how test/Project.toml pins the kit to main — is a Pkg
+        # 1.11 feature, silently ignored on 1.10. That is the whole reason for
+        # the floor, so pin it rather than let it drift.
+        @test _JULIA_FLOOR == v"1.11"
+        @test _JULIA_COMPAT == "1.11, 1.12"
+    end
+
+    @testset "the test caller drops the lts leg" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            wf = read(_p(dir, ".github/workflows/test.yaml"), String)
+            # The reusable defaults to ["1", "lts", "pre"]; a leg on lts (1.10)
+            # silently resolves the registered kit, not the pinned rev.
+            #
+            # Asserted against the `julia_versions:` line itself, not the whole
+            # file: the block's own comment names the lts leg it drops, and a
+            # naive `occursin("lts", wf)` would match that comment rather than
+            # the matrix — passing or failing for the wrong reason.
+            lines = split(wf, '\n')
+            vline = only(filter(l -> occursin("julia_versions:", l), lines))
+            @test occursin("[\"1\", \"pre\"]", vline)
+            @test !occursin("lts", vline)
+            # And no placeholder survives into the emitted workflow.
+            @test !occursin("{{JULIA_TEST_VERSIONS}}", wf)
+        end
+    end
+
+    @testset "the downgrade caller is pinned above the floor" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; downgrade_compat = true)
+            wf = read(_p(dir, ".github/workflows/test.yaml"), String)
+            @test occursin("downgrade-compat:", wf)
+            # downgrade.yml's own default is '1.10' — exactly the version where
+            # the [sources] pin is ignored — so it must be given the floor.
+            @test occursin("julia_version: '1.11'", wf)
+            @test !occursin("julia_version: '1.10'", wf)
+        end
+    end
+
+    @testset "a generated package is seeded at the floor" begin
+        mktempdir() do dir
+            scaffold_generate(dir, "Fresh"; authors = ["Ada Lovelace"])
+            proj = read(joinpath(dir, "Project.toml"), String)
+            @test occursin("julia = \"1.11, 1.12\"", proj)
+            @test !occursin("1.10", proj)
+        end
+    end
+
+    @testset "a package still claiming 1.10 is warned, not silently broken" begin
+        mktempdir() do dir
+            _fake_pkg(dir; julia = "1.10, 1.11, 1.12")
+            res = scaffold(dir)
+            @test any(w -> occursin("1.11", w) && occursin("sources", w),
+                res.warnings)
+            # The kit does not rewrite the package-owned compat itself.
+            @test occursin("julia = \"1.10, 1.11, 1.12\"",
+                read(joinpath(dir, "Project.toml"), String))
+        end
+        # A package already at the floor is not nagged.
+        mktempdir() do dir
+            _fake_pkg(dir; julia = "1.11, 1.12")
+            res = scaffold(dir)
+            @test !any(w -> occursin("#246", w), res.warnings)
+        end
+        # Nor is one with no julia compat at all (nothing claimed).
+        mktempdir() do dir
+            _fake_pkg(dir)
+            res = scaffold(dir)
+            @test !any(w -> occursin("#246", w), res.warnings)
+        end
+    end
+
+    @testset "the seeded matrix is a default, not a diktat (#73/#117)" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _p(dir, ".github/workflows/test.yaml")
+            # A package may still choose its own matrix, with its rationale —
+            # that is what #73/#117 exist for. The kit seeds the floor; it does
+            # not overwrite a deliberate choice.
+            before = read(caller, String)
+            write(caller,
+                replace(before,
+                    r"(?m)^      julia_versions: .*$" =>
+                        "      # Pin the floor explicitly (Turing needs it).\n" *
+                        "      julia_versions: '[\"1.11\", \"1\", \"pre\"]'"))
+            res = scaffold_update(dir)
+            after = read(caller, String)
+            @test occursin("julia_versions: '[\"1.11\", \"1\", \"pre\"]'", after)
+            @test occursin("Pin the floor explicitly", after)
+            # An override at or above the floor draws no warning.
+            @test !any(w -> occursin("below the", w), res.warnings)
+            # Idempotent on the preserved override.
+            scaffold_update(dir)
+            @test read(caller, String) == after
+        end
+    end
+
+    @testset "an override that reaches below the floor is warned" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _p(dir, ".github/workflows/test.yaml")
+            # Putting the lts leg back is allowed — the kit does not fight the
+            # package — but it silently tests a stale kit, so it must be said.
+            write(caller,
+                replace(read(caller, String),
+                    r"(?m)^      julia_versions: .*$" => "      julia_versions: '[\"1\", \"lts\", \"pre\"]'"))
+            res = scaffold_update(dir)
+            @test occursin("julia_versions: '[\"1\", \"lts\", \"pre\"]'",
+                read(caller, String))
+            @test any(w -> occursin("lts", w) && occursin("stale kit", w),
+                res.warnings)
+        end
+    end
+
+    @testset "_julia_versions_below_floor names the offending legs" begin
+        @test _julia_versions_below_floor(
+            "      julia_versions: '[\"1\", \"pre\"]'\n") == String[]
+        @test _julia_versions_below_floor(
+            "      julia_versions: '[\"1\", \"lts\", \"pre\"]'\n") == ["lts"]
+        @test _julia_versions_below_floor(
+            "      julia_versions: '[\"1.10\", \"1\"]'\n") == ["1.10"]
+        @test _julia_versions_below_floor(
+            "      julia_versions: '[\"1.11\", \"1.12\"]'\n") == String[]
+        # The downgrade caller's singular key is read too.
+        @test _julia_versions_below_floor(
+            "      julia_version: '1.10'\n") == ["1.10"]
+        @test _julia_versions_below_floor(
+            "      julia_version: '1.11'\n") == String[]
+    end
+
+    @testset "_julia_compat_below_floor reads the lowest bound named" begin
+        @test _julia_compat_below_floor("1.10, 1.11, 1.12") == v"1.10"
+        @test _julia_compat_below_floor("1.10") == v"1.10"
+        # A bare "1" admits 1.0, far below the floor.
+        @test _julia_compat_below_floor("1") == v"1.0"
+        @test _julia_compat_below_floor("1.9, 1.12") == v"1.9"
+        # At or above the floor: nothing to warn about.
+        @test _julia_compat_below_floor("1.11, 1.12") === nothing
+        @test _julia_compat_below_floor("1.11") === nothing
+        @test _julia_compat_below_floor("1.12") === nothing
+        # Order within the entry does not matter: the lowest bound wins.
+        @test _julia_compat_below_floor("1.12, 1.10") == v"1.10"
+        # No version named at all.
+        @test _julia_compat_below_floor("") === nothing
+    end
+end

@@ -15,4 +15,11 @@ concurrency:
 jobs:
   test:
     uses: {{ORG}}/.github/.github/workflows/tests.yml@6fcdcde033ec670ac3832b239427fd2ded591bbc
+    with:
+      # The managed standard needs Julia 1.11: `[sources]` (how test/Project.toml
+      # pins the kit to main) is a Pkg 1.11 feature, and on 1.10 it is silently
+      # ignored — the job then resolves the registered kit rather than the
+      # pinned rev and tests a stale kit while appearing to test this one
+      # (#246). The reusable defaults to ["1", "lts", "pre"]; drop the lts leg.
+      julia_versions: {{JULIA_TEST_VERSIONS}}
     secrets: inherit  # pragma: allowlist secret{{DOWNGRADE_COMPAT_JOB}}
