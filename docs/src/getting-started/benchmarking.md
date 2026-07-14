@@ -86,6 +86,55 @@ That page combines a managed skeleton, your package-owned prose in
 `docs/benchmarks.md`, and the rendered performance history, so the narrative you
 write sits above the accumulated timeline.
 
+### Unregistered `[sources]` dependencies
+
+Both benchmark workflows install the package as a *dependency*, and Pkg honours
+only the active project's `[sources]` section.
+A package that pins a dependency there by git url and revision because that
+dependency is not yet registered (an EpiAware package in its pre-registration
+window, say) would therefore fail to resolve it, with `has no known versions!`.
+AirspeedVelocity's `benchpkg` hits the same wall in the temp project it builds
+per revision, which is why the existing staging trick for *path* sources cannot
+help: this is registry-level absence, not a relative path.
+
+Both workflows head this off with a step that calls
+`EpiAwarePackageTools.Benchmarks.bootstrap_sources_registry`.
+It reads the package's `[sources]`, clones each unregistered git pin at its
+revision, and registers it into a throwaway `LocalRegistry` in the runner's
+depot.
+Registries, unlike sources, are depot-level, so the dependency then resolves by
+name in every environment on that runner, including benchpkg's temp projects.
+Nothing is pushed anywhere and the registry dies with the runner.
+
+A package with no `[sources]` section skips the step in shell, before anything
+is installed, so it pays nothing for machinery it does not use.
+A package whose `[sources]` are all path pins or already-registered names runs
+the check and does no registry work: nothing is cloned and no registry is
+created.
+Either way the step needs no configuration, and it retires itself as
+dependencies reach the General registry.
+
+The scratch registry is removed and rebuilt on every run, including runs with
+nothing to register.
+A runner restores its depot from a cache, so the previous run's registry is
+often still sitting there, and an unregistered dependency does not bump its
+version when its revision moves;
+reusing the cached registry would therefore pin the benchmark to whatever
+revision was registered first.
+Removing it unconditionally is also what lets the step retire itself: once the
+dependency reaches a registry and the package drops its pin, a leftover scratch
+registry carrying that name would fail the whole depot with a registry hash
+mismatch.
+
+Two limits are worth knowing.
+A `[sources]` pin on a package that a registry already knows cannot be
+honoured, because the benchmark environment resolves that dependency from the
+registry rather than from the pin;
+the step warns rather than leaving you to infer it from the numbers.
+Registration is also not transitive: a pinned dependency that itself pins an
+unregistered dependency must have that inner pin repeated in the benchmarked
+package.
+
 ## Adding scenarios
 
 Add benchmarks by extending `SUITE` in `benchmark/benchmarks.jl`.
