@@ -116,6 +116,13 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/Register.yml", true, false),
     Template(".github/workflows/downstream.yaml",
         ".github/workflows/downstream.yaml", true, true),
+    # Registration-safety caller (thin caller of the EpiAware/.github
+    # reusable): fails when a dependency is unregistrable (unregistered or
+    # compat-unsatisfiable) so a version cannot be published unregistrable
+    # (the ConvolvedDistributions 0.2.0 failure), and warns when an org
+    # reverse-dep's compat is stranded by the version under test.
+    Template(".github/workflows/registrability.yaml",
+        ".github/workflows/registrability.yaml", true, true),
     # Cancel a PR's in-flight runs on close/merge (thin caller of the
     # EpiAware/.github reusable), freeing runners that concurrency groups miss.
     Template(".github/workflows/cancel-on-close.yaml",
@@ -348,6 +355,18 @@ const _JULIAFORMATTER_VERSION = "2.10.1"
 # `scaffold_update`, so this seed is only what a first scaffold commits. Kept in step
 # with the `test` job's pin in `templates/.github/workflows/test.yaml`.
 const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma: allowlist secret
+
+# The seed reusable-workflow ref for the registrability caller
+# (`templates/.github/workflows/registrability.yaml`). It pins a NEWER
+# EpiAware/.github commit than `_DOWNGRADE_SEED_REF` because
+# `registrability.yml` post-dates the shared seed (added in EpiAware/.github
+# #31), so the caller cannot pin the older seed and still resolve the
+# reusable. The two refs converge once that PR merges and Dependabot bumps the
+# pins across adopters. UPDATE this to the squash-merge SHA of
+# EpiAware/.github#31 once it lands (the current value is that PR's branch
+# head, which resolves pre-merge but may be garbage-collected after a
+# squash-merge deletes the branch).
+const _REGISTRABILITY_SEED_REF = "0c1b4ec28e30933f3ea50513d0aca40592cf512f"  # pragma: allowlist secret
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),

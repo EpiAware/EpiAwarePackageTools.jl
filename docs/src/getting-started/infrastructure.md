@@ -98,6 +98,25 @@ Two workflows keep an adopting package aligned with the kit.
 An improvement made once in the kit therefore propagates to every adopting
 package on the next sync.
 
+## Registration safety
+
+The managed `registrability.yaml` caller runs the shared
+`EpiAware/.github` registrability workflow whenever a package's `Project.toml`
+changes (and on demand, and on `main`).
+It runs two read-only checks.
+
+- Registrability asserts that every non-stdlib `[deps]` entry exists in the
+  General registry with a version satisfying the package's own `[compat]`.
+  A dependency pinned in `[sources]` to a git revision is unregistered, so the
+  check fails with a per-dependency message.
+  This is the failure that had ConvolvedDistributions 0.2.0 rejected from
+  General with nothing in CI to catch it.
+- The reverse-dependency scan reports which org packages depend on this one
+  and whether their `[compat]` admits the version under test.
+  A breaking release legitimately strands a downstream bound, so this is a
+  warning by default; set `fail_on_revdep_break: true` on the caller job to
+  gate on it.
+
 ## How the kit applies this to itself
 
 The kit manages its own repository the same way an adopter's is managed, with
