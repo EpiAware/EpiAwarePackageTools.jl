@@ -1618,6 +1618,129 @@ end
 # once, never clobbered); the managed "How to cite" section only points at it
 # (#67).
 
+# --- opt-in EpiAware org branding (#242) -----------------------------------
+#
+# An EpiAware package can advertise that it is part of the org's ecosystem: a
+# line in the managed README standard sections, and a logo + org links in the
+# docs footer. Opt-in and default OFF, because the kit is usable by anyone: a
+# third-party adopter must never be handed EpiAware branding, so the flag is
+# read from the package-owned `docs/docs_config.jl` (`const ORG_BRANDING`) and
+# defaults to `false` when the config is absent or predates the key.
+#
+# The *flag* is package-owned; the *content* it turns on is managed, so the
+# wording, links and logo update centrally on every sync, like the badge block.
+
+# The org's canonical site. The repo's CNAME serves the site from `epiaware.org`
+# (`epiaware.github.io` redirects to it), so link the canonical host.
+const _ORG_SITE = "https://epiaware.org"
+const _ORG_GITHUB = "https://github.com/EpiAware"
+
+# The bundled org logo, distinct from the package's own `docs/src/assets/
+# logo.svg`. Copied verbatim from the org site's `assets/img/logo.svg`, so the
+# ecosystem shows one mark. Written only when branding is on, and removed again
+# when it is turned off, so an opted-out repo carries no EpiAware asset at all.
+const _ORG_LOGO_SRC = "docs/epiaware-logo.svg"
+# Split into segments so the destination is built with the platform separator
+# (a posix string joined onto a Windows root leaves a mixed path).
+const _ORG_LOGO_SEGMENTS = ("docs", "src", "assets", "epiaware-logo.svg")
+const _ORG_LOGO_REL = join(_ORG_LOGO_SEGMENTS, "/")
+
+"""
+    _detect_org_branding(target_dir)
+
+Whether the package opted in to EpiAware org branding, via
+`const ORG_BRANDING = true` in the package-owned `docs/docs_config.jl` (#242).
+
+Read from the destination rather than passed as a kwarg, the same
+detect-from-the-file idempotency as `_detect_benchmarks`/`_detect_downgrade_compat`:
+a `scaffold_update` (or the scheduled template sync, which passes no kwargs)
+then preserves the package's choice instead of reverting it. Defaults to
+`false` — off — for a package with no config, or one predating the key.
+"""
+function _detect_org_branding(target_dir::AbstractString)
+    cfg = joinpath(target_dir, "docs", "docs_config.jl")
+    isfile(cfg) || return false
+    m = match(r"const\s+ORG_BRANDING\s*=\s*(true|false)", read(cfg, String))
+    m === nothing && return false
+    return something(m.captures[1]) == "true"
+end
+
+# The README line, rendered into the managed standard-sections block when
+# branding is on and omitted entirely when it is off.
+function _org_branding_section(pkg::AbstractString)
+    return string(
+        "## Part of the EpiAware ecosystem\n\n",
+        pkg, " is part of [EpiAware](", _ORG_SITE, "), a set of composable ",
+        "tools for infectious disease modelling. See the [other packages](",
+        _ORG_GITHUB, ") in the ecosystem.\n")
+end
+
+# The docs footer message spliced into the managed `config.mts`
+# (`{{ORG_FOOTER_MESSAGE}}`). VitePress renders `themeConfig.footer.message` as
+# HTML, so branding is a logo + org links prepended to the standard
+# DocumenterVitepress credit; with branding off it is the credit alone, exactly
+# as before this feature.
+#
+# The logo is referenced through the site's own `base`, not as a root-absolute
+# `/epiaware-logo.svg`: a versioned deploy is served under `/Package.jl/vX.Y/`,
+# where a root-absolute path 404s. DocumenterVitepress copies any asset whose
+# filename contains "logo" from `assets/` into `public/`, which VitePress then
+# serves at the base — hence `${baseTemp.base}epiaware-logo.svg`, resolved in
+# `config.mts` where `base` is known.
+#
+# Spliced into a backtick template literal in `config.mts` — which is what lets
+# `${baseTemp.base}` interpolate — so the HTML quotes with `"` throughout and
+# must contain no backtick of its own.
+const _DOCS_CREDIT = string(
+    "Made with <a href=\"https://luxdl.github.io/DocumenterVitepress.jl/dev/\" ",
+    "target=\"_blank\"><strong>DocumenterVitepress.jl</strong></a><br>")
+
+function _org_footer_message(org_branding::Bool)
+    org_branding || return _DOCS_CREDIT
+    return string(
+        "<a href=\"", _ORG_SITE, "\" target=\"_blank\">",
+        # `\$` so a literal `\${baseTemp.base}` reaches config.mts, where the
+        # backtick template literal interpolates the site base.
+        "<img src=\"\${baseTemp.base}epiaware-logo.svg\" alt=\"EpiAware\" ",
+        "width=\"48\" height=\"48\" style=\"display:inline-block\"></a><br>",
+        "Part of the <a href=\"", _ORG_SITE, "\" target=\"_blank\">",
+        "<strong>EpiAware</strong></a> ecosystem &middot; ",
+        "<a href=\"", _ORG_GITHUB, "\" target=\"_blank\">GitHub</a><br>",
+        _DOCS_CREDIT)
+end
+
+"""
+    _apply_org_branding(target_dir, org_branding)
+
+Write (or remove) the bundled EpiAware org logo asset, following the package's
+`ORG_BRANDING` opt-in (#242).
+
+Bundled but deliberately not a `SCAFFOLD_TEMPLATES` entry, like the `LICENSE`
+variants: the template table is emitted wholesale, and a third-party adopter
+must not be handed an EpiAware logo. Returns `:created`, `:refreshed`,
+`:removed`, or `:skipped`.
+
+Managed, so the asset is re-applied when it drifts, and removed when branding
+is turned back off — leaving a repo that opts out with no EpiAware asset, and
+`scaffold_update` a fixed point either way.
+"""
+function _apply_org_branding(target_dir::AbstractString, org_branding::Bool)
+    dest = joinpath(target_dir, _ORG_LOGO_SEGMENTS...)
+    if !org_branding
+        isfile(dest) || return :skipped
+        rm(dest; force = true)
+        return :removed
+    end
+    from = joinpath(_templates_dir(), _ORG_LOGO_SRC)
+    isfile(from) || error("missing bundled org logo at $from")
+    content = read(from, String)
+    exists = isfile(dest)
+    exists && read(dest, String) == content && return :refreshed
+    mkpath(dirname(dest))
+    write(dest, content)
+    return exists ? :refreshed : :created
+end
+
 const STANDARD_SECTIONS_START = "<!-- standard-sections:start -->"
 const STANDARD_SECTIONS_END = "<!-- standard-sections:end -->"
 
@@ -1639,11 +1762,16 @@ end
 # version-DOI line to the citation pointer when known (the value persisted in
 # the README DOI badge); otherwise the section points only at `CITATION.cff`.
 function _render_standard_sections(pkg::AbstractString, org::AbstractString,
-        repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing)
+        repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing,
+        org_branding::Bool = false)
     doi_line = doi === nothing ? "" :
                string("A version-specific DOI is available at ",
         "[https://doi.org/", doi, "](https://doi.org/", doi, ").\n")
+    # The org line leads the block when the package opted in (#242), and is
+    # absent entirely otherwise, so a third-party adopter's README is untouched.
+    branding = org_branding ? _org_branding_section(pkg) * "\n" : ""
     return string(
+        branding,
         "## Contributing\n\n",
         "We welcome contributions and new contributors! Please open an issue ",
         "or pull request on [GitHub](https://github.com/", repo, "). This ",
@@ -1694,7 +1822,7 @@ function _apply_standard_sections(
     (pkg === nothing || org === nothing || repo === nothing) &&
         return (:skipped, false)
     body = _render_standard_sections(String(pkg), String(org), String(repo);
-        doi = inputs.DOI)
+        doi = inputs.DOI, org_branding = _detect_org_branding(target_dir))
     block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *
             "\n\n" * body * STANDARD_SECTIONS_END
     text = read(readme, String)
@@ -2095,6 +2223,11 @@ overwritten).
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
+    # Read once, before anything is written: the opt-in lives in the
+    # package-owned `docs/docs_config.jl`, which `scaffold` seeds (defaulting
+    # the flag off) in this same pass, so a fresh package is unbranded and a
+    # resync sees the choice the package actually committed (#242).
+    org_branding = _detect_org_branding(target_dir)
     # Expose the AD + benchmarks + downgrade-compat flags as substitution values
     # so the scheduled template-sync workflow re-applies the standard with the
     # same choices the package adopted. `BENCHMARKS_NAV` is the benchmark docs
@@ -2127,7 +2260,13 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             # The benchmarks=true docs surface: the trend-plot dependency the
             # overall summary needs (see `_bench_docs_deps`).
             BENCH_DOCS_DEPS = _bench_docs_deps(benchmarks),
-            BENCH_DOCS_COMPAT = _bench_docs_compat(benchmarks)))
+            BENCH_DOCS_COMPAT = _bench_docs_compat(benchmarks),
+            # The managed docs footer: the EpiAware logo + org links when the
+            # package opted in (`ORG_BRANDING` in the package-owned
+            # docs_config), otherwise the DocumenterVitepress credit alone —
+            # detected from the destination, like the other opt-ins, so a sync
+            # that passes no kwargs preserves the package's choice (#242).
+            ORG_FOOTER_MESSAGE = _org_footer_message(org_branding)))
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -2258,11 +2397,18 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # a sync converges on the current standard rather than accreting dead infra
     # (#185). Reported as `removed`.
     removed = _remove_retired(target_dir)
+    # The org logo asset follows the same `ORG_BRANDING` opt-in as the README
+    # section and the docs footer: written when on, removed when off, so a
+    # package that opts out carries no EpiAware asset (#242). Reported
+    # separately, like `license`/`logo`, so the template manifest stays
+    # template-driven.
+    org_branding_action = _apply_org_branding(target_dir, org_branding)
     return (created = created, updated = updated, preserved = preserved,
         removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
         logo = logo_action, standard_sections = sections_action,
-        citation = citation_action, warnings = warnings)
+        citation = citation_action, org_branding = org_branding_action,
+        warnings = warnings)
 end
 
 """

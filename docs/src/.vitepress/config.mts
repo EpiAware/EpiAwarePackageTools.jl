@@ -110,8 +110,14 @@ export default defineConfig({
     socialLinks: [
       { icon: 'github', link: 'https://github.com/EpiAware/EpiAwarePackageTools.jl' }
     ],
+    // The footer message is rendered as HTML. It carries the standard
+    // DocumenterVitepress credit, preceded by the EpiAware logo + org links
+    // when the package opted in via `ORG_BRANDING` in docs/docs_config.jl
+    // (#242); with branding off it is the credit alone. The logo resolves
+    // through the site `base`, so a versioned deploy (/Package.jl/vX.Y/) finds
+    // it — DocumenterVitepress copies `assets/*logo*` into `public/`.
     footer: {
-      message: 'Made with <a href="https://luxdl.github.io/DocumenterVitepress.jl/dev/" target="_blank"><strong>DocumenterVitepress.jl</strong></a><br>',
+      message: `<a href="https://epiaware.org" target="_blank"><img src="${baseTemp.base}epiaware-logo.svg" alt="EpiAware" width="48" height="48" style="display:inline-block"></a><br>Part of the <a href="https://epiaware.org" target="_blank"><strong>EpiAware</strong></a> ecosystem &middot; <a href="https://github.com/EpiAware" target="_blank">GitHub</a><br>Made with <a href="https://luxdl.github.io/DocumenterVitepress.jl/dev/" target="_blank"><strong>DocumenterVitepress.jl</strong></a><br>`,
       copyright: `© Copyright ${new Date().getUTCFullYear()}.`
     }
   }
