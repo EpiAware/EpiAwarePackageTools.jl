@@ -361,6 +361,99 @@ const DEFAULT_ORG = "EpiAware"
 # keeps the local hook, the isolated formatter env, and CI on one version.
 const _JULIAFORMATTER_VERSION = "2.10.1"
 
+# --- the Julia floor (#246) -------------------------------------------------
+#
+# The managed standard requires Julia 1.11. `[sources]` — how `test/Project.toml`
+# pins the kit to `main` — is a Pkg 1.11 feature. On 1.10 it is not an error but
+# is *silently ignored*, so Pkg falls back to the registry and resolves whatever
+# EpiAwarePackageTools version General happens to carry, instead of the pinned
+# rev. That is worse than a hard failure: an LTS job then exercises a stale kit
+# while appearing to test the current one, and it only surfaces as a crash once
+# the templates use a binding the registered version predates (`run_package_tests`,
+# added in #191, giving the `UndefVarError` in #246).
+#
+# So the whole dev-`[sources]` workflow the kit is built on genuinely needs
+# 1.11, and the standard says so rather than pretending 1.10 works. The org
+# reusable workflows default to a matrix including `lts` (1.10) and a downgrade
+# job pinned to 1.10, so both callers are given the floor explicitly — a default
+# is not the same as a promise.
+const _JULIA_FLOOR = v"1.11"
+
+# Compat for a newly generated package: the floor and the current release. Only
+# `scaffold_generate` seeds a Project.toml, so this cannot rewrite an adopter's
+# own compat — `_julia_compat_below_floor` warns about that instead.
+const _JULIA_COMPAT = "1.11, 1.12"
+
+# The `julia_versions` matrix passed to the `tests.yml` caller: the current
+# release and the pre-release, with the `lts` entry the reusable defaults to
+# dropped. Managed (the template renders the key), so an adopter's resync moves
+# off 1.10 rather than silently resolving the registry there forever (#183: a
+# key the template renders is the kit's, and wins on merge).
+const _JULIA_TEST_VERSIONS = "'[\"1\", \"pre\"]'"
+
+# The `julia_version` passed to the `downgrade.yml` caller, whose own default is
+# `'1.10'` — the exact version where `[sources]` is ignored. Left unset, every
+# adopter's downgrade job resolves the registered kit rather than the pinned rev
+# (the downgrade half of #115).
+#
+# The current release (`'1'`), not the floor. The floor is what `[sources]`
+# needs, and any version at or above it satisfies that; the job additionally has
+# to be a version the *test environment* can resolve on, and 1.11 is not one:
+# JET publishes no release for 1.11 beyond 0.9.19/0.9.20, and those require
+# JuliaSyntax 0.4, which cannot coexist with the pinned JuliaFormatter 2.10.1
+# (JuliaSyntax 1). So the standard's test env is unresolvable on 1.11 whatever
+# the downgrade job does, and pinning the job to the floor would only make CI
+# red on a conflict that has nothing to do with the package under test.
+const _JULIA_DOWNGRADE_VERSION = "'1'"
+
+# Whether a package's `[compat] julia` admits a version below the floor, i.e. it
+# claims support for a Julia on which the managed test infrastructure cannot
+# work. `Pkg` is not available for a full semver parse here, and a compat entry
+# is a comma-separated list of ranges, so read the lowest bound each range names
+# and compare that: `"1.10, 1.11"` → 1.10 (below), `"1.11, 1.12"` → 1.11 (fine),
+# `"1"` → 1.0 (below). Returns `nothing` when there is no julia compat at all
+# (nothing claimed, nothing to warn about).
+# The Julia versions a `test.yaml` caller names that sit below the floor: an
+# `lts` entry (1.10 today) or an explicit `1.10`/older. A package may pick its
+# own matrix (#73), but a leg below the floor silently resolves the registered
+# kit rather than the pinned rev, so it is never left unremarked (#246).
+#
+# `"1"` and `"pre"` mean "current release" and "pre-release", both above the
+# floor; `"lts"` is the long-term-support line, which is what the floor excludes.
+function _julia_versions_below_floor(content::AbstractString)
+    below = String[]
+    for m in eachmatch(r"(?m)^[ \t]*julia_versions?:[ \t]*(\S.*?)[ \t]*$", content)
+        # Drop a trailing inline comment before scanning: a note explaining
+        # which leg was dropped (`julia_versions: '["1"]'  # was ["1","lts"]`)
+        # would otherwise be read as the value and warn about a leg that is not
+        # there.
+        value = replace(String(something(m.captures[1])), r"\s+#.*$" => "")
+        occursin("lts", value) && push!(below, "lts")
+        for v in eachmatch(r"(\d+\.\d+)", value)
+            text = String(something(v.captures[1]))
+            # Report the version as the workflow names it ("1.10"), not as a
+            # normalised VersionNumber ("1.10.0") — the point of the warning is
+            # to name the leg the maintainer has to go and delete.
+            VersionNumber(text) < _JULIA_FLOOR && push!(below, text)
+        end
+    end
+    return unique(below)
+end
+
+function _julia_compat_below_floor(compat::AbstractString)
+    lowest = nothing
+    for range in split(compat, ',')
+        m = match(r"(\d+)(?:\.(\d+))?", range)
+        m === nothing && continue
+        major = parse(Int, something(m.captures[1]))
+        minor = m.captures[2] === nothing ? 0 : parse(Int, something(m.captures[2]))
+        v = VersionNumber(major, minor)
+        (lowest === nothing || v < lowest) && (lowest = v)
+    end
+    lowest === nothing && return nothing
+    return lowest < _JULIA_FLOOR ? lowest : nothing
+end
+
 # The seed reusable-workflow ref for the opt-in `downgrade-compat` caller job
 # built by `_downgrade_compat_job` (#121). Dependabot bumps the live pin in each
 # adopting repo, and `_preserve_reusable_refs` keeps that bumped ref across
@@ -807,6 +900,9 @@ function scaffold_inputs(target_dir::AbstractString;
         KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
         JULIAFORMATTER_VERSION = _JULIAFORMATTER_VERSION,
+        # The `tests.yml` caller's Julia matrix, dropping the reusable's `lts`
+        # leg: the managed standard needs 1.11 (#246).
+        JULIA_TEST_VERSIONS = _JULIA_TEST_VERSIONS,
         LOGO_INITIAL = _logo_initial(pkg))
 end
 
@@ -1014,9 +1110,40 @@ function _render_with_block(head::Vector{String}, indent::AbstractString,
     return join(lines, "\n") * "\n"
 end
 
+# Inputs the template *seeds* rather than manages: the kit supplies a default,
+# and a destination that names the key keeps its own value (#246).
+#
+# Every other template-rendered key is managed and wins on merge (#183) — that
+# is what keeps e.g. an `_AD_BACKENDS` change reaching an adopted package rather
+# than freezing at whatever it was first scaffolded with. The Julia matrix is
+# different in kind: choosing which versions to test is a package's call (#73/
+# #117 exist precisely so a package can pin its own floor/matrix and have it
+# survive a sync), while the kit's stake is only that the floor is not *below*
+# 1.11, where `[sources]` stops working. So the kit seeds a floor-respecting
+# default — which is what moves every adopter off the silent 1.10 leg on their
+# next sync — and `_julia_versions_below_floor` warns if a package's own
+# override reaches back below the floor, rather than the kit overwriting a
+# deliberate choice.
+# Scoped to the reusable workflow that renders the key, not global by name:
+# `codecoverage.yaml`'s `coverage.yml` caller renders a `julia_version` of its
+# own, which is *managed* (the kit moves the whole fleet's coverage job when it
+# moves), and a set keyed on the bare name would quietly un-manage that too —
+# freezing every adopter's coverage version and, worse, letting one sit on 1.10,
+# the exact version this floor exists to keep them off.
+const _WITH_SEED_DEFAULT_KEYS = Dict(
+    "tests.yml" => Set(["julia_versions"]),
+    "downgrade.yml" => Set(["julia_version"]))
+
+function _seed_default_keys(workflow::AbstractString)
+    get(_WITH_SEED_DEFAULT_KEYS, workflow, Set{String}())
+end
+
 # Merge the template's `with:` block (`seed`) with the destination's, keeping
-# every key the template renders and appending the keys only the package carries.
-function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
+# every key the template manages, letting the destination win on a seed-default
+# key it names (scoped to `workflow`, the reusable being called), and appending
+# the keys only the package carries.
+function _merge_with_blocks(seed::AbstractString, existing::AbstractString,
+        workflow::AbstractString = "")
     s = _parse_with_block(seed)
     e = _parse_with_block(existing)
     e.indent === nothing && return seed
@@ -1025,13 +1152,31 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString)
     # included (#73, #117).
     s.indent === nothing && return existing
     seeded = Set(first(p) for p in s.inputs)
+    named = Dict(first(p) => p for p in e.inputs)
+    # A seed-default key the destination names is the package's, comments and
+    # all; every other seeded key is the kit's.
+    defaults = _seed_default_keys(workflow)
+    overridden = Set(k for k in keys(named) if k in defaults)
+    merged = Pair{String, Vector{String}}[]
+    for p in s.inputs
+        key = first(p)
+        push!(merged, key in overridden ? named[key] : p)
+    end
     extra = [p for p in e.inputs if !(first(p) in seeded)]
     # A genuinely dangling comment in the destination (no key follows it) is
     # package-owned unmatched content, exactly like an extra key — keep it
     # alongside the seed's own trailing lines (if any) rather than dropping it.
     trailing = isempty(e.trailing) ? s.trailing : vcat(s.trailing, e.trailing)
-    isempty(extra) && isempty(e.trailing) && return seed
-    return _render_with_block(s.head, s.indent, vcat(s.inputs, extra), trailing)
+    # The destination's leading comments (between `uses:` and `with:`) are its
+    # rationale for the block (#117) and are not the template's to drop. Only
+    # the lines the template does not itself emit are the package's, though:
+    # appending the destination's head wholesale would re-append the template's
+    # own comments on every sync, growing the file without bound.
+    extra_head = [l for l in e.head if !(l in s.head)]
+    head = vcat(s.head, extra_head)
+    isempty(extra) && isempty(e.trailing) && isempty(overridden) &&
+        isempty(extra_head) && return seed
+    return _render_with_block(head, s.indent, vcat(merged, extra), trailing)
 end
 
 # The `downstreams:` input of the managed `downstream.yaml` caller: its indent
@@ -1097,7 +1242,8 @@ function _preserve_caller_with_inputs(content::AbstractString,
             seed = String(something(m.captures[3], ""))
             suffix = String(something(m.captures[5]))
             kept = get(existing, workflow, "")
-            replacement = isempty(kept) ? seed : _merge_with_blocks(seed, kept)
+            replacement = isempty(kept) ? seed :
+                          _merge_with_blocks(seed, kept, workflow)
             return prefix * replacement * suffix
         end)
 end
@@ -2282,6 +2428,11 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
         "\n\n  downgrade-compat:\n",
         "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
         _DOWNGRADE_SEED_REF, "\n",
+        "    with:\n",
+        # The reusable defaults this to '1.10', the one version where the
+        # `[sources]` kit pin is silently ignored, so the downgrade job would
+        # resolve the registered kit instead of the pinned rev (#246, #115).
+        "      julia_version: ", _JULIA_DOWNGRADE_VERSION, "\n",
         "    secrets: inherit  # pragma: allowlist secret")
 end
 
@@ -2527,6 +2678,50 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # thereafter. Reported separately so the template manifest stays
     # template-driven.
     workspace_action = _apply_workspace(target_dir)
+    # A package's own `[compat] julia` is package-owned — the kit will not
+    # rewrite it — but the managed test infrastructure needs 1.11 (#246), so a
+    # package still claiming 1.10 is claiming support the standard cannot
+    # deliver. Say so rather than leaving it to be discovered as an
+    # `UndefVarError` on a runner, or worse, as a green LTS job quietly testing
+    # a stale kit resolved from the registry.
+    proj_path = joinpath(target_dir, "Project.toml")
+    if isfile(proj_path)
+        m = match(r"(?m)^julia\s*=\s*\"([^\"]*)\"", read(proj_path, String))
+        if m !== nothing
+            below = _julia_compat_below_floor(String(something(m.captures[1])))
+            if below !== nothing
+                push!(warnings,
+                    string("Project.toml claims julia = \"",
+                        something(m.captures[1]), "\", which admits ", below,
+                        ", but the managed standard needs ", _JULIA_FLOOR,
+                        ": `[sources]` (how test/Project.toml pins the kit) is ",
+                        "silently ignored before 1.11, so the tests resolve ",
+                        "the registered kit instead of the pinned rev. Set ",
+                        "julia = \"", _JULIA_COMPAT, "\" (#246)."))
+            end
+        end
+    end
+    # A package may pick its own Julia matrix on the managed test caller (#73),
+    # and the kit does not overwrite it (`_WITH_SEED_DEFAULT_KEYS`). But a leg
+    # below the floor tests a kit resolved from the registry rather than the
+    # pinned rev, so an override that reaches back below it is never silent.
+    # Scanned across every managed caller, not just test.yaml: `codecoverage.yaml`
+    # names a Julia version of its own, and a coverage job below the floor is the
+    # same silent staleness, measured and published as if it were current.
+    wf_dir = joinpath(target_dir, ".github", "workflows")
+    if isdir(wf_dir)
+        for f in sort(readdir(wf_dir))
+            endswith(f, ".yaml") || endswith(f, ".yml") || continue
+            legs = _julia_versions_below_floor(read(joinpath(wf_dir, f), String))
+            isempty(legs) || push!(warnings,
+                string(".github/workflows/", f, " tests Julia ",
+                    join(legs, ", "), ", below the ", _JULIA_FLOOR,
+                    " the managed standard needs: `[sources]` is ignored there, ",
+                    "so that leg resolves the registered kit rather than the ",
+                    "pinned rev and tests a stale kit while appearing to test ",
+                    "this one. Drop it (#246)."))
+        end
+    end
     # `.gitignore` is managed between markers so package-owned additions below
     # the block survive `scaffold_update` (#65). Reported separately for the same
     # reason as `readme`/`license`/`workspace` above.
@@ -2857,8 +3052,8 @@ function _emit_package_skeleton(target_dir::AbstractString, package::AbstractStr
     DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 
     [compat]
-    DocStringExtensions = "0.9"
-    julia = "1.10, 1.11, 1.12"
+    DocStringExtensions = "0.9.5"
+    julia = "$(_JULIA_COMPAT)"
     """)
     write(joinpath(target_dir, "src", "$package.jl"), """
     \"\"\"
