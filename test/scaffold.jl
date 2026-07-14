@@ -1209,6 +1209,156 @@
             end
         end
 
+        @testset "override marker preserves any managed file (#224)" begin
+            using EpiAwarePackageTools: _detect_managed_override,
+                                        _MANAGED_OVERRIDE_MARKER,
+                                        _AD_SETUP_OWNED_MARKER
+            # The third argument is the fresh render of the template, which the
+            # guard reads only to check the kit is not itself shipping the
+            # marker (see the template-marker testset below); a marker-free
+            # stand-in is enough here.
+            unmarked_render = "name: Test\n"
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Override")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/test.yaml")
+                # A freshly scaffolded managed file carries no marker, so a
+                # resync overwrites it (the load-bearing "managed files always
+                # resync" rule).
+                @test !_detect_managed_override(
+                    dir, ".github/workflows/test.yaml", unmarked_render)
+                write(wf, "# hand-edited, no marker\n")
+                res = scaffold_update(dir)
+                @test wf in res.updated
+                @test occursin("jobs:", read(wf, String))
+                # Marking it makes scaffold_update() preserve it verbatim.
+                owned = "# $(_MANAGED_OVERRIDE_MARKER): package-owned CI\n" *
+                        "name: Test\non: [push]\n"
+                write(wf, owned)
+                @test _detect_managed_override(
+                    dir, ".github/workflows/test.yaml", unmarked_render)
+                res2 = scaffold_update(dir)
+                @test wf in res2.preserved
+                @test wf ∉ res2.updated
+                @test read(wf, String) == owned
+                # A marked, diverged file is a deliberate opt-out: no warning.
+                @test isempty(res2.warnings)
+                # The match is case-sensitive, as documented: a mis-cased
+                # marker is not an opt-out and the file resyncs as usual.
+                write(wf, "# epiaware_managed_override\nname: Test\n")
+                @test !_detect_managed_override(
+                    dir, ".github/workflows/test.yaml", unmarked_render)
+                @test wf in scaffold_update(dir).updated
+                # scaffold(force = true) still re-lays the managed file, so a
+                # new package always starts managed.
+                write(wf, owned)
+                scaffold(dir; force = true)
+                @test occursin("jobs:", read(wf, String))
+            end
+            # The marker works on any managed file, including test/ad/setup.jl,
+            # whose older file-specific marker keeps working (back-compat).
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Override2")
+                scaffold(dir)
+                setup = joinpath(dir, "test/ad/setup.jl")
+                legacy = "# $(_AD_SETUP_OWNED_MARKER): legacy driver\n"
+                write(setup, legacy)
+                @test _detect_managed_override(
+                    dir, "test/ad/setup.jl", unmarked_render)
+                res = scaffold_update(dir)
+                @test setup in res.preserved
+                @test read(setup, String) == legacy
+                # The generic marker is accepted on the same file.
+                generic = "# $(_MANAGED_OVERRIDE_MARKER): kept driver\n"
+                write(setup, generic)
+                res2 = scaffold_update(dir)
+                @test setup in res2.preserved
+                @test read(setup, String) == generic
+            end
+        end
+
+        @testset "no bundled template ships the override marker (#224)" begin
+            using EpiAwarePackageTools: _MANAGED_OVERRIDE_MARKER
+            # A managed template carrying the marker literal would hand every
+            # adopter a permanently self-preserving copy of that file on the
+            # next sync: the kit would silently stop managing its own file,
+            # everywhere. `_detect_managed_override` ignores a marker the fresh
+            # render also carries, and this test fails loudly if a template ever
+            # adds one, so the case is fixed in the kit rather than absorbed.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "MarkerFree")
+                inputs = scaffold_inputs(dir)
+                for t in SCAFFOLD_TEMPLATES
+                    src = joinpath(_templates_dir(), t.src)
+                    @test !occursin(_MANAGED_OVERRIDE_MARKER, read(src, String))
+                end
+                # ... and nothing a real render produces carries it either.
+                scaffold(dir)
+                for (root, _, files) in walkdir(dir), f in files
+
+                    path = joinpath(root, f)
+                    @test !occursin(
+                        _MANAGED_OVERRIDE_MARKER, read(path, String))
+                end
+            end
+            # A marker in the template itself means nothing: the file stays
+            # managed rather than pinning itself in every adopter forever.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "MarkerInTemplate")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/test.yaml")
+                marked = "# $(_MANAGED_OVERRIDE_MARKER) in the template\n"
+                write(wf, marked)
+                @test !EpiAwarePackageTools._detect_managed_override(
+                    dir, ".github/workflows/test.yaml", marked)
+                @test EpiAwarePackageTools._detect_managed_override(
+                    dir, ".github/workflows/test.yaml", "name: Test\n")
+            end
+        end
+
+        @testset "override marker does not cover managed regions (#224)" begin
+            using EpiAwarePackageTools: _MANAGED_OVERRIDE_MARKER
+            # The marker governs whole template-emitted files. The
+            # marker-delimited regions the kit injects into otherwise
+            # package-owned files (the .gitignore managed block, the README
+            # badge and standard-sections blocks, Project.toml's [workspace])
+            # have their own appliers and are refreshed regardless — as the
+            # docs now say. Customisation there goes outside the markers.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Regions")
+                scaffold(dir; repo = "FakeOrg/Regions.jl")
+                gi = joinpath(dir, ".gitignore")
+                readme = joinpath(dir, "README.md")
+                write(gi, "# $(_MANAGED_OVERRIDE_MARKER)\nmy-own-rule\n")
+                write(readme, "# Regions\n\n# $(_MANAGED_OVERRIDE_MARKER)\n")
+                scaffold_update(dir; repo = "FakeOrg/Regions.jl")
+                # The managed blocks come back despite the marker.
+                @test occursin(
+                    EpiAwarePackageTools.GITIGNORE_START, read(gi, String))
+                body = read(readme, String)
+                @test occursin(EpiAwarePackageTools.BADGES_START, body)
+                @test occursin(
+                    EpiAwarePackageTools.STANDARD_SECTIONS_START, body)
+            end
+        end
+
+        @testset "no divergence warning for stale managed files (#224)" begin
+            # A managed file that diverges from a fresh render is the *normal*
+            # state right before a routine scaffold_update (the adopter is
+            # simply on an older kit version), so divergence alone cannot
+            # distinguish "customised" from "stale". Only test/ad/setup.jl —
+            # where a clobber breaks every AD CI job — warns.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Stale")
+                scaffold(dir)
+                wf = joinpath(dir, ".github/workflows/test.yaml")
+                write(wf, "# an older template version\nname: Test\n")
+                res = scaffold_update(dir)
+                @test wf in res.updated
+                @test isempty(res.warnings)
+            end
+        end
+
         @testset "AD backends single source of truth (#821)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")

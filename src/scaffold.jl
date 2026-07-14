@@ -992,6 +992,18 @@ function _make_writable(path::AbstractString)
     return nothing
 end
 
+# The template's text as the kit would render it: placeholders substituted when
+# the template takes substitution, verbatim otherwise. The
+# destination-preserving passes `_emit` runs (`_preserve_*`) are deliberately
+# not applied — they merge the destination's own pins and inputs back in, so
+# they say nothing about what the kit's own template contains, which is what
+# the callers here ask about (does the template ship the override marker; has
+# the committed file diverged from the standard).
+function _render(from::AbstractString, substitute::Bool, inputs::NamedTuple)
+    text = read(from, String)
+    return substitute ? _substitute(text, inputs, from) : text
+end
+
 # Copy one template to `to`, substituting placeholders when requested. Managed
 # workflows additionally keep any reusable-workflow ref (see
 # `_preserve_reusable_refs`) and any third-party action pin (see
@@ -1926,6 +1938,61 @@ function _detect_ad_setup_owned(target_dir::AbstractString)
     return occursin(_AD_SETUP_OWNED_MARKER, read(f, String))
 end
 
+# The generic ownership marker any managed file may carry to opt out of kit
+# management (#224), generalising `test/ad/setup.jl`'s file-specific marker.
+const _MANAGED_OVERRIDE_MARKER = "EPIAWARE_MANAGED_OVERRIDE"
+
+"""
+    _detect_managed_override(target_dir, dest, rendered)
+
+Whether the template-emitted managed file at `dest` has been marked
+package-owned, so `scaffold_update()` preserves it rather than resyncing it
+(#224).
+
+Managed files always resync — that is what keeps an adopter on the current
+standard. A package that must keep its own version of one (a hand-kept AD
+driver mid-migration, a workflow the package genuinely owns) says so in the
+file, by putting the marker `$(_MANAGED_OVERRIDE_MARKER)` in a comment. The
+committed file is then the marker, the same detect-from-the-destination
+idempotency as `_detect_downgrade_compat` (#121), so the opt-out is explicit,
+self-documenting, and survives every sync. The match is a plain case-sensitive
+`occursin`, so a mis-cased marker does nothing.
+
+This governs whole files emitted from a template (`SCAFFOLD_TEMPLATES`) only.
+The marker-delimited regions the kit injects into otherwise package-owned
+files (the `.gitignore` managed block, the README badge and standard-sections
+blocks, `Project.toml`'s `[workspace]` stanza) are refreshed by their own
+appliers (`_apply_gitignore` and friends), which never consult this, so they
+cannot be opted out this way.
+
+`rendered` is the freshly rendered template for `dest`, and is required rather
+than defaulted: a managed template that itself contained the marker literal (a
+workflow comment documenting this feature, say) would otherwise hand every
+adopter a self-preserving copy of that file on its next sync, and the kit would
+silently stop managing its own file, everywhere, forever. So when the fresh
+render carries the marker, the marker means nothing and the file stays managed.
+A caller cannot omit the guard by accident. The test suite additionally asserts
+that no bundled template renders the marker, so a template that ever adds it
+fails the kit's own CI loudly rather than being tacitly absorbed here.
+
+`test/ad/setup.jl` additionally still honours its original marker
+`$(_AD_SETUP_OWNED_MARKER)` (#162) via `_detect_ad_setup_owned`, which adopters
+carry today; either marker opts that file out.
+
+`scaffold`/`scaffold_generate` (`force = true`) ignore the marker and lay the
+managed file down fresh, so a new package always starts managed. The marker
+opts a file out of *resyncing*, not out of *retirement*: a path the kit retires
+(`RETIRED_PATHS`) is still deleted, marker or not.
+"""
+function _detect_managed_override(target_dir::AbstractString,
+        dest::AbstractString, rendered::AbstractString)
+    f = joinpath(target_dir, dest)
+    isfile(f) || return false
+    occursin(_MANAGED_OVERRIDE_MARKER, rendered) && return false
+    occursin(_MANAGED_OVERRIDE_MARKER, read(f, String)) && return true
+    return dest == _AD_SETUP_DEST && _detect_ad_setup_owned(target_dir)
+end
+
 # The opt-in `downgrade-compat` caller job spliced into `test.yaml` directly
 # after the `test` job's `secrets:` line via `{{DOWNGRADE_COMPAT_JOB}}` (#121):
 # the job block (preceded by a blank line) when kept, empty when a package opts
@@ -2055,16 +2122,26 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         isfile(from) || error("missing bundled template $(t.src) at $from")
         to = joinpath(target_dir, t.dest)
         exists = isfile(to)
-        # A package mid-migration can opt its AD-harness driver out of
-        # management (#162): the generic `test/ad/setup.jl` assumes the
-        # package's ADFixtures registry satisfies the current `ADRegistry`
+        # Any managed file can be opted out of management by marking it
+        # package-owned (#224), generalising the AD driver's original
+        # file-specific opt-out (#162): the generic `test/ad/setup.jl` assumes
+        # the package's ADFixtures registry satisfies the current `ADRegistry`
         # contract (`scenarios(; category=)`), so force-clobbering a
         # pre-contract adopter's hand-kept driver would `MethodError` every AD
-        # test. When the committed file carries the opt-out marker, preserve it
-        # rather than overwriting — `scaffold`/`scaffold_generate` (`force = true`) still
-        # (re)lays it down so a fresh package starts managed.
-        if exists && !force && t.dest == _AD_SETUP_DEST &&
-           _detect_ad_setup_owned(target_dir)
+        # test. When the committed file carries an ownership marker, preserve
+        # it rather than overwriting — `scaffold`/`scaffold_generate`
+        # (`force = true`) still (re)lays it down so a fresh package starts
+        # managed. The marker lives in the file, so the opt-out is explicit and
+        # visible to anyone reading it.
+        #
+        # The fresh render is passed in so a managed template that itself
+        # carried the marker literal cannot hand every adopter a permanently
+        # self-preserving file (see `_detect_managed_override`); the kit's own
+        # tests also assert no template ships the marker.
+        rendered = exists && !force && t.managed ?
+                   _render(from, t.substitute, inputs) : nothing
+        if rendered !== nothing &&
+           _detect_managed_override(target_dir, t.dest, rendered)
             push!(preserved, to)
             continue
         end
@@ -2074,21 +2151,30 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         # marker — silently force-overwriting it (the standard "managed
         # files always resync" rule) is exactly the footgun that nearly
         # broke CensoredDistributions' AD CI: a heavily customised
-        # `test/ad/setup.jl` carrying no `$(_AD_SETUP_OWNED_MARKER)` marker
-        # was clobbered with the generic driver, which would `MethodError`
-        # on every AD job. Warn (rather than silently proceed) so a
-        # maintainer notices before the next scheduled template-sync does
-        # this again; still overwrites, matching every other managed file.
-        if exists && !force && t.dest == _AD_SETUP_DEST
-            current = read(to, String)
-            fresh = _substitute(read(from, String), inputs, from)
-            if current != fresh
+        # `test/ad/setup.jl` carrying no ownership marker was clobbered with
+        # the generic driver, which would `MethodError` on every AD job. Warn
+        # (rather than silently proceed) so a maintainer notices before the
+        # next scheduled template-sync does this again; still overwrites,
+        # matching every other managed file.
+        #
+        # This warning stays scoped to `test/ad/setup.jl` and is deliberately
+        # not generalised to every managed file (#224). Divergence from a fresh
+        # render is the normal state of a managed file on an adopter running an
+        # older kit version, precisely what `scaffold_update` exists to fix, so
+        # a generic divergence check cannot tell "the adopter customised this"
+        # from "the adopter is simply behind" and would warn on every file on
+        # every sync. The AD driver is the one file where a clobber is
+        # silently fatal (a `MethodError` in every AD CI job) rather than merely
+        # a resync, which is what earns it the noise. A package that genuinely
+        # owns any other managed file says so with the
+        # `$(_MANAGED_OVERRIDE_MARKER)` marker above, which needs no heuristic.
+        if rendered !== nothing && t.dest == _AD_SETUP_DEST
+            if read(to, String) != rendered
                 msg = string(_AD_SETUP_DEST,
                     " differs from the managed driver but carries no ",
-                    _AD_SETUP_OWNED_MARKER,
-                    " marker — overwriting. If this divergence is ",
+                    "ownership marker — overwriting. If this divergence is ",
                     "intentional, add a comment containing \"",
-                    _AD_SETUP_OWNED_MARKER,
+                    _MANAGED_OVERRIDE_MARKER,
                     "\" to keep it across future scaffold_update calls.")
                 push!(warnings, msg)
                 @warn msg
@@ -2307,8 +2393,11 @@ wording change (#67). `CITATION.cff` is package-owned and write-once, seeded
 from `{{PACKAGE}}`/`{{AUTHORS}}`/`{{REPO}}` (and the DOI when known); `scaffold_update`
 never rewrites it, so the real author list and DOI stand.
 
-`force = true` overwrites the package-owned skeletons too. `target_dir` must
-exist. Use [`scaffold_update`](@ref) to re-apply only the managed files later.
+`force = true` overwrites the package-owned skeletons too, and lays every
+managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
+(see [`scaffold_update`](@ref)), so a new package always starts fully managed.
+`target_dir` must exist. Use [`scaffold_update`](@ref) to re-apply only the
+managed files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
 gitignore, logo, standard_sections, citation, warnings)` named tuple:
@@ -2384,21 +2473,47 @@ package-owned tail after the block left untouched.
 The README logo title (see `scaffold`) is also (re)checked: once a package has
 a `docs/src/assets/logo.svg`, the tag is added to the title if missing.
 
-The force-managed AD-harness driver `test/ad/setup.jl` has a package-owned
-opt-out (#162): the generic driver assumes the package's `ADFixtures` registry
-satisfies the current `ADRegistry` contract (its `scenarios` accepts a
-`category` keyword), so a package whose registry predates that contract would
-`MethodError` on every AD test if the driver were force-overwritten. Adding a
-comment containing the marker `$(_AD_SETUP_OWNED_MARKER)` to the committed
-`test/ad/setup.jl` tells `scaffold_update()` to preserve the file (leaving it in
-`preserved`) instead of clobbering it, so a package can keep a hand-written
-driver while it migrates; remove the marker to hand management back to the kit.
-`scaffold`/`scaffold_generate` (`force = true`) still (re)lay the managed driver down.
+Every managed file written from a template has a package-owned opt-out (#224).
+Putting the marker `$(_MANAGED_OVERRIDE_MARKER)` in a comment in the committed
+file tells `scaffold_update()` to preserve it (leaving it in `preserved`)
+instead of resyncing it, so a package keeps its own version of that file; remove
+the marker to hand management back to the kit. `scaffold`/`scaffold_generate`
+(`force = true`) ignore the marker and lay the managed file down fresh, so a new
+package always starts managed. Use the marker sparingly: an overridden file no
+longer tracks the standard, which is the whole point of the kit.
+
+Three limits on the marker, all deliberate:
+
+  - It covers whole files emitted from a template, not the marker-delimited
+    *regions* the kit injects into otherwise package-owned files. The
+    `.gitignore` managed block, the README badge and standard-sections blocks,
+    and `Project.toml`'s `[workspace]` stanza are refreshed on every sync
+    regardless of any `$(_MANAGED_OVERRIDE_MARKER)`; a package customises those
+    by editing outside their markers, which is what the markers are for.
+  - It opts a file out of resyncing, not out of retirement: a marked file whose
+    path the kit has retired (`RETIRED_PATHS`, below) is still deleted, since a
+    retired path is infrastructure the kit no longer supports at all.
+  - The marker must appear in a comment, so the two managed JSON files
+    (`docs/package.json`, `.secrets.baseline`) cannot carry it — JSON has no
+    comment syntax — and cannot be overridden this way. The match is
+    case-sensitive: `$(_MANAGED_OVERRIDE_MARKER)`, in capitals, or it does
+    nothing.
+
+The AD-harness driver `test/ad/setup.jl` is where this began (#162): the generic
+driver assumes the package's `ADFixtures` registry satisfies the current
+`ADRegistry` contract (its `scenarios` accepts a `category` keyword), so a
+package whose registry predates that contract would `MethodError` on every AD
+test if the driver were overwritten. That file still honours its original marker
+`$(_AD_SETUP_OWNED_MARKER)` as well as the generic one; either preserves it.
 When the committed driver has diverged from the managed one but carries no
 marker — a strong signal it was customised and the marker just never got
 added — `scaffold_update()` still overwrites it (managed files always
 resync) but records a message in `warnings` (and emits `@warn`) rather than
-clobbering it silently.
+clobbering it silently. That divergence warning is deliberately scoped to
+`test/ad/setup.jl`, the one file whose clobber is silently fatal: divergence
+from a fresh render is the normal state of any managed file on an adopter simply
+running an older kit version, so a generic divergence check would fire on every
+sync and mean nothing. Mark a file you own instead.
 
 Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
