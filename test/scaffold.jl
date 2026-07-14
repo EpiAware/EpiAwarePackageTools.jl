@@ -10,6 +10,14 @@
                                 scaffold_inputs, _ad_selected, _bench_selected
     using Dates: year, now
 
+    # Absolute native path of a scaffold destination, mirroring the scaffold's
+    # own `_dest_path`. Destinations are written posix-style (`docs/make.jl`),
+    # so `joinpath(dir, "docs/make.jl")` keeps the inner `/` and is a mixed
+    # separator path on Windows, which never compares equal to the native path
+    # the scaffold results report. Splitting on `/` gives the platform
+    # separator, so these assertions mean the same thing on every OS.
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
     # Build a minimal package root with a Project.toml so placeholder substitution
     # (name, authors) has values to resolve.
     function _fake_pkg(dir; name = "FakePkg",
@@ -102,7 +110,7 @@
                 end
                 # CI callers invoke the org reusables; `{{ORG}}` defaults to
                 # EpiAware (no Project.toml org field), so the slug is filled.
-                test_yaml = read(joinpath(dir, ".github/workflows/test.yaml"),
+                test_yaml = read(_dest(dir, ".github/workflows/test.yaml"),
                     String)
                 @test occursin("EpiAware/.github/.github/workflows/tests.yml",
                     test_yaml)
@@ -133,13 +141,13 @@
                 end
                 # The org-standard bot/dev-experience callers are managed and
                 # parameterised (no repo-specific literal left hardcoded).
-                tpr = read(joinpath(dir, ".github/workflows/try-this-pr.yaml"),
+                tpr = read(_dest(dir, ".github/workflows/try-this-pr.yaml"),
                     String)
                 @test occursin("github.com/EpiAware/FakePkg.jl", tpr)
                 @test occursin("using FakePkg", tpr)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", tpr)
-                coc = read(joinpath(dir, ".github/workflows/cancel-on-close.yaml"),
+                coc = read(_dest(dir, ".github/workflows/cancel-on-close.yaml"),
                     String)
                 @test occursin(
                     "EpiAware/.github/.github/workflows/cancel-on-close.yml", coc)
@@ -158,7 +166,7 @@
                 # Coverage hard-fails on upload error (org policy: red on a
                 # missing CODECOV_TOKEN as a loud reminder to add it).
                 cov_caller = read(
-                    joinpath(dir, ".github/workflows/codecoverage.yaml"), String)
+                    _dest(dir, ".github/workflows/codecoverage.yaml"), String)
                 @test occursin("fail_ci_if_error: true", cov_caller)
                 @test !occursin("fail_ci_if_error: false", cov_caller)
             end
@@ -172,7 +180,7 @@
                 # The pre-commit CI caller passes the pinned version to the
                 # shared format-check workflow (otherwise CI installs its own
                 # default and reformats code the local hook left intact).
-                pc = read(joinpath(dir, ".github/workflows/pre-commit.yaml"),
+                pc = read(_dest(dir, ".github/workflows/pre-commit.yaml"),
                     String)
                 @test occursin("juliaformatter_version: '$ver'", pc)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
@@ -181,7 +189,7 @@
                 # env compat pin agree with the same single source.
                 cfg = read(joinpath(dir, ".pre-commit-config.yaml"), String)
                 @test occursin("rev: v$ver", cfg)
-                fmt = read(joinpath(dir, "test/formatter/Project.toml"), String)
+                fmt = read(_dest(dir, "test/formatter/Project.toml"), String)
                 @test occursin("JuliaFormatter = \"=$ver\"", fmt)
                 @test !occursin("{{", fmt)
             end
@@ -211,7 +219,7 @@
                 @test occursin("wait_for_ci: true", cov)
                 @test occursin("target: auto", cov)
                 @test !occursin("{{", cov)
-                adyaml = read(joinpath(dir, ".github/workflows/ad.yaml"), String)
+                adyaml = read(_dest(dir, ".github/workflows/ad.yaml"), String)
                 @test occursin("EpiAware/.github/.github/workflows/ad.yml", adyaml)
                 # Docs-only changes skip the heavy 6-backend AD sweep on both
                 # push and pull_request (a mixed docs+src PR still runs it).
@@ -221,14 +229,14 @@
                 @test occursin("'LICENSE'", adyaml)
 
                 # The seeded ADFixtures registry and the AD env agree on its UUID.
-                reg = read(joinpath(dir, "test/ADFixtures/Project.toml"), String)
-                adenv = read(joinpath(dir, "test/ad/Project.toml"), String)
+                reg = read(_dest(dir, "test/ADFixtures/Project.toml"), String)
+                adenv = read(_dest(dir, "test/ad/Project.toml"), String)
                 m = match(r"uuid = \"([^\"]+)\"", reg)
                 @test m !== nothing
                 @test occursin("ADFixtures = \"$(m.captures[1])\"", adenv)
                 @test !occursin("{{ADFIXTURES_UUID}}", reg)
                 # The jet env references the package by name + UUID.
-                jetenv = read(joinpath(dir, "test/jet/Project.toml"), String)
+                jetenv = read(_dest(dir, "test/jet/Project.toml"), String)
                 @test occursin("Wombat = \"00000000-0000-0000-0000-000000000000\"",
                     jetenv)
             end
@@ -282,7 +290,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
-                path = joinpath(dir, "test/Project.toml")
+                path = _dest(dir, "test/Project.toml")
                 txt = read(path, String)
                 @test occursin("rev = \"main\"", txt)
                 @test Pkg.TOML.parsefile(path) isa AbstractDict
@@ -307,25 +315,25 @@
                 end
                 # The stars widget targets the adopting repo (no owner/repo
                 # hardcoded) and its theme + package.json wiring is present.
-                star = read(joinpath(dir, "docs/src/components/StarUs.vue"),
+                star = read(_dest(dir, "docs/src/components/StarUs.vue"),
                     String)
                 @test occursin("github.com/EpiAware/Wombat.jl", star)
                 @test !occursin("{{REPO}}", star)
                 data_ts = read(
-                    joinpath(dir, "docs/src/components/stargazers.data.ts"),
+                    _dest(dir, "docs/src/components/stargazers.data.ts"),
                     String)
                 @test occursin("EpiAware/Wombat.jl", data_ts)
                 theme = read(
-                    joinpath(dir, "docs/src/.vitepress/theme/index.ts"), String)
+                    _dest(dir, "docs/src/.vitepress/theme/index.ts"), String)
                 @test occursin("StarUs", theme)
                 @test occursin("d3-format",
-                    read(joinpath(dir, "docs/package.json"), String))
+                    read(_dest(dir, "docs/package.json"), String))
                 # The quickstart is authored, package-owned, and substituted
                 # (no unresolved placeholders). It does not repeat the install
                 # instructions the README-derived home page already carries
                 # (#194), and it points at the kit's site rather than a seeded
                 # copy of the kit's docs.
-                gs = read(joinpath(dir, "docs/src/getting-started/index.md"),
+                gs = read(_dest(dir, "docs/src/getting-started/index.md"),
                     String)
                 @test occursin("@id getting-started", gs)
                 @test occursin("using Wombat", gs)
@@ -334,7 +342,7 @@
                 @test occursin("epiawarepackagetools.epiaware.org", gs)
                 @test !occursin("{{", gs)
                 # The nav wires the getting-started section into pages.jl.
-                pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test occursin("getting-started/index.md", pgs)
                 # Kit meta-docs (customising the generated site, infrastructure
                 # and template sync) describe the kit, not the adopting package,
@@ -348,7 +356,7 @@
                 # make.jl is a thin caller into the kit's DocsBuild machinery
                 # (DocumenterVitepress/Literate/makedocs all live in the kit
                 # now), and is fully substituted.
-                mk = read(joinpath(dir, "docs/make.jl"), String)
+                mk = read(_dest(dir, "docs/make.jl"), String)
                 @test occursin("using EpiAwarePackageTools", mk)
                 @test occursin("build_docs(", mk)
                 @test occursin("using Wombat", mk)
@@ -362,7 +370,7 @@
                 @test !occursin("Documenter.HTML", mk)
                 @test !occursin("{{", mk)
                 # The docs env depends on DocumenterVitepress with compat.
-                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                dp = read(_dest(dir, "docs/Project.toml"), String)
                 @test occursin("DocumenterVitepress", dp)
                 @test occursin("Wombat = \"00000000", dp)
                 @test !occursin("{{", dp)
@@ -377,13 +385,13 @@
                     "rev = \"main\"}", dp)
                 # The VitePress config keeps the DocumenterVitepress markers and
                 # points social links at the package repo.
-                cfg = read(joinpath(dir, "docs/src/.vitepress/config.mts"),
+                cfg = read(_dest(dir, "docs/src/.vitepress/config.mts"),
                     String)
                 @test occursin("REPLACE_ME_DOCUMENTER_VITEPRESS", cfg)
                 @test occursin("github.com/EpiAware/Wombat.jl", cfg)
                 @test !occursin("{{", cfg)
                 # The node deps pin vitepress + DocumenterVitepress plugins.
-                pj = read(joinpath(dir, "docs/package.json"), String)
+                pj = read(_dest(dir, "docs/package.json"), String)
                 @test occursin("vitepress", pj)
             end
         end
@@ -401,7 +409,7 @@
                     _fake_pkg(dir; name = "Wombat")
                     scaffold(dir; ad = ad, benchmarks = true)
                     src = joinpath(dir, "docs", "src")
-                    pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                    pgs = read(_dest(dir, "docs/pages.jl"), String)
                     targets = [String(m.captures[1])
                                for m in eachmatch(r"\"([^\"]+\.md)\"", pgs)]
                     @test !isempty(targets)
@@ -421,7 +429,7 @@
                 _fake_pkg(dir; name = "Wombat")
                 # `true` selects the conventional <pkg>.epiaware.org host.
                 scaffold(dir; docs_subdomain = true)
-                mk = read(joinpath(dir, "docs/make.jl"), String)
+                mk = read(_dest(dir, "docs/make.jl"), String)
                 @test occursin("deploy_url = \"wombat.epiaware.org\"", mk)
                 @test !occursin("deploy_url = nothing", mk)
                 @test !occursin("{{", mk)
@@ -436,7 +444,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; docs_subdomain = "docs.example.org")
-                mk = read(joinpath(dir, "docs/make.jl"), String)
+                mk = read(_dest(dir, "docs/make.jl"), String)
                 @test occursin("deploy_url = \"docs.example.org\"", mk)
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("docs.example.org/stable/", txt)
@@ -450,12 +458,12 @@
                 # Simulate an adopter predating the build_docs / readme-field
                 # migrations: the package-owned config is absent, but scaffold_update()
                 # (managed_only) re-emits the managed make.jl/quality.jl.
-                rm(joinpath(dir, "docs/docs_config.jl"))
-                rm(joinpath(dir, "docs/pages.jl"))
+                rm(_dest(dir, "docs/docs_config.jl"))
+                rm(_dest(dir, "docs/pages.jl"))
                 scaffold_update(dir)
                 # make.jl no longer hard-includes the missing config; the
                 # include is guarded and pages falls back to a default.
-                mk = read(joinpath(dir, "docs/make.jl"), String)
+                mk = read(_dest(dir, "docs/make.jl"), String)
                 @test occursin("isfile(joinpath(@__DIR__, _f))", mk)
                 @test !occursin("\ninclude(\"docs_config.jl\")", mk)
                 @test !occursin("\ninclude(\"pages.jl\")", mk)
@@ -476,7 +484,7 @@
                     getproperty(m, :_cfg), :pages, ["Home" => "index.md"]) ==
                       ["Home" => "index.md"]
                 # quality.jl defaults a missing QA_CONFIG.readme field.
-                ql = read(joinpath(dir, "test/package/quality.jl"), String)
+                ql = read(_dest(dir, "test/package/quality.jl"), String)
                 @test occursin("hasproperty(QA_CONFIG, :readme)", ql)
             end
         end
@@ -487,17 +495,17 @@
                 scaffold(dir)
                 # The docs fallback is loud: a bad sync that drops `pages.jl`
                 # must not publish a Home-only nav from a green docs build.
-                mk = read(joinpath(dir, "docs/make.jl"), String)
+                mk = read(_dest(dir, "docs/make.jl"), String)
                 @test occursin("@warn", mk)
                 # The QA fallback is loud too: a typoed `readme` key must not
                 # silently revert to the repo-root defaults.
-                ql = read(joinpath(dir, "test/package/quality.jl"), String)
+                ql = read(_dest(dir, "test/package/quality.jl"), String)
                 @test occursin("@warn", ql)
 
                 # The docs guard actually warns (and still returns the
                 # default) when the package-owned config is absent.
-                rm(joinpath(dir, "docs/pages.jl"))
-                rm(joinpath(dir, "docs/docs_config.jl"))
+                rm(_dest(dir, "docs/pages.jl"))
+                rm(_dest(dir, "docs/docs_config.jl"))
                 lines = split(mk, "\n")
                 i = findfirst(l -> occursin("for _f in (", l), lines)
                 j = findfirst(
@@ -519,7 +527,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; docs_subdomain = true)
-                mk = joinpath(dir, "docs/make.jl")
+                mk = _dest(dir, "docs/make.jl")
                 @test occursin("deploy_url = \"wombat.epiaware.org\"",
                     read(mk, String))
                 # The common maintenance call: no docs_subdomain kwarg.
@@ -535,7 +543,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)  # default: project-pages
-                mk = joinpath(dir, "docs/make.jl")
+                mk = _dest(dir, "docs/make.jl")
                 @test occursin("deploy_url = nothing", read(mk, String))
                 scaffold_update(dir)
                 @test occursin("deploy_url = nothing", read(mk, String))
@@ -712,7 +720,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
-                bp = joinpath(dir, "benchmark/Project.toml")
+                bp = _dest(dir, "benchmark/Project.toml")
                 @test isfile(bp)
                 txt = read(bp, String)
                 @test occursin("BenchmarkTools", txt)
@@ -735,7 +743,7 @@
                         r"(?m)^EpiAwarePackageTools = \{url = ", txt)
                 end
                 # The jet runner depends on the kit (for the report filter).
-                jp = read(joinpath(dir, "test/jet/Project.toml"), String)
+                jp = read(_dest(dir, "test/jet/Project.toml"), String)
                 @test occursin("EpiAwarePackageTools =", jp)
             end
         end
@@ -766,10 +774,10 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                cfg = read(joinpath(dir, "test/package/qa_config.jl"), String)
+                cfg = read(_dest(dir, "test/package/qa_config.jl"), String)
                 @test occursin("using Wombat", cfg)
                 @test !occursin("{{PACKAGE}}", cfg)
-                jet = read(joinpath(dir, "test/jet/runtests.jl"), String)
+                jet = read(_dest(dir, "test/jet/runtests.jl"), String)
                 @test occursin("JET.test_package(Wombat", jet)
             end
         end
@@ -791,13 +799,13 @@
                 # With no `reviewer` handle, Dependabot sets no reviewers and
                 # CODEOWNERS ships a commented placeholder: GitHub cannot assign
                 # a bare org, so a person is never hardcoded.
-                dep = read(joinpath(dir, ".github/dependabot.yml"), String)
+                dep = read(_dest(dir, ".github/dependabot.yml"), String)
                 @test !occursin("reviewers:", dep)
                 @test !occursin("assignees:", dep)
                 @test !occursin("{{REVIEWER}}", dep)
                 @test !occursin("{{DEPENDABOT_REVIEWERS}}", dep)
                 @test !occursin("seabbs", dep)
-                co = read(joinpath(dir, ".github/CODEOWNERS"), String)
+                co = read(_dest(dir, ".github/CODEOWNERS"), String)
                 @test !occursin(r"^\* @", co)  # no active owner line
                 @test !occursin("{{CODEOWNERS_LINE}}", co)
                 # The increment-version assignee default must be empty (never
@@ -805,7 +813,7 @@
                 # `replaceActorsForAssignable` on the scaffold_update path (#122). The
                 # action skips the `--assignee` flag when empty.
                 act = read(
-                    joinpath(dir,
+                    _dest(dir,
                         ".github/actions/increment-version/action.yaml"), String)
                 @test occursin("default: ''", act)
                 @test !occursin("default: 'EpiAware'", act)
@@ -818,25 +826,25 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; reviewer = "octocat")
-                co = read(joinpath(dir, ".github/CODEOWNERS"), String)
+                co = read(_dest(dir, ".github/CODEOWNERS"), String)
                 @test occursin("* @octocat", co)
                 @test !occursin("{{", co)
-                dep = read(joinpath(dir, ".github/dependabot.yml"), String)
+                dep = read(_dest(dir, ".github/dependabot.yml"), String)
                 @test occursin("reviewers:", dep)
                 @test occursin("- \"octocat\"", dep)
                 @test !occursin("{{", dep)
-                claude = read(joinpath(dir, ".github/workflows/claude.yml"),
+                claude = read(_dest(dir, ".github/workflows/claude.yml"),
                     String)
                 @test occursin("github.actor == 'octocat'", claude)
                 @test !occursin("{{REVIEWER}}", claude)
                 review = read(
-                    joinpath(dir, ".github/workflows/claude-code-review.yml"),
+                    _dest(dir, ".github/workflows/claude-code-review.yml"),
                     String)
                 @test occursin("user.login == 'octocat'", review)
                 # The version-bump assignee default is the handle (a real user
                 # GitHub can assign), not empty.
                 act = read(
-                    joinpath(dir,
+                    _dest(dir,
                         ".github/actions/increment-version/action.yaml"), String)
                 @test occursin("default: 'octocat'", act)
             end
@@ -849,7 +857,7 @@
                     reviewer = "octocat")
                 lic = read(joinpath(dir, "LICENSE"), String)
                 @test occursin("The Holder", lic)
-                test_yaml = read(joinpath(dir, ".github/workflows/test.yaml"),
+                test_yaml = read(_dest(dir, ".github/workflows/test.yaml"),
                     String)
                 @test occursin("MyOrg/.github/.github/workflows/tests.yml",
                     test_yaml)
@@ -893,8 +901,8 @@
                 scaffold(dir; benchmarks = true)
 
                 # Mutate a package-owned file and a managed file to simulate drift.
-                owned = joinpath(dir, "test/package/qa_config.jl")
-                managed = joinpath(dir, "test/package/quality.jl")
+                owned = _dest(dir, "test/package/qa_config.jl")
+                managed = _dest(dir, "test/package/quality.jl")
                 owned_marker = "# PACKAGE EDIT — keep me\n"
                 write(owned, owned_marker * read(owned, String))
                 write(managed, "# drifted\n")
@@ -904,7 +912,7 @@
                 # they are `updated`, none `created`, none `preserved`.
                 @test isempty(res.created)
                 @test Set(res.updated) ==
-                      Set(joinpath(dir, d) for d in MANAGED_DESTS)
+                      Set(_dest(dir, d) for d in MANAGED_DESTS)
                 @test isempty(res.preserved)
 
                 # The managed file's drift was overwritten back to the template.
@@ -913,7 +921,7 @@
                 @test occursin(owned_marker, read(owned, String))
                 # No package-owned file appears in the scaffold_update manifest at all.
                 for d in OWNED_DESTS
-                    @test joinpath(dir, d) ∉ res.updated
+                    @test _dest(dir, d) ∉ res.updated
                 end
 
                 # Idempotent: a second scaffold_update produces no content change.
@@ -931,9 +939,9 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; reviewer = "octocat")
 
-                codeowners = joinpath(dir, ".github/CODEOWNERS")
-                dependabot = joinpath(dir, ".github/dependabot.yml")
-                action = joinpath(dir,
+                codeowners = _dest(dir, ".github/CODEOWNERS")
+                dependabot = _dest(dir, ".github/dependabot.yml")
+                action = _dest(dir,
                     ".github/actions/increment-version/action.yaml")
 
                 # scaffold writes the handle into every managed reviewer surface.
@@ -968,9 +976,9 @@
                 res = scaffold(dir; benchmarks = true)  # second adopt, no force
                 @test isempty(res.created)
                 @test Set(res.updated) ==
-                      Set(joinpath(dir, d) for d in MANAGED_DESTS)
+                      Set(_dest(dir, d) for d in MANAGED_DESTS)
                 @test Set(res.preserved) ==
-                      Set(joinpath(dir, d) for d in OWNED_DESTS)
+                      Set(_dest(dir, d) for d in OWNED_DESTS)
             end
         end
 
@@ -1009,8 +1017,8 @@
                     "test/ADFixtures/src/ADFixtures.jl")
                     @test !isfile(joinpath(dir, f))
                 end
-                @test !isdir(joinpath(dir, "test/ad"))
-                @test !isdir(joinpath(dir, "test/ADFixtures"))
+                @test !isdir(_dest(dir, "test/ad"))
+                @test !isdir(_dest(dir, "test/ADFixtures"))
                 # The non-AD infra is still written.
                 for f in ("Taskfile.yml", "codecov.yml", "test/Project.toml",
                     ".github/workflows/test.yaml", "test/package/quality.jl")
@@ -1026,23 +1034,23 @@
                 tf = read(joinpath(dir, "Taskfile.yml"), String)
                 @test !occursin("test-ad:", tf)
                 @test !occursin("test/ad", tf)
-                tp = read(joinpath(dir, "test/Project.toml"), String)
+                tp = read(_dest(dir, "test/Project.toml"), String)
                 @test !occursin("DifferentiationInterface", tp)
                 @test !occursin("ForwardDiff", tp)
                 # No AD-backends docs page, and the docs seeds carry none of
                 # its wiring: no Literate registration (the seeds' comments
                 # may mention the entry, so match the quoted entries), no nav
                 # entry, no AD deps.
-                @test !isfile(joinpath(dir,
+                @test !isfile(_dest(dir,
                     "docs/src/getting-started/tutorials/ad-backends.jl"))
-                cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
+                cfg = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("const HEAVY_TUTORIALS = String[]", cfg)
                 @test !occursin("\"ad-backends.jl\"", cfg)
                 @test !occursin("\"ad-backends.md\"", cfg)
-                pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test !occursin("ad-backends.md", pgs)
                 @test !occursin("{{AD_TUTORIALS_NAV}}", pgs)
-                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                dp = read(_dest(dir, "docs/Project.toml"), String)
                 @test !occursin("ADFixtures = ", dp)
                 @test !occursin("CairoMakie = ", dp)
                 @test !occursin("{{", dp)
@@ -1085,7 +1093,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                tut = joinpath(dir,
+                tut = _dest(dir,
                     "docs/src/getting-started/tutorials/ad-backends.jl")
                 @test isfile(tut)
                 txt = read(tut, String)
@@ -1116,12 +1124,12 @@
 
                 # Registered in the package-owned docs seeds: the Literate
                 # pipeline (heavy tutorial + fast-build stub) and the nav.
-                cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
+                cfg = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("\"ad-backends.jl\"", cfg)
                 @test occursin(
                     "\"ad-backends.md\" => \"# [Automatic differentiation " *
                     "backends](@id ad-backends)\"", cfg)
-                pgs = read(joinpath(dir, "docs/pages.jl"), String)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test occursin(
                     "getting-started/tutorials/ad-backends.md", pgs)
                 @test occursin("\"Tutorials\"", pgs)
@@ -1129,9 +1137,9 @@
                 # The docs env reaches the registry by path, keyed to the same
                 # seeded ADFixtures UUID as the AD test env, and carries the
                 # page's execution deps with compat.
-                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                dp = read(_dest(dir, "docs/Project.toml"), String)
                 reg = read(
-                    joinpath(dir, "test/ADFixtures/Project.toml"), String)
+                    _dest(dir, "test/ADFixtures/Project.toml"), String)
                 m = match(r"uuid = \"([^\"]+)\"", reg)
                 @test m !== nothing
                 @test occursin("ADFixtures = \"$(m.captures[1])\"", dp)
@@ -1151,7 +1159,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                tut = joinpath(dir,
+                tut = _dest(dir,
                     "docs/src/getting-started/tutorials/ad-backends.jl")
                 # A drifted page body is re-applied from the kit (that is the
                 # point: the page stays kit-current; declarations live in the
@@ -1169,7 +1177,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric")
                 scaffold(dir)  # default ad = true, managed driver
-                setup = joinpath(dir, "test/ad/setup.jl")
+                setup = _dest(dir, "test/ad/setup.jl")
                 # A freshly scaffolded driver is managed, not opted out.
                 @test !_detect_ad_setup_owned(dir)
                 # A bare scaffold_update() force-overwrites the managed driver.
@@ -1202,7 +1210,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Numeric2")
                 scaffold(dir)
-                setup = joinpath(dir, "test/ad/setup.jl")
+                setup = _dest(dir, "test/ad/setup.jl")
                 write(setup, "# hand-edited, no marker\n")
                 local res
                 @test_logs (:warn, r"test/ad/setup\.jl.*no.*marker"i) match_mode=:any begin
@@ -1234,7 +1242,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Override")
                 scaffold(dir)
-                wf = joinpath(dir, ".github/workflows/test.yaml")
+                wf = _dest(dir, ".github/workflows/test.yaml")
                 # A freshly scaffolded managed file carries no marker, so a
                 # resync overwrites it (the load-bearing "managed files always
                 # resync" rule).
@@ -1273,7 +1281,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Override2")
                 scaffold(dir)
-                setup = joinpath(dir, "test/ad/setup.jl")
+                setup = _dest(dir, "test/ad/setup.jl")
                 legacy = "# $(_AD_SETUP_OWNED_MARKER): legacy driver\n"
                 write(setup, legacy)
                 @test _detect_managed_override(
@@ -1319,7 +1327,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "MarkerInTemplate")
                 scaffold(dir)
-                wf = joinpath(dir, ".github/workflows/test.yaml")
+                wf = _dest(dir, ".github/workflows/test.yaml")
                 marked = "# $(_MANAGED_OVERRIDE_MARKER) in the template\n"
                 write(wf, marked)
                 @test !EpiAwarePackageTools._detect_managed_override(
@@ -1364,7 +1372,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Stale")
                 scaffold(dir)
-                wf = joinpath(dir, ".github/workflows/test.yaml")
+                wf = _dest(dir, ".github/workflows/test.yaml")
                 write(wf, "# an older template version\nname: Test\n")
                 res = scaffold_update(dir)
                 @test wf in res.updated
@@ -1387,21 +1395,21 @@
 
                 # The `ad.yaml` caller's `backends:` JSON carries one entry
                 # per backend too, so the actual CI matrix matches.
-                adyaml = read(joinpath(dir, ".github/workflows/ad.yaml"),
+                adyaml = read(_dest(dir, ".github/workflows/ad.yaml"),
                     String)
                 @test occursin("backends:", adyaml)
                 @test count("\"tag\":", adyaml) == n
 
                 # `test/ad/setup.jl`'s `using` line covers every distinct
                 # package a backend needs.
-                setup = read(joinpath(dir, "test/ad/setup.jl"), String)
+                setup = read(_dest(dir, "test/ad/setup.jl"), String)
                 for pkg in unique(b.pkg for b in EpiAwarePackageTools._AD_BACKENDS)
                     @test occursin(pkg, setup)
                 end
 
                 # The `test/ad/scenarios.jl` starter seed has one `@testitem`
                 # per backend.
-                scenarios = read(joinpath(dir, "test/ad/scenarios.jl"),
+                scenarios = read(_dest(dir, "test/ad/scenarios.jl"),
                     String)
                 @test count(r"(?m)^@testitem", scenarios) == n
             end
@@ -1424,17 +1432,17 @@
                         @test occursin("ad-fakead", cov)
 
                         adyaml = read(
-                            joinpath(dir, ".github/workflows/ad.yaml"),
+                            _dest(dir, ".github/workflows/ad.yaml"),
                             String)
                         @test count("\"tag\":", adyaml) == n7
                         @test occursin("\"fakead\"", adyaml)
 
-                        setup = read(joinpath(dir, "test/ad/setup.jl"),
+                        setup = read(_dest(dir, "test/ad/setup.jl"),
                             String)
                         @test occursin("FakeADPkg", setup)
 
                         scenarios = read(
-                            joinpath(dir, "test/ad/scenarios.jl"), String)
+                            _dest(dir, "test/ad/scenarios.jl"), String)
                         @test count(r"(?m)^@testitem", scenarios) == n7
                         @test occursin("fakead", scenarios)
                     end
@@ -1456,7 +1464,7 @@
                     _fake_pkg(dir; name = "Numeric7Update")
                     scaffold(dir)
                     adyaml = read(
-                        joinpath(dir, ".github/workflows/ad.yaml"), String)
+                        _dest(dir, ".github/workflows/ad.yaml"), String)
                     @test count("\"tag\":", adyaml) == n
 
                     push!(EpiAwarePackageTools._AD_BACKENDS,
@@ -1466,7 +1474,7 @@
                     try
                         scaffold_update(dir)
                         adyaml2 = read(
-                            joinpath(dir, ".github/workflows/ad.yaml"),
+                            _dest(dir, ".github/workflows/ad.yaml"),
                             String)
                         @test count("\"tag\":", adyaml2) == n + 1
                         @test occursin("\"fakead\"", adyaml2)
@@ -1486,8 +1494,14 @@
                 scaffold(dir; ad = false)
                 res = scaffold_update(dir; ad = false)
                 # No AD managed file appears in the scaffold_update manifest.
-                @test !any(p -> occursin("workflows/ad.yaml", p), res.updated)
-                @test !any(p -> occursin("test/ad/", p), res.updated)
+                # Compared as whole native paths, not by `/`-bearing substring:
+                # the manifest holds platform-separated paths, so an
+                # `occursin("test/ad/", p)` here would simply never match on
+                # Windows and the assertion would pass whatever the manifest
+                # said.
+                @test _dest(dir, ".github/workflows/ad.yaml") ∉ res.updated
+                ad_dir = _dest(dir, "test/ad")
+                @test !any(p -> startswith(p, ad_dir), res.updated)
                 # The no-AD codecov is re-applied (not the AD-flagged one).
                 @test !occursin("ad-forwarddiff",
                     read(joinpath(dir, "codecov.yml"), String))
@@ -1504,11 +1518,11 @@
                 proj = read(joinpath(dir, "Project.toml"), String)
                 @test occursin("name = \"FreshPkg\"", proj)
                 # Substitution drew the new package's name through.
-                qa = read(joinpath(dir, "test/package/qa_config.jl"), String)
+                qa = read(_dest(dir, "test/package/qa_config.jl"), String)
                 @test occursin("using FreshPkg", qa)
                 @test !occursin("{{", qa)
                 # ad = true by default, so AD infra is present.
-                @test isfile(joinpath(dir, ".github/workflows/ad.yaml"))
+                @test isfile(_dest(dir, ".github/workflows/ad.yaml"))
             end
         end
 
@@ -1517,8 +1531,8 @@
                 dir = joinpath(base, "FreshAdPkg")
                 scaffold_generate(dir, "FreshAdPkg"; authors = ["Ada Lovelace"])
                 fixtures = read(
-                    joinpath(dir, "test/ADFixtures/src/ADFixtures.jl"), String)
-                scenarios = read(joinpath(dir, "test/ad/scenarios.jl"), String)
+                    _dest(dir, "test/ADFixtures/src/ADFixtures.jl"), String)
+                scenarios = read(_dest(dir, "test/ad/scenarios.jl"), String)
                 # Every backend `test/ad/scenarios.jl` calls
                 # `test_working_backend(...)` for must have a matching seeded
                 # `backends()` entry, or a fresh scaffold errors
@@ -1536,9 +1550,9 @@
                 @test Meta.parseall(fixtures) isa Expr
                 # The isolated AD env + ADFixtures env both carry every
                 # backend package the seeded `backends()` now constructs.
-                ad_proj = read(joinpath(dir, "test/ad/Project.toml"), String)
+                ad_proj = read(_dest(dir, "test/ad/Project.toml"), String)
                 adfix_proj = read(
-                    joinpath(dir, "test/ADFixtures/Project.toml"), String)
+                    _dest(dir, "test/ADFixtures/Project.toml"), String)
                 for pkg in ("Enzyme", "Mooncake", "ReverseDiff", "ForwardDiff")
                     @test occursin(pkg, ad_proj)
                     @test occursin(pkg, adfix_proj)
@@ -1550,7 +1564,7 @@
             mktempdir() do base
                 dir = joinpath(base, "FreshDocPkg")
                 scaffold_generate(dir, "FreshDocPkg"; authors = ["Ada Lovelace"])
-                src = read(joinpath(dir, "src/FreshDocPkg.jl"), String)
+                src = read(_dest(dir, "src/FreshDocPkg.jl"), String)
                 # `test_docstring_format` treats the module's own exported
                 # symbol like any other and requires an `@example` block on
                 # it (`exported_only_examples = true` is the default) — the
@@ -1565,8 +1579,8 @@
                 dir = joinpath(base, "ToolPkg")
                 scaffold_generate(dir, "ToolPkg"; authors = ["Ada"], ad = false)
                 @test isfile(joinpath(dir, "src", "ToolPkg.jl"))
-                @test !isfile(joinpath(dir, ".github/workflows/ad.yaml"))
-                @test !isdir(joinpath(dir, "test/ad"))
+                @test !isfile(_dest(dir, ".github/workflows/ad.yaml"))
+                @test !isdir(_dest(dir, "test/ad"))
             end
         end
 
@@ -1858,7 +1872,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                caller = joinpath(dir, ".github/workflows/test.yaml")
+                caller = _dest(dir, ".github/workflows/test.yaml")
                 # Simulate Dependabot bumping the reusable SHA in the live
                 # caller (the case that used to fail self-drift).
                 bumped = replace(read(caller, String),
@@ -1881,7 +1895,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                caller = joinpath(dir, ".github/workflows/test.yaml")
+                caller = _dest(dir, ".github/workflows/test.yaml")
                 # Simulate a package pinning a Julia floor/matrix on the
                 # managed `test`/`downgrade-compat` callers, exactly the
                 # override #73 reports being silently reverted.
@@ -1912,7 +1926,7 @@
                 # A managed workflow that directly pins third-party actions (not
                 # only the org reusables). Dependabot's github-actions ecosystem
                 # bumps these pins in the live repo just like a reusable SHA.
-                wf = joinpath(dir, ".github/workflows/claude.yml")
+                wf = _dest(dir, ".github/workflows/claude.yml")
                 before = read(wf, String)
                 @test occursin("actions/checkout@v6", before)
                 # Simulate Dependabot bumping the third-party pin in the live
@@ -1941,7 +1955,7 @@
                 # block from the template, so a package key added alongside it
                 # (ComposedDistributions' `coverage_directories`, counting the
                 # package extension) used to be replaced wholesale on resync.
-                caller = joinpath(dir, ".github/workflows/codecoverage.yaml")
+                caller = _dest(dir, ".github/workflows/codecoverage.yaml")
                 before = read(caller, String)
                 @test occursin("with:", before)
                 overridden = replace(before,
@@ -1972,7 +1986,7 @@
                 # only, no comment of its own). Before #212 the comment was
                 # attached to the *preceding* key (`backends`) during parsing,
                 # so it was dropped wholesale when that seeded key won.
-                ad_caller = joinpath(dir, ".github/workflows/ad.yaml")
+                ad_caller = _dest(dir, ".github/workflows/ad.yaml")
                 ad_before = read(ad_caller, String)
                 @test occursin("backends:", ad_before)
                 guard_comment = string(
@@ -1994,7 +2008,7 @@
                 # `coverage_directories`, and the template's own
                 # `fail_ci_if_error` comment was then duplicated onto the
                 # relocated package key.
-                cov_caller = joinpath(dir, ".github/workflows/codecoverage.yaml")
+                cov_caller = _dest(dir, ".github/workflows/codecoverage.yaml")
                 cov_before = read(cov_caller, String)
                 @test occursin("fail_ci_if_error:", cov_before)
                 pkg_comment = string(
@@ -2066,6 +2080,158 @@
             @test _merge_with_blocks(seed, merged) == merged
         end
 
+        @testset "scaffold_update preserves the downstreams list (#234)" begin
+            using EpiAwarePackageTools: _preserve_downstreams
+            entry = "'[{\"repo\":\"FakeOrg/Downstream.jl\"}]'"
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                wf = _dest(dir, ".github/workflows/downstream.yaml")
+                before = read(wf, String)
+                # The template seeds an empty list; the list itself is adopter
+                # configuration, not managed content (#234).
+                @test occursin("downstreams: '[]'", before)
+                owned = replace(before, "downstreams: '[]'" =>
+                    "downstreams: " * entry)
+                # Also drift the managed part of the file, to prove the resync
+                # still repairs everything except the owned input.
+                owned = replace(owned, "name: Downstream" => "name: Bogus")
+                write(wf, owned)
+                res = scaffold_update(dir)
+                after = read(wf, String)
+                # The package-owned list survives the resync ...
+                @test occursin("downstreams: " * entry, after)
+                @test !occursin("downstreams: '[]'", after)
+                # ... the rest of the workflow is still managed and re-applied
+                # (the file stays a resynced managed file, not a preserved one)
+                @test occursin("name: Downstream", after)
+                @test !occursin("name: Bogus", after)
+                @test wf in res.updated
+                @test wf ∉ res.preserved
+                # ... and a second scaffold_update is idempotent on the list.
+                scaffold_update(dir)
+                @test read(wf, String) == after
+                # scaffold(force = true) re-lays the managed workflow but, like
+                # every other destination-reading pass in `_emit` (Dependabot
+                # pins, package-owned `with:` inputs), still keeps the committed
+                # list: `force` overwrites package-owned *files*, it does not
+                # discard configuration recovered from the repo.
+                scaffold(dir; force = true)
+                @test occursin("downstreams: " * entry, read(wf, String))
+            end
+            # A package that never set a list keeps the seed default: no
+            # spurious preservation.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat2")
+                scaffold(dir)
+                wf = _dest(dir, ".github/workflows/downstream.yaml")
+                before = read(wf, String)
+                scaffold_update(dir)
+                @test read(wf, String) == before
+                @test occursin("downstreams: '[]'", read(wf, String))
+            end
+            # First adoption (no destination yet) and a committed workflow that
+            # sets no list at all both leave the template's seed alone.
+            mktempdir() do dir
+                seed = "    with:\n      downstreams: '[]'\n"
+                dest = joinpath(dir, "downstream.yaml")
+                @test _preserve_downstreams(seed, dest) == seed
+                write(dest, "jobs:\n  downstream:\n    uses: x\n")
+                @test _preserve_downstreams(seed, dest) == seed
+                # A template with no `downstreams:` key is untouched.
+                plain = "name: Test\n"
+                @test _preserve_downstreams(plain, dest) == plain
+            end
+        end
+
+        @testset "_detect_license recovers a committed licence (#235)" begin
+            using EpiAwarePackageTools: _detect_license
+            # A never-scaffolded target has nothing to recover.
+            mktempdir() do dir
+                @test _detect_license(dir) === nothing
+                _fake_pkg(dir; name = "Wombat")
+                @test _detect_license(dir) === nothing
+            end
+            # The managed README badge is the source of truth ...
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                @test _detect_license(dir) == "Apache-2.0"
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                @test _detect_license(dir) == "MIT"
+            end
+            # ... with the Project.toml `license` field as a fallback for a
+            # repo whose README carries no badge block yet.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"Apache-2.0\"\n")
+                end
+                @test _detect_license(dir) == "Apache-2.0"
+            end
+        end
+
+        @testset "scaffold_update preserves a non-MIT licence badge (#235)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                # A bare scaffold_update (as the scheduled template-sync runs,
+                # with no `license` kwarg) must not flip the badge to MIT.
+                scaffold_update(dir; ad = false)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: Apache-2.0", txt)
+                @test !occursin("License: MIT", txt)
+                # An explicit licence still overrides the detected one.
+                scaffold_update(dir; ad = false, license = "MIT")
+                txt2 = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: MIT", txt2)
+            end
+            # An MIT package is unaffected (no spurious preservation).
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat2")
+                scaffold(dir; ad = false)
+                scaffold_update(dir; ad = false)
+                txt = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: MIT", txt)
+                @test !occursin("License: Apache-2.0", txt)
+            end
+        end
+
+        @testset "override marker keeps a bespoke docs/make.jl (#237)" begin
+            using EpiAwarePackageTools: _MANAGED_OVERRIDE_MARKER
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Bespoke")
+                scaffold(dir)
+                mk = joinpath(dir, "docs", "make.jl")
+                @test occursin("build_docs", read(mk, String))
+                # A bespoke DocumenterVitepress build, unmarked, is still
+                # force-migrated to the managed `build_docs` entry point.
+                bespoke = "using Documenter\nmakedocs(; sitename = \"Bespoke\")\n"
+                write(mk, bespoke)
+                res = scaffold_update(dir)
+                @test mk in res.updated
+                @test occursin("build_docs", read(mk, String))
+                # Marking the file package-owned (#224) keeps it: the answer to
+                # the docs-migration opt-out #237 asks for.
+                marked = "# $(_MANAGED_OVERRIDE_MARKER): bespoke docs build\n" *
+                         bespoke
+                write(mk, marked)
+                res2 = scaffold_update(dir)
+                @test mk in res2.preserved
+                @test mk ∉ res2.updated
+                @test read(mk, String) == marked
+                # No divergence warning for a deliberate, marked opt-out.
+                @test isempty(res2.warnings)
+                # scaffold(force = true) still lays the managed make.jl down
+                # fresh, so a new package always starts managed.
+                scaffold(dir; force = true)
+                @test occursin("build_docs", read(mk, String))
+            end
+        end
+
         @testset "scaffold_update removes retired managed paths (#185)" begin
             using EpiAwarePackageTools: RETIRED_PATHS
             # The kit retires managed files (the `benchmark/comment/` env went
@@ -2078,10 +2244,54 @@
                 @test !(p in dests)
                 @test !any(startswith(d, p * "/") for d in dests)
             end
+
+            # Destinations are relative posix paths, so `_dest_path` can split
+            # them into path segments. A leading/trailing slash or an empty
+            # segment would make it emit a malformed path (and would defeat the
+            # `p * "/"` prefix check above), so hold the manifests to that.
+            for d in union(dests, Set(RETIRED_PATHS))
+                @test !startswith(d, '/')
+                @test !endswith(d, '/')
+                @test !occursin("//", d)
+                @test !isempty(d)
+            end
+        end
+
+        @testset "scaffold results report native paths (#237)" begin
+            using EpiAwarePackageTools: _dest_path
+            # Destinations are stored posix-style, so joining one onto a root
+            # with a plain `joinpath` keeps the inner `/` and yields a mixed
+            # separator path on Windows (`C:\pkg\docs/make.jl`). Windows
+            # tolerates that for io, so the scaffold still works — but the
+            # result manifests are public API, and a caller comparing against
+            # their own `joinpath(dir, "docs", "make.jl")` would never match.
+            # Asserted OS-independently (both sides are native by
+            # construction), so a regression to plain `joinpath` fails here and
+            # not only on Windows CI.
+            @test _dest_path("root", "docs/make.jl") ==
+                  joinpath("root", "docs", "make.jl")
+            @test _dest_path("root", ".github/workflows/test.yaml") ==
+                  joinpath("root", ".github", "workflows", "test.yaml")
+            # A slash-free destination is just a child of the root.
+            @test _dest_path("root", "Taskfile.yml") ==
+                  joinpath("root", "Taskfile.yml")
+            # And every reported path is already normalised: `normpath` rewrites
+            # a separator that is not the platform's own, so a mixed path like
+            # `C:\pkg\docs/make.jl` is not a fixed point of it. On a posix
+            # platform `/` is the native separator, so this holds trivially —
+            # it is the Windows run that has teeth.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                reported = vcat(res.created, res.updated, res.preserved,
+                    res.removed)
+                @test !isempty(reported)
+                @test all(p -> p == normpath(p), reported)
+            end
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
-                stale = joinpath(dir, "benchmark/comment")
+                stale = _dest(dir, "benchmark/comment")
                 mkpath(stale)
                 write(joinpath(stale, "Project.toml"), "name = \"asv_comment\"\n")
                 res = scaffold_update(dir; benchmarks = true)
@@ -2149,7 +2359,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)  # default: no explicit timeout
-                doc = joinpath(dir, ".github/workflows/document.yaml")
+                doc = _dest(dir, ".github/workflows/document.yaml")
                 @test !occursin("timeout_minutes", read(doc, String))
                 # Setting docs_timeout renders the with: block on the caller.
                 scaffold(dir; force = true, docs_timeout = 120)
@@ -2167,7 +2377,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                caller = joinpath(dir, ".github/workflows/test.yaml")
+                caller = _dest(dir, ".github/workflows/test.yaml")
                 # A package documents its Julia floor override with a rationale
                 # comment between `uses:` and `with:` (as EpiAwarePrototype.jl
                 # does). #117: comments between the two used to break the
@@ -2200,7 +2410,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
-                tf = joinpath(dir, ".github/workflows/test.yaml")
+                tf = _dest(dir, ".github/workflows/test.yaml")
                 @test occursin("downgrade-compat:", read(tf, String))
                 @test occursin("downgrade.yml", read(tf, String))
                 @test _detect_downgrade_compat(dir)
@@ -2213,7 +2423,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false, downgrade_compat = false)
-                tf = joinpath(dir, ".github/workflows/test.yaml")
+                tf = _dest(dir, ".github/workflows/test.yaml")
                 txt = read(tf, String)
                 @test !occursin("downgrade-compat:", txt)
                 @test !occursin("downgrade.yml", txt)
@@ -2231,7 +2441,7 @@
                 @test read(tf, String) == after
                 # The sync workflow bakes the opt-out into its own scaffold_update call.
                 sync = read(
-                    joinpath(dir, ".github/workflows/template-sync.yaml"),
+                    _dest(dir, ".github/workflows/template-sync.yaml"),
                     String)
                 @test occursin("downgrade_compat = false", sync)
             end
@@ -2242,7 +2452,7 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
                 @test isfile(
-                    joinpath(dir, ".github/workflows/template-sync.yaml"))
+                    _dest(dir, ".github/workflows/template-sync.yaml"))
                 # The org-level community health files come from
                 # EpiAware/.github org-wide, so the kit must not ship them
                 # (shipping them would shadow the org defaults and drift).
@@ -2258,7 +2468,7 @@
                 # own `ad` + `benchmarks` + `downgrade_compat` values and is
                 # fully substituted (fresh package keeps downgrade-compat).
                 sync = read(
-                    joinpath(dir, ".github/workflows/template-sync.yaml"),
+                    _dest(dir, ".github/workflows/template-sync.yaml"),
                     String)
                 @test occursin(
                     "scaffold_update(\".\"; ad = false, benchmarks = false, " *
@@ -2271,7 +2481,7 @@
                 @test !occursin("{{SYNC_INSTALL}}", sync)
                 # It is managed: a scaffold_update re-applies it.
                 res = scaffold_update(dir; ad = false)
-                @test joinpath(dir, ".github/workflows/template-sync.yaml") in
+                @test _dest(dir, ".github/workflows/template-sync.yaml") in
                       res.updated
             end
         end
@@ -2337,8 +2547,8 @@
                 # The unwired asv_comment env is not scaffolded (#126): the PR
                 # comment comes from the BenchmarkTools `benchmark/compare.jl`
                 # path, and the history workflow renders via benchpkg directly.
-                @test !ispath(joinpath(dir, "benchmark/comment"))
-                bench = read(joinpath(dir, ".github/workflows/benchmark.yaml"),
+                @test !ispath(_dest(dir, "benchmark/comment"))
+                bench = read(_dest(dir, ".github/workflows/benchmark.yaml"),
                     String)
                 # `pull_request` (not `pull_request_target`): the comparison
                 # runs the PR's own code, keeping the comment-posting token
@@ -2367,7 +2577,7 @@
                 # and bootstraps before the first tag without a leading-comma
                 # revs list benchpkg rejects (#125).
                 hist = read(
-                    joinpath(dir, ".github/workflows/benchmark-history.yaml"),
+                    _dest(dir, ".github/workflows/benchmark-history.yaml"),
                     String)
                 @test occursin(
                     "--url=\"https://github.com/\${{ github.repository }}\"",
@@ -2387,7 +2597,7 @@
                     @test isfile(joinpath(dir, f))
                 end
                 act = read(
-                    joinpath(dir, ".github/actions/increment-version/action.yaml"),
+                    _dest(dir, ".github/actions/increment-version/action.yaml"),
                     String)
                 # The assignee default resolves to the reviewer handle (never a
                 # hardcoded person or the bare org).
@@ -2409,7 +2619,7 @@
                 # The thin make.jl forwards the package-owned config into
                 # build_docs; the Literate / citations / benchmark machinery
                 # lives in the kit (tested in the DocsBuild testitem).
-                mk = read(joinpath(dir, "docs/make.jl"), String)
+                mk = read(_dest(dir, "docs/make.jl"), String)
                 @test occursin("build_docs(", mk)
                 # The package-owned config is wired in via a guarded include so
                 # a missing file falls back to defaults rather than erroring
@@ -2420,25 +2630,25 @@
                 @test !occursin("{{", mk)
                 # The docs env still carries the citation + Literate deps (the
                 # kit lazy-loads them from the package's docs environment).
-                dp = read(joinpath(dir, "docs/Project.toml"), String)
+                dp = read(_dest(dir, "docs/Project.toml"), String)
                 @test occursin("DocumenterCitations", dp)
                 @test occursin("Literate", dp)
                 # The release-notes header is parameterised on the repo.
-                rh = read(joinpath(dir, "docs/release_notes_header.jl"), String)
+                rh = read(_dest(dir, "docs/release_notes_header.jl"), String)
                 @test occursin("EpiAware/Wombat.jl", rh)
                 @test !occursin("{{", rh)
                 # The benchmark-history page: a package-owned prose hook, a nav
                 # entry, and the managed make.jl generation + config flag.
-                @test isfile(joinpath(dir, "docs/benchmarks.md"))
-                bh = read(joinpath(dir, "docs/benchmarks.md"), String)
+                @test isfile(_dest(dir, "docs/benchmarks.md"))
+                bh = read(_dest(dir, "docs/benchmarks.md"), String)
                 @test occursin("Wombat", bh)
                 @test !occursin("{{", bh)
                 @test occursin("benchmarks.md", read(
-                    joinpath(dir, "docs/pages.jl"), String))
+                    _dest(dir, "docs/pages.jl"), String))
                 # The "Skipped & broken benchmarks" notes: a second
                 # package-owned hook, seeded with a placeholder (#202).
-                @test isfile(joinpath(dir, "docs/benchmarks_notes.md"))
-                bn = read(joinpath(dir, "docs/benchmarks_notes.md"), String)
+                @test isfile(_dest(dir, "docs/benchmarks_notes.md"))
+                bn = read(_dest(dir, "docs/benchmarks_notes.md"), String)
                 @test occursin("No known skipped or broken benchmarks", bn)
                 @test !occursin("{{", bn)
                 # The docs env carries the trend-plot dependency (matching the
@@ -2448,7 +2658,7 @@
                 # The home page strip is package-config driven (no hardcoded
                 # named strip in the managed build), and the benchmark page is
                 # config-gated.
-                dc = read(joinpath(dir, "docs/docs_config.jl"), String)
+                dc = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("BENCHMARK_PAGE", dc)
                 @test occursin("HISTORY_REGRESSION_THRESHOLD", dc)
                 @test occursin("INDEX_STRIP_SECTIONS", dc)
@@ -2460,7 +2670,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
-                notes = joinpath(dir, "docs/benchmarks_notes.md")
+                notes = _dest(dir, "docs/benchmarks_notes.md")
                 edit = "\n## Known-broken\n\n`slow_path` skipped: see #123.\n"
                 write(notes, read(notes, String) * edit)
                 scaffold_update(dir; benchmarks = true)
@@ -2470,13 +2680,13 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = false)
-                @test !isfile(joinpath(dir, "docs/benchmarks.md"))
-                @test !isfile(joinpath(dir, "docs/benchmarks_notes.md"))
+                @test !isfile(_dest(dir, "docs/benchmarks.md"))
+                @test !isfile(_dest(dir, "docs/benchmarks_notes.md"))
                 # No trend-plot dependency without a benchmark page either
                 # (the `[deps]` key line; the explanatory comment above it
                 # mentions "Plots" regardless of `benchmarks`).
                 @test !occursin("Plots =",
-                    read(joinpath(dir, "docs/Project.toml"), String))
+                    read(_dest(dir, "docs/Project.toml"), String))
             end
         end
 
@@ -2484,7 +2694,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                tp = read(joinpath(dir, "test/Project.toml"), String)
+                tp = read(_dest(dir, "test/Project.toml"), String)
                 @test occursin("[compat]", tp)
                 @test occursin("Aqua = \"0.8\"", tp)
                 @test occursin("ForwardDiff =", tp)
@@ -2498,7 +2708,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Tooly")
                 scaffold(dir; ad = false)
-                tp = read(joinpath(dir, "test/Project.toml"), String)
+                tp = read(_dest(dir, "test/Project.toml"), String)
                 @test occursin("[compat]", tp)
                 @test occursin("Aqua = \"0.8\"", tp)
                 # No AD deps in the no-AD compat block.
@@ -2512,7 +2722,7 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
                 # The @template conventions ship as a package-owned src file.
-                ds = joinpath(dir, "src/docstrings.jl")
+                ds = _dest(dir, "src/docstrings.jl")
                 @test isfile(ds)
                 txt = read(ds, String)
                 @test occursin("@template", txt)
@@ -2524,7 +2734,7 @@
                 @test !occursin(r"(?m)^using DocStringExtensions", txt)
                 # CODEOWNERS is managed; with no reviewer handle it ships a
                 # commented placeholder (a bare org is never a code owner).
-                co = read(joinpath(dir, ".github/CODEOWNERS"), String)
+                co = read(_dest(dir, ".github/CODEOWNERS"), String)
                 @test occursin("MANAGED by EpiAwarePackageTools", co)
                 @test occursin("# * @", co)
                 @test !occursin("{{", co)
@@ -2535,16 +2745,16 @@
                 # scaffold_generate wires the dep + include automatically.
                 proj = read(joinpath(dir, "Project.toml"), String)
                 @test occursin("DocStringExtensions", proj)
-                mod = read(joinpath(dir, "src/FreshPkg.jl"), String)
+                mod = read(_dest(dir, "src/FreshPkg.jl"), String)
                 @test occursin("include(\"docstrings.jl\")", mod)
-                @test isfile(joinpath(dir, "src/docstrings.jl"))
+                @test isfile(_dest(dir, "src/docstrings.jl"))
                 # scaffold_generate wires the `using` into the module's own import
                 # block, before the docstrings.jl include (#105).
                 @test occursin("using DocStringExtensions", mod)
                 using_idx = findfirst("using DocStringExtensions", mod)
                 include_idx = findfirst("include(\"docstrings.jl\")", mod)
                 @test first(using_idx) < first(include_idx)
-                ds_txt = read(joinpath(dir, "src/docstrings.jl"), String)
+                ds_txt = read(_dest(dir, "src/docstrings.jl"), String)
                 @test !occursin(r"(?m)^using DocStringExtensions", ds_txt)
             end
         end
@@ -2625,7 +2835,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                reg = joinpath(dir, ".github/workflows/Register.yml")
+                reg = _dest(dir, ".github/workflows/Register.yml")
                 @test isfile(reg)
                 txt = read(reg, String)
                 @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
@@ -2645,7 +2855,7 @@
                 @test !occursin(r"(?m)^\s*contents:\s*read\s*$", txt)
                 # Managed: `scaffold_update` re-applies it (not merely preserved).
                 res = scaffold_update(dir)
-                @test joinpath(dir, ".github/workflows/Register.yml") in
+                @test _dest(dir, ".github/workflows/Register.yml") in
                       res.updated
             end
         end
@@ -2670,7 +2880,7 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 res = scaffold(dir)
-                logo = joinpath(dir, "docs/src/assets/logo.svg")
+                logo = _dest(dir, "docs/src/assets/logo.svg")
                 @test isfile(logo)
                 @test logo in res.created
                 txt = read(logo, String)
@@ -2717,8 +2927,8 @@
             @testset "custom title tag is never overwritten" begin
                 mktempdir() do dir
                     _fake_pkg(dir; name = "Wombat")
-                    mkpath(joinpath(dir, "docs/src/assets"))
-                    write(joinpath(dir, "docs/src/assets/logo.svg"),
+                    mkpath(_dest(dir, "docs/src/assets"))
+                    write(_dest(dir, "docs/src/assets/logo.svg"),
                         "<svg></svg>\n")
                     write(joinpath(dir, "README.md"),
                         "# Wombat <img src=\"docs/src/assets/logo.svg\" " *
