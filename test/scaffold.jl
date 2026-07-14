@@ -3182,3 +3182,256 @@ end # @testitem "scaffold + scaffold_update (logic)"
         @test _julia_compat_below_floor("") === nothing
     end
 end
+||||||| f429fe6
+
+@testitem "opt-in EpiAware org branding (#242)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _detect_org_branding, _org_footer_message,
+                                _ORG_LOGO_REL, _ORG_SITE, _ORG_GITHUB
+
+    function _fake_pkg(dir; name = "Wombat")
+        write(joinpath(dir, "Project.toml"),
+            "name = \"$name\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        return dir
+    end
+    _p(dir, rel) = joinpath(dir, split(rel, '/')...)
+    _cfg(dir) = joinpath(dir, "docs", "docs_config.jl")
+    # Flip the package-owned opt-in, the one line an adopter writes.
+    function _set_branding!(dir, on::Bool)
+        cfg = _cfg(dir)
+        text = read(cfg, String)
+        write(cfg,
+            replace(text, r"const ORG_BRANDING = (true|false)" => "const ORG_BRANDING = $(on)"))
+        return dir
+    end
+
+    @testset "default is off: a third-party adopter gets no branding" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            res = scaffold(dir)
+            # The scaffolded config carries the flag, defaulted off.
+            @test occursin("const ORG_BRANDING = false", read(_cfg(dir), String))
+            @test !_detect_org_branding(dir)
+            @test res.org_branding == :skipped
+            # No org logo asset, and the package's own logo is untouched.
+            @test !isfile(_p(dir, _ORG_LOGO_REL))
+            @test isfile(_p(dir, "docs/src/assets/logo.svg"))
+            # No org line in the managed README block.
+            readme = read(joinpath(dir, "README.md"), String)
+            @test !occursin("EpiAware ecosystem", readme)
+            @test occursin("## Contributing", readme)
+            # No org branding in the docs footer, just the standard credit.
+            mts = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
+            @test occursin("DocumenterVitepress.jl", mts)
+            @test !occursin("epiaware-logo.svg", mts)
+            @test !occursin(_ORG_SITE, mts)
+            # And no placeholder survives into the emitted file.
+            @test !occursin("{{ORG_FOOTER_MESSAGE}}", mts)
+        end
+    end
+
+    @testset "opting in adds the README section, footer and logo" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            _set_branding!(dir, true)
+            @test _detect_org_branding(dir)
+            res = scaffold_update(dir)
+            @test res.org_branding == :created
+
+            # The kit-provided org logo lands, distinct from the package logo.
+            org_logo = _p(dir, _ORG_LOGO_REL)
+            @test isfile(org_logo)
+            @test occursin("EpiAware", read(org_logo, String))
+            @test read(org_logo, String) !=
+                  read(_p(dir, "docs/src/assets/logo.svg"), String)
+
+            # The README gains the managed org section, inside the markers.
+            readme = read(joinpath(dir, "README.md"), String)
+            @test occursin("## Part of the EpiAware ecosystem", readme)
+            @test occursin(_ORG_SITE, readme)
+            si = findfirst("<!-- standard-sections:start -->", readme)
+            ei = findlast("<!-- standard-sections:end -->", readme)
+            bi = findfirst("Part of the EpiAware ecosystem", readme)
+            @test first(si) < first(bi) < first(ei)
+            # The other managed sections are still there.
+            @test occursin("## Contributing", readme)
+            @test occursin("## Code of conduct", readme)
+
+            # The docs footer gains the logo + org links, keeping the credit.
+            mts = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
+            @test occursin("epiaware-logo.svg", mts)
+            @test occursin(_ORG_SITE, mts)
+            @test occursin(_ORG_GITHUB, mts)
+            @test occursin("DocumenterVitepress.jl", mts)
+            # Referenced through the site base, not root-absolute: a versioned
+            # deploy is served under /Package.jl/vX.Y/, where /logo.svg 404s.
+            @test occursin("\${baseTemp.base}epiaware-logo.svg", mts)
+            @test !occursin("\"/epiaware-logo.svg\"", mts)
+        end
+    end
+
+    @testset "idempotent, and opting back out removes the branding" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            _set_branding!(dir, true)
+            scaffold_update(dir)
+            readme_on = read(joinpath(dir, "README.md"), String)
+            mts_on = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
+
+            # A second sync writes nothing — the sync is a fixed point with
+            # branding on.
+            res2 = scaffold_update(dir)
+            @test res2.org_branding == :unchanged
+            @test read(joinpath(dir, "README.md"), String) == readme_on
+            @test read(_p(dir, "docs/src/.vitepress/config.mts"), String) ==
+                  mts_on
+            @test isfile(_p(dir, _ORG_LOGO_REL))
+
+            # Turning it back off withdraws every trace of the branding.
+            _set_branding!(dir, false)
+            res3 = scaffold_update(dir)
+            @test res3.org_branding == :removed
+            @test !isfile(_p(dir, _ORG_LOGO_REL))
+            readme_off = read(joinpath(dir, "README.md"), String)
+            @test !occursin("EpiAware ecosystem", readme_off)
+            @test occursin("## Contributing", readme_off)
+            mts_off = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
+            @test !occursin("epiaware-logo.svg", mts_off)
+            @test occursin("DocumenterVitepress.jl", mts_off)
+
+            # And off is itself a fixed point: nothing left to remove.
+            res4 = scaffold_update(dir)
+            @test res4.org_branding == :skipped
+        end
+    end
+
+    @testset "the flag is package-owned: a sync never flips it" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            _set_branding!(dir, true)
+            # scaffold_update passes no branding kwarg — it must read the
+            # package's committed choice, not revert it to the default. This is
+            # the scheduled template-sync's path.
+            scaffold_update(dir)
+            @test _detect_org_branding(dir)
+            @test occursin("const ORG_BRANDING = true", read(_cfg(dir), String))
+            # An unforced re-scaffold leaves the package-owned config alone too.
+            scaffold(dir)
+            @test _detect_org_branding(dir)
+            @test occursin("## Part of the EpiAware ecosystem",
+                read(joinpath(dir, "README.md"), String))
+        end
+    end
+
+    @testset "force re-lays the config, and the result is self-consistent" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            _set_branding!(dir, true)
+            scaffold_update(dir)
+            @test isfile(_p(dir, _ORG_LOGO_REL))
+
+            # `force` re-lays the package-owned files, docs_config.jl included,
+            # so it resets the flag to the template default — that is what force
+            # means. What must NOT happen is the flag being reset while the
+            # branding is applied from the pre-reset value: that leaves a repo
+            # with a branded footer, an unbranded README and a flag saying off,
+            # whose next sync then strips the branding it never agreed to lose.
+            # Every surface must agree with the flag left on disk.
+            res = scaffold(dir; force = true)
+            @test !_detect_org_branding(dir)
+            @test occursin("const ORG_BRANDING = false", read(_cfg(dir), String))
+            @test res.org_branding == :removed
+            @test !isfile(_p(dir, _ORG_LOGO_REL))
+            @test !occursin("EpiAware ecosystem",
+                read(joinpath(dir, "README.md"), String))
+            mts = read(_p(dir, "docs/src/.vitepress/config.mts"), String)
+            @test !occursin("epiaware-logo.svg", mts)
+
+            # And the following sync agrees: nothing left to strip.
+            res2 = scaffold_update(dir)
+            @test res2.org_branding == :skipped
+            @test !_detect_org_branding(dir)
+        end
+    end
+
+    @testset "a commented-out flag reads as off, not on" begin
+        mktempdir() do dir
+            mkpath(joinpath(dir, "docs"))
+            # Commenting the const out is the obvious way to turn branding off.
+            # An unanchored match would read this as still on and brand a repo
+            # whose owner had just opted out.
+            write(_cfg(dir),
+                "# To join the org, uncomment:\n" *
+                "# const ORG_BRANDING = true\n")
+            @test !_detect_org_branding(dir)
+            # A commented-out line above the real one does not win either.
+            write(_cfg(dir),
+                "# const ORG_BRANDING = true\n" *
+                "const ORG_BRANDING = false\n")
+            @test !_detect_org_branding(dir)
+            # And the live line is still read when it is genuinely set.
+            write(_cfg(dir),
+                "# const ORG_BRANDING = false\n" *
+                "const ORG_BRANDING = true\n")
+            @test _detect_org_branding(dir)
+        end
+    end
+
+    @testset "opting out never deletes a file the kit did not write" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            # Branding is off, but the package has its own file at the org
+            # logo's path. It is not the kit's to delete.
+            own = _p(dir, _ORG_LOGO_REL)
+            mkpath(dirname(own))
+            write(own, "<svg><!-- the package's own file --></svg>")
+            res = @test_logs (:warn, r"not the logo this kit ships") begin
+                scaffold_update(dir)
+            end
+            @test res.org_branding == :skipped
+            @test isfile(own)
+            @test occursin("the package's own file", read(own, String))
+        end
+    end
+
+    @testset "footer message rendering" begin
+        # Off: the DocumenterVitepress credit alone, exactly as before #242.
+        off = _org_footer_message(false)
+        @test occursin("DocumenterVitepress.jl", off)
+        @test !occursin("EpiAware", off)
+        # On: logo + org links, and the credit is kept.
+        on = _org_footer_message(true)
+        @test occursin("epiaware-logo.svg", on)
+        @test occursin(_ORG_SITE, on)
+        @test occursin(_ORG_GITHUB, on)
+        @test occursin("DocumenterVitepress.jl", on)
+        # Spliced into a backtick template literal in config.mts, so it must
+        # carry no backtick of its own, and the `${...}` it does carry is the
+        # deliberate base interpolation.
+        @test !occursin('`', on)
+        @test !occursin('`', off)
+    end
+
+    @testset "detection defaults off and tolerates an older config" begin
+        mktempdir() do dir
+            # No docs_config.jl at all (a package predating the docs seed).
+            @test !_detect_org_branding(dir)
+            mkpath(joinpath(dir, "docs"))
+            # A config predating the key defaults off rather than erroring.
+            write(_cfg(dir), "const LIGHT_TUTORIALS = String[]\n")
+            @test !_detect_org_branding(dir)
+            write(_cfg(dir), "const ORG_BRANDING = true\n")
+            @test _detect_org_branding(dir)
+            write(_cfg(dir), "const ORG_BRANDING = false\n")
+            @test !_detect_org_branding(dir)
+        end
+    end
+end
