@@ -1353,6 +1353,13 @@ end
     @test_logs msg @test !DB._vitepress_patchable(newer)
     @test_logs msg @test !DB._vitepress_patchable(v"1.0.0")
 
+    # Unknown version: `pkgversion` returns `nothing` for a module carrying no
+    # version, and an unknown version is the same question as a too-new one —
+    # we cannot show the installed writer is the one we copied, so we decline.
+    @test_logs (:warn, r"[Cc]ould not determine the installed") begin
+        @test !DB._vitepress_patchable(nothing)
+    end
+
     # Upstream API drift: the probe fails in a way that is not the known
     # `InventoryItem` abort, so the kit does not claim the writer is broken and
     # does not overwrite a method it no longer understands. Driven with a

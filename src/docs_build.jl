@@ -221,7 +221,21 @@ end
 # upstream change to that method. A newer version that still aborts warns
 # loudly and is left alone. Kept as a pure predicate of the version so the
 # refuse-to-patch branch is directly testable without a newer release installed.
-function _vitepress_patchable(version::VersionNumber)
+#
+# `pkgversion` returns `nothing` when the loaded module carries no version (a
+# module loaded from a bare path rather than a package, say), so an unknown
+# version is a real case, not a theoretical one — and it is the same question
+# as "too new": we cannot show the installed writer is the one we copied, so we
+# do not overwrite it.
+function _vitepress_patchable(version::Union{Nothing, VersionNumber})
+    if version === nothing
+        @warn "Could not determine the installed DocumenterVitepress " *
+              "version, so cannot confirm its writer is the one this shim " *
+              "copies ($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it " *
+              "unpatched rather than overwriting a method body that may not " *
+              "match (kit #232)."
+        return false
+    end
     version > _VITEPRESS_LAST_KNOWN_BROKEN || return true
     @warn "DocumenterVitepress $version still aborts the docs build on " *
           "an anchored header with an empty anchor id, but its writer is " *
