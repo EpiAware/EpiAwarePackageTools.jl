@@ -3204,7 +3204,6 @@ end # @testitem "scaffold + scaffold_update (logic)"
         @test _julia_compat_below_floor("") === nothing
     end
 end
-||||||| f429fe6
 
 @testitem "opt-in EpiAware org branding (#242)" begin
     using Test
