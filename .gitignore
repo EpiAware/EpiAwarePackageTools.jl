@@ -45,5 +45,13 @@ tune.json
 # Editor / OS clutter.
 .DS_Store
 .vscode/
+
+# Development worktrees. `worktree-*` covers a sibling-style checkout; the
+# convention across these repos is a nested `worktrees/<name>/` under the repo
+# root (a worktree created as a subproject rather than a sibling), which the
+# glob does not match — so a live worktree sat untracked, one `git add -A` away
+# from being committed (#247). The kit's own test discovery already assumes this
+# layout (see `run_tests.jl`), so the ignore should too.
 worktree-*
+worktrees/
 # managed:end
