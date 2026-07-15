@@ -189,6 +189,12 @@
                 # env compat pin agree with the same single source.
                 cfg = read(joinpath(dir, ".pre-commit-config.yaml"), String)
                 @test occursin("rev: v$ver", cfg)
+                # The merge-conflict check runs on every commit, not only
+                # mid-merge (`--assume-in-merge`), and the diff3 base marker the
+                # stock hook misses is forbidden explicitly — the two halves of
+                # the gap that let a marker reach CI on #250 (#251).
+                @test occursin("--assume-in-merge", cfg)
+                @test occursin("forbid-diff3-base-marker", cfg)
                 fmt = read(_dest(dir, "test/formatter/Project.toml"), String)
                 @test occursin("JuliaFormatter = \"=$ver\"", fmt)
                 @test !occursin("{{", fmt)
