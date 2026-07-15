@@ -820,6 +820,14 @@
                 @test !occursin("{{ASSIGNEE_DEFAULT}}", act)
                 @test !occursin("{{REVIEWER}}", act)
                 @test occursin("ASSIGNEE_ARGS", act)
+                # A pre-release/build suffix is stripped (release what the
+                # number says) rather than incremented, so an unregistered
+                # package at `X.Y.Z-DEV` does not get a maiden bump that skips
+                # `X.Y.Z` (#255). Parsing off the suffix-free base also stops
+                # `$(( PATCH + 1 ))` coercing a "0-DEV" patch field to 1.
+                @test occursin("BASE_VERSION=\"\${CURRENT_VERSION%%[-+]*}\"",
+                    act)
+                @test occursin("suffix stripped, no increment", act)
             end
             # With a `reviewer` handle the same input drives CODEOWNERS, the
             # Dependabot reviewers, the version assignee, and the Claude gate.
