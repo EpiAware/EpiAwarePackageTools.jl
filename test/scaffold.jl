@@ -2504,28 +2504,22 @@
                 sync = read(
                     joinpath(dir, ".github/workflows/template-sync.yaml"),
                     String)
-                # The re-apply step still runs on a Dependabot PR (drift is
-                # still detected and surfaced) ...
-                @test occursin("scaffold_update", sync)
-                # ... but the workflow must never commit/push the re-apply on
-                # a branch it did not open. Doing so silently reverted
-                # package-owned overrides living in managed files, turning a
-                # single-purpose Dependabot bump into a regression on merge.
+                # The workflow must never commit/push a re-apply on a branch it
+                # did not open. Doing so silently reverted package-owned
+                # overrides living in managed files, turning a single-purpose
+                # Dependabot bump into a regression on merge.
                 @test !occursin("git push", sync)
                 @test !occursin("git commit", sync)
-                # Drift on such a branch is reported instead: a job summary
-                # plus a warning annotation a reviewer sees on the PR.
-                @test occursin("GITHUB_STEP_SUMMARY", sync)
-                @test occursin("::warning::", sync)
-                # Drift detection stages first and diffs the index: a re-apply
-                # that CREATES a managed file (the kit shipped a new one)
-                # leaves it untracked, and a bare `git diff` would report no
-                # drift at all.
-                @test occursin("git add -A", sync)
-                @test occursin("git diff --cached --quiet", sync)
-                @test !occursin("if git diff --quiet", sync)
-                # The scheduled/manual path is unchanged: it opens (or
-                # refreshes) its own PR, which is a branch it does own.
+                # On a pull request the job is a clean no-op: it cannot push
+                # (#215) and cannot access what a sync needs under Dependabot's
+                # restricted token (#256). The heavy steps are gated off the PR
+                # event, and a skip step runs instead.
+                @test occursin("Skip on a pull request", sync)
+                @test occursin(
+                    "if: github.event_name != 'pull_request'", sync)
+                # The scheduled/manual path is unchanged: it re-applies the
+                # standard and opens (or refreshes) its own PR, a branch it owns.
+                @test occursin("scaffold_update", sync)
                 @test occursin("peter-evans/create-pull-request", sync)
                 @test occursin("branch: chore/template-sync", sync)
             end

@@ -5,18 +5,18 @@
 # committed infra has drifted from
 # the kit, opens (or refreshes) a PR with the refresh. This is the auto-refresh
 # half of the self-sync loop: the `self-drift` check guards every push/PR, and
-# this workflow proactively pulls the newest standard on a schedule and reports
-# drift on Dependabot action bumps so a repo never silently falls behind.
+# this workflow proactively pulls the newest standard on a schedule so a repo
+# never silently falls behind.
 #
 # Refs are preserved: `scaffold_update` keeps whatever reusable-workflow SHA Dependabot
 # has pinned in this repo, so a sync never reverts a Dependabot bump — it only
 # re-applies the rest of the managed standard.
 #
-# The sync only ever pushes to a branch it opened itself (#215). On a
-# Dependabot PR it re-applies the standard to detect drift and reports it, but
-# does not commit: pushing a re-apply onto someone else's branch silently
-# reverted package-owned overrides that live in managed files, so a merged
-# bump carried an unrelated regression that never appeared in its own diff.
+# The sync only ever pushes to a branch it opened itself (#215), so it does no
+# work on a pull request. The `pull_request` trigger is kept only so the `sync`
+# check still reports on a Dependabot PR — as a clean green no-op, not the red
+# it used to be under Dependabot's restricted token (#256). Drift on a
+# Dependabot bump is caught by the next scheduled run.
 
 name: Template sync
 
@@ -25,8 +25,8 @@ on:
     # Weekly, Monday 04:00 UTC.
     - cron: '0 4 * * 1'
   workflow_dispatch:
-  # React to Dependabot action/package bumps (the job below gates to the
-  # dependabot actor so other PRs do not trigger a sync).
+  # Present only so the `sync` check reports (green) on a Dependabot PR; the job
+  # is a no-op on any pull request (see the job's skip step, #256).
   pull_request:
 
 concurrency:
@@ -39,23 +39,37 @@ permissions:
 
 jobs:
   sync:
-    # Schedule / manual runs always; PR runs only for Dependabot.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      # For a Dependabot PR, check out its branch so the sync amends that PR;
-      # otherwise check out the triggering ref (the default branch).
+      # On a Dependabot PR this job runs under Dependabot's restricted context
+      # (a read-only token, no access to Actions secrets). Every real step below
+      # — installing the kit, `scaffold_update`, opening a PR — needs that
+      # access, so the job errored and every Dependabot PR carried a spurious
+      # red `sync` (#256). It also could never have *fixed* anything from a PR:
+      # the sync only pushes to a branch it opened itself (#215). So on a PR the
+      # job is a clean no-op — a green check, no work — and the weekly scheduled
+      # run is what actually detects drift and opens a `chore/template-sync` PR.
+      # Kept as a running (green) job rather than an `if`-skipped one so a
+      # required-check gate on `sync` stays satisfied on Dependabot PRs.
+      - name: Skip on a pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "template-sync does not run on a pull request: it cannot push"
+          echo "to a branch it did not open (#215), and the Dependabot context"
+          echo "cannot access what a sync needs (#256). The weekly scheduled"
+          echo "run detects drift and opens a chore/template-sync PR."
       - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - uses: julia-actions/setup-julia@v3
+        if: github.event_name != 'pull_request'
         with:
           version: '1'
       - uses: julia-actions/cache@v2
+        if: github.event_name != 'pull_request'
       - name: Re-apply the managed EpiAware standard
+        if: github.event_name != 'pull_request'
         run: |
           julia --color=yes -e '
               using Pkg
@@ -63,44 +77,6 @@ jobs:
               using EpiAwarePackageTools
               res = scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = false)
               println("re-applied ", length(res.updated), " managed files")'
-      # A branch this workflow did not open (a Dependabot PR) is reported on,
-      # never pushed to (#215). Re-applying the standard on such a branch and
-      # pushing the result silently reverted package-owned overrides that live
-      # in managed files — a routine, single-purpose action bump then merged
-      # carrying an unrelated revert of hand-maintained config, invisible in
-      # the PR's own diff. Drift is surfaced instead (a job summary plus a
-      # warning annotation on the PR); the scheduled run below is what
-      # actually applies it, in a `chore/template-sync` PR that a reviewer
-      # sees as its own reviewable change.
-      - name: Report drift without pushing
-        if: github.event_name == 'pull_request'
-        run: |
-          # `git add -A` first: a re-apply that CREATES a managed file (the kit
-          # shipped a new one) leaves it untracked, and a bare `git diff` is
-          # blind to untracked files — the drift would be reported as "none".
-          # Staging first makes both modified and new files visible to the
-          # diff. Nothing is committed; the index is scratch.
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No drift from the standard."
-            exit 0
-          fi
-          {
-            echo "### Managed infra drifts from the EpiAware standard"
-            echo
-            echo "This branch was **not** auto-corrected: template sync never"
-            echo "pushes to a branch it did not open (EpiAwarePackageTools"
-            echo "issue #215). The scheduled sync opens a"
-            echo "\`chore/template-sync\` PR with the refresh."
-            echo
-            echo '```'
-            git --no-pager diff --cached --stat
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          msg="Managed infra drifts from the EpiAware standard. Template sync"
-          msg="$msg did not push to this branch; the scheduled sync will open"
-          msg="$msg a PR with the refresh."
-          echo "::warning::$msg"
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted
         if: github.event_name != 'pull_request'
