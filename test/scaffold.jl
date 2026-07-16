@@ -436,10 +436,15 @@
                 # `true` selects the conventional <pkg>.epiaware.org host.
                 scaffold(dir; docs_subdomain = true)
                 mk = read(_dest(dir, "docs/make.jl"), String)
-                @test occursin("deploy_url = \"wombat.epiaware.org\"", mk)
+                # deploy_url carries an https:// scheme so DocumenterVitepress
+                # builds a root base (a scheme-less host is baked into the base
+                # and 404s every asset).
+                @test occursin(
+                    "deploy_url = \"https://wombat.epiaware.org\"", mk)
                 @test !occursin("deploy_url = nothing", mk)
                 @test !occursin("{{", mk)
                 txt = read(joinpath(dir, "README.md"), String)
+                # Badges link the bare host (no scheme baked into the path).
                 @test occursin("wombat.epiaware.org/stable/", txt)
                 @test occursin("wombat.epiaware.org/dev/", txt)
                 @test !occursin("epiaware.org/Wombat.jl/stable/", txt)
@@ -451,7 +456,8 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; docs_subdomain = "docs.example.org")
                 mk = read(_dest(dir, "docs/make.jl"), String)
-                @test occursin("deploy_url = \"docs.example.org\"", mk)
+                @test occursin(
+                    "deploy_url = \"https://docs.example.org\"", mk)
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("docs.example.org/stable/", txt)
             end
@@ -534,11 +540,14 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; docs_subdomain = true)
                 mk = _dest(dir, "docs/make.jl")
-                @test occursin("deploy_url = \"wombat.epiaware.org\"",
+                @test occursin("deploy_url = \"https://wombat.epiaware.org\"",
                     read(mk, String))
-                # The common maintenance call: no docs_subdomain kwarg.
+                # The common maintenance call: no docs_subdomain kwarg. The
+                # scheme form round-trips (read back as a bare host, re-emitted
+                # with the scheme), so a resync neither reverts to project-pages
+                # nor churns the literal.
                 scaffold_update(dir)
-                @test occursin("deploy_url = \"wombat.epiaware.org\"",
+                @test occursin("deploy_url = \"https://wombat.epiaware.org\"",
                     read(mk, String))
                 @test !occursin("deploy_url = nothing", read(mk, String))
                 # The README badges stay on the subdomain host too.
@@ -569,6 +578,37 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)  # project-pages
                 @test _detect_docs_subdomain(dir) === nothing
+            end
+            # A committed scheme-carrying deploy_url reads back as the bare host
+            # (so badges and re-emission stay scheme-free / single-scheme).
+            mktempdir() do dir
+                mkpath(joinpath(dir, "docs"))
+                write(joinpath(dir, "docs", "make.jl"),
+                    "build_docs(Foo; " *
+                    "deploy_url = \"https://docs.example.org\")\n")
+                @test _detect_docs_subdomain(dir) == "docs.example.org"
+            end
+        end
+
+        @testset "scaffold_update heals a scheme-less deploy_url (DVP base)" begin
+            # An older bare-host `deploy_url` builds a `/<host>/dev/` base that
+            # 404s every asset; a resync must rewrite it to the `https://` form
+            # that yields a root base.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; docs_subdomain = true)
+                mk = _dest(dir, "docs/make.jl")
+                # Simulate a repo carrying the old scheme-less literal.
+                old = replace(read(mk, String),
+                    "deploy_url = \"https://wombat.epiaware.org\"" => "deploy_url = \"wombat.epiaware.org\"")
+                write(mk, old)
+                @test occursin("deploy_url = \"wombat.epiaware.org\"",
+                    read(mk, String))
+                scaffold_update(dir)  # no docs_subdomain kwarg
+                @test occursin("deploy_url = \"https://wombat.epiaware.org\"",
+                    read(mk, String))
+                @test !occursin("deploy_url = \"wombat.epiaware.org\",",
+                    read(mk, String))
             end
         end
 
@@ -646,7 +686,7 @@
                 _fake_pkg(dir; name = "EpiAwarePackageTools")
                 inp = scaffold_inputs(dir)
                 @test inp.DOCS_DEPLOY_URL ==
-                      "\"epiawarepackagetools.epiaware.org\""
+                      "\"https://epiawarepackagetools.epiaware.org\""
                 @test inp.DOCS_URL == "epiawarepackagetools.epiaware.org"
                 # An explicit opt-out still wins, even for the kit.
                 inp2 = scaffold_inputs(dir; docs_subdomain = false)
