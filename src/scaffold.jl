@@ -650,7 +650,13 @@ function _detect_docs_subdomain(target_dir::AbstractString)
               "remove the repo's Pages custom domain."
         return cname
     end
-    host = String(something(m.captures[2]))
+    # Strip any scheme so the recovered value is always a bare host, matching
+    # the CNAME path and what the README badges (`_docs_url`) expect. The
+    # managed `deploy_url` literal carries an `https://` scheme (required by
+    # DocumenterVitepress to build a root base — see `_docs_deploy_url`), but
+    # an older bare-host literal must read back to the same host so a resync
+    # re-emits the scheme form (drift → self-heal) rather than churning.
+    host = replace(String(something(m.captures[2])), r"^https?://" => "")
     return isempty(host) ? nothing : host
 end
 
@@ -1670,9 +1676,17 @@ end
 # The `deploy_url` Julia literal for `docs/make.jl`. On the default
 # project-pages path this is the bare `nothing` (DocumenterVitepress then
 # derives the base from the repo name); on the subdomain path it is the quoted
-# host. Returned as source text so the template substitutes a real literal.
+# host with an `https://` scheme. The scheme is required: DocumenterVitepress
+# (`vitepress_config.jl`) only strips the host to build a root VitePress base
+# when `deploy_url` starts with `https?://`. A scheme-less host is treated as a
+# path and baked into the base (`base: '/<host>/dev/'`), so every CSS/JS asset
+# 404s against a custom domain served at its root. Returned as source text so
+# the template substitutes a real literal.
 _docs_deploy_url(sub::Nothing) = "nothing"
-_docs_deploy_url(sub::AbstractString) = repr(String(sub))
+function _docs_deploy_url(sub::AbstractString)
+    host = replace(String(sub), r"^https?://" => "")
+    return repr("https://" * host)
+end
 
 # The bare host(+path) the docs badges link to. Project-pages packages live at
 # `epiaware.org/<Repo>.jl`; a subdomain package at its own host. `nothing` when
