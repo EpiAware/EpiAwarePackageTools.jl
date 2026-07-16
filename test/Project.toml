@@ -41,6 +41,7 @@ Literate = "2.9"
 LocalRegistry = "0.5"
 Plots = "1"
 ReverseDiff = "1"
+Statistics = "1.11.1"
 TestItemRunner = "1"
 TestItems = "1"
 
