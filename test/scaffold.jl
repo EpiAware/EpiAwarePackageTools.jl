@@ -572,6 +572,38 @@
             end
         end
 
+        @testset "recovers the subdomain from a gh-pages CNAME" begin
+            using EpiAwarePackageTools: _detect_docs_subdomain, _gh_pages_cname
+            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
+            mktempdir() do dir
+                mkpath(joinpath(dir, "docs"))
+                # Project-pages make.jl (`deploy_url = nothing`) in a git repo.
+                write(joinpath(dir, "docs", "make.jl"),
+                    "build_docs(Foo; deploy_url = nothing)\n")
+                _run(dir, `git init -q -b main`)
+                _run(dir, `git config user.email t@t.t`)
+                _run(dir, `git config user.name t`)
+                _run(dir, `git add -A`)
+                _run(dir, `git commit -qm init`)
+                # No gh-pages CNAME yet -> genuine project-pages, unchanged.
+                @test _gh_pages_cname(dir) === nothing
+                @test _detect_docs_subdomain(dir) === nothing
+                # A Pages custom domain set out of band writes a gh-pages CNAME.
+                _run(dir, `git checkout -q --orphan gh-pages`)
+                _run(dir, `git reset -q`)
+                write(joinpath(dir, "CNAME"), "wombat.example.org\n")
+                _run(dir, `git add CNAME`)
+                _run(dir, `git commit -qm cname`)
+                # `_gh_pages_cname` reads `git show gh-pages:CNAME` and
+                # `_detect_docs_subdomain` reads docs/make.jl off disk, so
+                # neither needs a particular branch checked out.
+                # deploy_url is still `nothing`, but the CNAME now heals the
+                # subdomain so the drifted base does not ship a CSS-less site.
+                @test _gh_pages_cname(dir) == "wombat.example.org"
+                @test _detect_docs_subdomain(dir) == "wombat.example.org"
+            end
+        end
+
         @testset "_detect_doi recovers a committed DOI badge (#161)" begin
             using EpiAwarePackageTools: _detect_doi
             # No README yet -> nothing/nothing (a never-configured repo).

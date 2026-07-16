@@ -613,15 +613,65 @@ the caller falls back to the scaffold default). Mirrors
 so a scheduled sync — which never re-passes `docs_subdomain` — stays
 idempotent, and a package that has drifted to the wrong base self-heals
 on the next `scaffold_update`.
+
+When `docs/make.jl` says `deploy_url = nothing` but the repo has a
+gh-pages `CNAME` (a Pages custom domain set out of band), the two
+disagree: the site is served from the CNAME root while the build uses
+the `/<Repo>.jl/` project-pages base, so every asset 404s and the docs
+render unstyled. That mismatch is invisible to CI (the deploy passes),
+so the deploy_url alone cannot detect it. The CNAME is consulted in that
+one case and, when present, its host is recovered as the subdomain so
+the drift heals — the concrete case #123's self-heal promise was missing.
 """
 function _detect_docs_subdomain(target_dir::AbstractString)
     mk = joinpath(target_dir, "docs", "make.jl")
     isfile(mk) || return :missing
     m = match(r"deploy_url\s*=\s*(nothing|\"([^\"]*)\")", read(mk, String))
     m === nothing && return :missing
-    m.captures[2] === nothing && return nothing  # `deploy_url = nothing`
+    if m.captures[2] === nothing  # `deploy_url = nothing` (project-pages)
+        # make.jl says project-pages, but a committed gh-pages `CNAME` is the
+        # custom domain the site is actually served from — at its root. With
+        # both, DocumenterVitepress builds the base as `/<Repo>.jl/` while the
+        # site loads at the CNAME root, so every CSS/JS asset 404s and the docs
+        # render unstyled. CI cannot catch it: the Documenter deploy succeeds;
+        # the base mismatch is browser-only. Recover the subdomain from the
+        # CNAME so the drift self-heals on the next `scaffold_update` (the
+        # behaviour this docstring already promises), rather than shipping a
+        # CSS-less site indefinitely. `deploy_url = nothing` with no CNAME is a
+        # genuine project-pages repo and is left unchanged.
+        cname = _gh_pages_cname(target_dir)
+        cname === nothing && return nothing
+        @warn "docs/make.jl has `deploy_url = nothing` (project-pages) but " *
+              "the gh-pages CNAME is `$cname`, a custom domain served at its " *
+              "root. That mismatch deploys the docs with the wrong VitePress " *
+              "base, so every CSS/JS asset 404s and the site renders " *
+              "unstyled. Recovering the subdomain from the CNAME. To force " *
+              "project-pages instead, pass `docs_subdomain = nothing` and " *
+              "remove the repo's Pages custom domain."
+        return cname
+    end
     host = String(something(m.captures[2]))
     return isempty(host) ? nothing : host
+end
+
+# The custom domain committed to the gh-pages `CNAME`, or `nothing` if no
+# gh-pages branch / CNAME is reachable from this checkout. Read-only and
+# offline-tolerant: a checkout without a fetched gh-pages ref (a shallow
+# single-branch CI clone, say) yields `nothing`, so a repo with no custom
+# domain keeps the project-pages default — this never changes existing
+# behaviour there. For the recovery to fire in the scheduled template-sync,
+# that workflow must `git fetch origin gh-pages` first (see
+# `template-sync.yaml`); a maintainer's local checkout usually already has it.
+function _gh_pages_cname(target_dir::AbstractString)
+    for ref in ("gh-pages", "origin/gh-pages")
+        host = try
+            strip(readchomp(Cmd(`git show $ref:CNAME`; dir = target_dir)))
+        catch
+            continue
+        end
+        isempty(host) || return String(host)
+    end
+    return nothing
 end
 
 """
