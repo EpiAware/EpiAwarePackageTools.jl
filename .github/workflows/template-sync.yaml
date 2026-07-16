@@ -68,6 +68,14 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v2
         if: github.event_name != 'pull_request'
+      - name: Fetch gh-pages so the docs custom domain can be reconciled
+        if: github.event_name != 'pull_request'
+        # scaffold_update reconciles `docs/make.jl`'s deploy_url against the
+        # gh-pages CNAME (a Pages custom domain set out of band): a mismatch
+        # ships a CSS-less site that CI otherwise cannot see. The default
+        # checkout does not fetch gh-pages, so fetch it here. `|| true` keeps a
+        # repo with no gh-pages branch (docs never deployed) from failing.
+        run: git fetch --depth=1 origin gh-pages || true
       - name: Re-apply the managed EpiAware standard
         if: github.event_name != 'pull_request'
         run: |
