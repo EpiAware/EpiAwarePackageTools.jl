@@ -1022,7 +1022,7 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
 end
 
 # A third-party action `uses:` pin in a managed workflow (e.g.
-# `actions/checkout@v6`, `julia-actions/cache@v3`), capturing the prefix up to
+# `actions/checkout@v7`, `julia-actions/cache@v3`), capturing the prefix up to
 # the action path, the action path, and the pinned ref. Local `./…` actions
 # carry no `@ref` and never match; the org reusable callers do match this shape
 # but are skipped in favour of `_preserve_reusable_refs`.
@@ -1036,7 +1036,7 @@ managed workflow.
 
 Dependabot owns the github-actions pins in every adopting repo (the managed
 `dependabot.yml` enables the github-actions ecosystem), so a template that
-hard-pins `actions/checkout@v6` would revert a Dependabot bump on every resync.
+hard-pins `actions/checkout@v7` would revert a Dependabot bump on every resync.
 When template-sync re-applies on a branch it did not open (a Dependabot PR),
 that revert rides along silently into the merge (#215). When the destination
 already pins a version for an action, that pin wins and only the rest of the
