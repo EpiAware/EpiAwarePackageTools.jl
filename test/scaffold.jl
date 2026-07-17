@@ -3295,8 +3295,14 @@ end
     using Test
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _undeclared_test_stdlibs, _used_module_names,
-                                _declared_deps, _julia_stdlibs
+                                _declared_deps, _julia_stdlibs,
+                                _manifest_packages
     _p(dir, rel) = joinpath(dir, split(rel, '/')...)
+    # A minimal resolved test manifest naming `pkgs` — the availability oracle
+    # the scan reads (a real Manifest lists the full transitive set). Only the
+    # `[[deps.Name]]` headers matter to `_manifest_packages`.
+    _manifest(pkgs) = "manifest_format = \"2.0\"\n\n" *
+                      join(["[[deps.$n]]" for n in pkgs], "\n") * "\n"
 
     @testset "_julia_stdlibs reads the running Julia's stdlib set" begin
         libs = _julia_stdlibs()
@@ -3331,26 +3337,45 @@ end
             f = joinpath(dir, "Project.toml")
             write(f, "[deps]\nA = \"x\"\nB = \"y\"\n[compat]\nA = \"1\"\n")
             @test _declared_deps(f) == Set(["A", "B"])
-            # A raw (unsubstituted) template is not valid TOML; skip, don't error.
+            # A raw (unsubstituted) template is not valid TOML; skip it.
             write(f, "[deps]\n{{PACKAGE}} = \"{{UUID}}\"\nReal = \"z\"\n")
             @test _declared_deps(f) == Set(["Real"])
             @test _declared_deps(joinpath(dir, "nope.toml")) == Set{String}()
         end
     end
 
-    @testset "the scan names only undeclared stdlibs" begin
+    @testset "_manifest_packages reads header names (both formats)" begin
+        mktempdir() do dir
+            f = joinpath(dir, "Manifest.toml")
+            write(f,
+                "manifest_format = \"2.0\"\n\n[[deps.Aqua]]\n" *
+                "uuid = \"x\"\n\n[[deps.Random]]\nuuid = \"y\"\n")
+            @test _manifest_packages(f) == Set(["Aqua", "Random"])
+            # Format 1 headers (`[[Name]]`) parse too.
+            write(f, "[[LinearAlgebra]]\nuuid = \"z\"\n")
+            @test _manifest_packages(f) == Set(["LinearAlgebra"])
+            @test _manifest_packages(joinpath(dir, "no.toml")) == Set{String}()
+        end
+    end
+
+    @testset "the scan names only stdlibs absent from the resolved env" begin
         mktempdir() do dir
             mkpath(joinpath(dir, "test"))
             write(joinpath(dir, "Project.toml"),
                 "name = \"Foo\"\n[deps]\n" *
-                "Random = \"9a3f8284-a2c9-5f02-9a11-845980a1fd5c\"\n")
+                "Distributions = \"31c24e10-a181-5473-b8eb-7969acd0382f\"\n")
             write(_p(dir, "test/Project.toml"),
                 "[deps]\nTest = \"8dfed614-e22c-5e08-85e1-65c5234f0b40\"\n")
+            # Resolved env: Test + Distributions, and Random pulled in
+            # transitively by Distributions — but NOT LinearAlgebra/Statistics/
+            # Printf. So Random must not be flagged though it is in no `[deps]`.
+            write(_p(dir, "test/Manifest.toml"),
+                _manifest(["Test", "Distributions", "Random"]))
             write(_p(dir, "test/runtests.jl"), """
             using Test
             using LinearAlgebra: dot
             using Statistics
-            using Random          # a package dep -> available transitively
+            using Random          # transitive via Distributions -> available
             import Printf as PF
             using SomeThirdParty  # not a stdlib -> never flagged
             # using Serialization # commented -> not a use
@@ -3358,12 +3383,45 @@ end
             @test _undeclared_test_stdlibs(dir) ==
                   ["LinearAlgebra", "Printf", "Statistics"]
         end
-        # A stdlib declared in test/Project.toml is not flagged.
+    end
+
+    @testset "a transitively-available stdlib is not warned (#263 review)" begin
+        # The narrow case a69e flagged: a stdlib reachable only through a
+        # third-party main dep (never in any `[deps]` line) is available and
+        # must not be flagged. Reading only `[deps]` used to warn it.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n[deps]\n" *
+                "Distributions = \"31c24e10-a181-5473-b8eb-7969acd0382f\"\n")
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(_p(dir, "test/Manifest.toml"),
+                _manifest(["Distributions", "Random"]))
+            write(_p(dir, "test/runtests.jl"), "using Random\n")
+            @test _undeclared_test_stdlibs(dir) == String[]
+        end
+    end
+
+    @testset "a stdlib in test/Project.toml [deps] is not flagged" begin
         mktempdir() do dir
             mkpath(joinpath(dir, "test"))
             write(_p(dir, "test/Project.toml"),
                 "[deps]\nLinearAlgebra = " *
                 "\"37e2e46d-f89d-539d-b4ee-838fcccc9c8e\"\n")
+            # Manifest present (so the scan runs) but without LinearAlgebra;
+            # the direct `[deps]` entry is what keeps it off the list.
+            write(_p(dir, "test/Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) == String[]
+        end
+    end
+
+    @testset "no manifest / no test dir means no warning" begin
+        # Without a resolved manifest, transitive availability is unknowable, so
+        # the scan stays silent rather than false-flag (a bare CI checkout).
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
             write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
             @test _undeclared_test_stdlibs(dir) == String[]
         end
@@ -3380,17 +3438,21 @@ end
                 "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
                 "authors = [\"Ada Lovelace\"]\n")
             scaffold(dir)
-            # A freshly scaffolded package uses no undeclared stdlib.
+            # A freshly scaffolded package uses no undeclared stdlib (and has no
+            # manifest yet either) — no warning.
             res = scaffold_update(dir)
             @test !any(w -> occursin("#263", w), res.warnings)
-            # A contributor adds `using LinearAlgebra` without declaring it.
+            # A contributor adds `using LinearAlgebra` without declaring it, in
+            # an instantiated env (manifest present) that does not resolve it.
             write(_p(dir, "test/renewal_tests.jl"),
                 "using LinearAlgebra: dot\n")
+            write(_p(dir, "test/Manifest.toml"),
+                _manifest(["Test", "Aqua", "JET"]))
             res2 = scaffold_update(dir)
             hit = filter(w -> occursin("#263", w), res2.warnings)
             @test length(hit) == 1
             @test occursin("LinearAlgebra", only(hit))
-            # The kit does not silently edit the package-owned test/Project.toml.
+            # The kit never edits the package-owned test/Project.toml.
             @test !occursin("LinearAlgebra",
                 read(_p(dir, "test/Project.toml"), String))
         end

@@ -2884,16 +2884,47 @@ function _used_module_names(src::AbstractString)
     return names
 end
 
-# Standard libraries `using`d in a package's committed test sources but declared
-# in neither test/Project.toml nor the package Project.toml (so not available
-# even transitively via the package). Returned sorted; empty when test/ is
-# absent. Drives the #263 scaffold/sync warning.
+# Every package named in a resolved Manifest.toml — the full transitive set, so
+# a stdlib pulled in by a declared dependency (never named in a `[deps]` line)
+# still reads as available. Header lines are `[[deps.Name]]` (manifest format
+# 2) or `[[Name]]` (format 1). Empty when the file is absent. A line scan, like
+# `_declared_deps`, to stay dependency-free.
+function _manifest_packages(path::AbstractString)
+    isfile(path) || return Set{String}()
+    names = Set{String}()
+    for line in eachline(path)
+        m = match(r"^\[\[(?:deps\.)?([A-Za-z_][A-Za-z0-9_]*)\]\]", strip(line))
+        m === nothing || push!(names, String(something(m.captures[1])))
+    end
+    return names
+end
+
+# Standard libraries `using`d in a package's committed test sources but not
+# available in the resolved test environment. Returned sorted; empty when test/
+# is absent. Drives the #263 scaffold/sync warning.
+#
+# Availability is judged against the resolved test/Manifest.toml, not just the
+# `[deps]` lines: a stdlib pulled in transitively by a declared dependency (e.g.
+# LinearAlgebra via Aqua/JET) is genuinely loadable and must not be flagged —
+# reading only `[deps]` false-flagged such stdlibs, including on the kit itself.
+# A Manifest is gitignored (a package must not commit one), so it exists only in
+# an instantiated env — typically a maintainer's local checkout, where the
+# warning is actionable. Without one we cannot tell a transitively-available
+# stdlib from a genuinely missing one, so we do not guess: no manifest means no
+# warning, trading a missed hint in a bare CI checkout for zero false positives.
 function _undeclared_test_stdlibs(target_dir::AbstractString)
     test_dir = joinpath(target_dir, "test")
     isdir(test_dir) || return String[]
     stdlibs = _julia_stdlibs()
     isempty(stdlibs) && return String[]
-    declared = union(_declared_deps(joinpath(test_dir, "Project.toml")),
+    # The test-env manifest is the authoritative availability oracle. Absent
+    # (never instantiated / fresh checkout) → cannot verify transitive deps →
+    # stay silent rather than false-flag.
+    available = _manifest_packages(joinpath(test_dir, "Manifest.toml"))
+    isempty(available) && return String[]
+    # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
+    available = union(available,
+        _declared_deps(joinpath(test_dir, "Project.toml")),
         _declared_deps(joinpath(target_dir, "Project.toml")))
     used = Set{String}()
     for (root, _, files) in walkdir(test_dir)
@@ -2904,7 +2935,7 @@ function _undeclared_test_stdlibs(target_dir::AbstractString)
             end
         end
     end
-    return sort!(collect(setdiff(used, declared)))
+    return sort!(collect(setdiff(used, available)))
 end
 
 """
