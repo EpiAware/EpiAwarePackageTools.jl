@@ -2786,6 +2786,26 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
                     "this one. Drop it (#246)."))
         end
     end
+    # A Julia standard library is not implicitly available in a test
+    # environment: to `using LinearAlgebra` a test needs LinearAlgebra declared
+    # as a dep (in test/Project.toml, or transitively via the package under
+    # test). Contributors routinely add `using <stdlib>` in a test without
+    # declaring it, and the whole env then fails to resolve on every platform
+    # with an opaque error — #263 saw Statistics break one PR and LinearAlgebra
+    # break two more, each a one-line fix that kept recurring. The gap is
+    # invisible until CI reds, so name it here at scaffold/sync time instead.
+    # test/Project.toml is package-owned (the kit cannot just add the dep), so a
+    # warning pointing at the exact missing stdlib is the durable, general fix.
+    stdlibs = _undeclared_test_stdlibs(target_dir)
+    isempty(stdlibs) || push!(warnings,
+        string("test/ uses the standard librar",
+            length(stdlibs) == 1 ? "y " : "ies ", join(stdlibs, ", "),
+            " but ", length(stdlibs) == 1 ? "it is" : "they are",
+            " declared in neither test/Project.toml nor Project.toml. A Julia ",
+            "stdlib must be an explicit dep to load in the test environment, ",
+            "so the whole env fails to resolve on every platform with an ",
+            "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
+            " to test/Project.toml `[deps]` (#263)."))
     # `.gitignore` is managed between markers so package-owned additions below
     # the block survive `scaffold_update` (#65). Reported separately for the same
     # reason as `readme`/`license`/`workspace` above.
@@ -2806,6 +2826,85 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
         warnings = warnings)
+end
+
+# The non-JLL standard libraries shipped with the running Julia, read from
+# `Sys.STDLIB` so the set tracks the Julia version rather than a hand-kept
+# list. JLL wrappers are excluded: they arrive as transitive artefact deps and
+# are never `using`d directly in a test.
+function _julia_stdlibs()
+    dir = Sys.STDLIB
+    (dir isa AbstractString && isdir(dir)) || return Set{String}()
+    entries = filter(readdir(dir)) do n
+        !endswith(n, "_jll") && isdir(joinpath(dir, n))
+    end
+    return Set{String}(entries)
+end
+
+# Dep names in a Project.toml `[deps]` table. Empty when the file is absent or
+# unparseable — an unsubstituted template still carrying `{{PLACEHOLDER}}` is
+# not valid TOML, so skip it rather than error. A line scan (not a TOML parse)
+# keeps this dependency-free and matches how the rest of the file reads
+# Project.toml.
+function _declared_deps(path::AbstractString)
+    isfile(path) || return Set{String}()
+    names = Set{String}()
+    in_deps = false
+    for line in eachline(path)
+        s = strip(line)
+        if startswith(s, "[")
+            in_deps = s == "[deps]"
+            continue
+        end
+        in_deps || continue
+        m = match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=", s)
+        m === nothing || push!(names, String(something(m.captures[1])))
+    end
+    return names
+end
+
+# Top-level module names introduced by `using`/`import` lines in Julia source.
+# A line-level heuristic, not a full parse: it drops a trailing comment, a
+# `: names` selection and an `as alias`, splits comma clauses, and takes the
+# head of a dotted path (`A.B` -> `A`). It only ever feeds the known-stdlib
+# filter, so an over-broad match cannot invent a warning for a non-stdlib name.
+function _used_module_names(src::AbstractString)
+    names = Set{String}()
+    for line in eachline(IOBuffer(src))
+        m = match(r"^\s*(?:using|import)\s+(.+)$", line)
+        m === nothing && continue
+        body = split(String(something(m.captures[1])), '#')[1]  # drop comment
+        clause = split(body, ':')[1]                            # drop `: sel`
+        for part in split(clause, ',')
+            tok = strip(String(first(split(strip(part), r"\s+as\s+"))))
+            head = String(first(split(tok, '.')))               # dotted head
+            occursin(r"^[A-Za-z_]", head) && push!(names, head)
+        end
+    end
+    return names
+end
+
+# Standard libraries `using`d in a package's committed test sources but declared
+# in neither test/Project.toml nor the package Project.toml (so not available
+# even transitively via the package). Returned sorted; empty when test/ is
+# absent. Drives the #263 scaffold/sync warning.
+function _undeclared_test_stdlibs(target_dir::AbstractString)
+    test_dir = joinpath(target_dir, "test")
+    isdir(test_dir) || return String[]
+    stdlibs = _julia_stdlibs()
+    isempty(stdlibs) && return String[]
+    declared = union(_declared_deps(joinpath(test_dir, "Project.toml")),
+        _declared_deps(joinpath(target_dir, "Project.toml")))
+    used = Set{String}()
+    for (root, _, files) in walkdir(test_dir)
+        for f in files
+            endswith(f, ".jl") || continue
+            for name in _used_module_names(read(joinpath(root, f), String))
+                name in stdlibs && push!(used, name)
+            end
+        end
+    end
+    return sort!(collect(setdiff(used, declared)))
 end
 
 """

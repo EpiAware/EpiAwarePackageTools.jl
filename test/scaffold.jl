@@ -3291,6 +3291,112 @@ end # @testitem "scaffold + scaffold_update (logic)"
     end
 end
 
+@testitem "undeclared stdlib test deps are flagged (#263)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _undeclared_test_stdlibs, _used_module_names,
+                                _declared_deps, _julia_stdlibs
+    _p(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    @testset "_julia_stdlibs reads the running Julia's stdlib set" begin
+        libs = _julia_stdlibs()
+        # A few load-bearing stdlibs are always present; JLL wrappers never are.
+        @test "LinearAlgebra" in libs
+        @test "Statistics" in libs
+        @test "Test" in libs
+        @test !any(endswith("_jll"), libs)
+    end
+
+    @testset "_used_module_names parses the using/import forms" begin
+        src = """
+        using Test
+        using LinearAlgebra: dot
+        using Statistics, Random
+        import Printf as PF
+        using Base.Threads
+        # using Serialization
+        using LibGit2  # trailing comment
+        """
+        names = _used_module_names(src)
+        for n in ("Test", "LinearAlgebra", "Statistics", "Random", "Printf",
+            "Base", "LibGit2")
+            @test n in names
+        end
+        # A commented-out line is not a use.
+        @test !("Serialization" in names)
+    end
+
+    @testset "_declared_deps reads [deps], tolerates placeholders" begin
+        mktempdir() do dir
+            f = joinpath(dir, "Project.toml")
+            write(f, "[deps]\nA = \"x\"\nB = \"y\"\n[compat]\nA = \"1\"\n")
+            @test _declared_deps(f) == Set(["A", "B"])
+            # A raw (unsubstituted) template is not valid TOML; skip, don't error.
+            write(f, "[deps]\n{{PACKAGE}} = \"{{UUID}}\"\nReal = \"z\"\n")
+            @test _declared_deps(f) == Set(["Real"])
+            @test _declared_deps(joinpath(dir, "nope.toml")) == Set{String}()
+        end
+    end
+
+    @testset "the scan names only undeclared stdlibs" begin
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n[deps]\n" *
+                "Random = \"9a3f8284-a2c9-5f02-9a11-845980a1fd5c\"\n")
+            write(_p(dir, "test/Project.toml"),
+                "[deps]\nTest = \"8dfed614-e22c-5e08-85e1-65c5234f0b40\"\n")
+            write(_p(dir, "test/runtests.jl"), """
+            using Test
+            using LinearAlgebra: dot
+            using Statistics
+            using Random          # a package dep -> available transitively
+            import Printf as PF
+            using SomeThirdParty  # not a stdlib -> never flagged
+            # using Serialization # commented -> not a use
+            """)
+            @test _undeclared_test_stdlibs(dir) ==
+                  ["LinearAlgebra", "Printf", "Statistics"]
+        end
+        # A stdlib declared in test/Project.toml is not flagged.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(_p(dir, "test/Project.toml"),
+                "[deps]\nLinearAlgebra = " *
+                "\"37e2e46d-f89d-539d-b4ee-838fcccc9c8e\"\n")
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) == String[]
+        end
+        # No test/ directory at all: nothing to scan.
+        mktempdir() do dir
+            @test _undeclared_test_stdlibs(dir) == String[]
+        end
+    end
+
+    @testset "scaffold_update warns on an adopter's undeclared stdlib" begin
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            scaffold(dir)
+            # A freshly scaffolded package uses no undeclared stdlib.
+            res = scaffold_update(dir)
+            @test !any(w -> occursin("#263", w), res.warnings)
+            # A contributor adds `using LinearAlgebra` without declaring it.
+            write(_p(dir, "test/renewal_tests.jl"),
+                "using LinearAlgebra: dot\n")
+            res2 = scaffold_update(dir)
+            hit = filter(w -> occursin("#263", w), res2.warnings)
+            @test length(hit) == 1
+            @test occursin("LinearAlgebra", only(hit))
+            # The kit does not silently edit the package-owned test/Project.toml.
+            @test !occursin("LinearAlgebra",
+                read(_p(dir, "test/Project.toml"), String))
+        end
+    end
+end
+
 @testitem "opt-in EpiAware org branding (#242)" begin
     using Test
     using EpiAwarePackageTools
