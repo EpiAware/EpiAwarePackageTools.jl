@@ -2023,7 +2023,7 @@
                 # bumps these pins in the live repo just like a reusable SHA.
                 wf = _dest(dir, ".github/workflows/claude.yml")
                 before = read(wf, String)
-                @test occursin("actions/checkout@v6", before)
+                @test occursin("actions/checkout@v7", before)
                 # Simulate Dependabot bumping the third-party pin in the live
                 # workflow (the case #215 reports being reverted on resync).
                 bumped = replace(before,
@@ -2035,7 +2035,7 @@
                 # scaffold_update keeps the bumped pin (never reverts Dependabot,
                 # regardless of the branch the resync runs on) ...
                 @test occursin("actions/checkout@v99", after)
-                @test !occursin("actions/checkout@v6", after)
+                @test !occursin("actions/checkout@v7", after)
                 # ... and a second scaffold_update is idempotent on the pin.
                 scaffold_update(dir)
                 @test read(wf, String) == after
