@@ -1610,3 +1610,43 @@ end
         @test !DB._empty_anchor_aborts(Documenter, DriftedVitepress)
     end
 end
+
+# Behaviour guard for the managed StarUs star-count loader (#277). The loader
+# must never fail a docs build over a transient GitHub API error: a 5xx / 429 /
+# network blip is retried then degraded to an unknown count, and only a genuine
+# 404 (misconfigured repo) throws. The assertions live in a Node harness
+# (test/stargazers_loader_behaviour.mjs) that imports the real loader with an
+# injected fetch; here we run it against both the template and the dogfooded
+# copy so a future edit reintroducing throw-on-5xx fails the suite.
+@testitem "stargazers loader degrades on transient errors (#277)" begin
+    using Test
+    using EpiAwarePackageTools
+
+    node = Sys.which("node")
+    if node === nothing
+        # Node is present on every GitHub-hosted runner and any docs-building
+        # environment; skip only where it is genuinely absent.
+        @warn "node not found; skipping the stargazers loader behaviour test"
+        @test_skip false
+    else
+        root = pkgdir(EpiAwarePackageTools)
+        harness = joinpath(@__DIR__, "stargazers_loader_behaviour.mjs")
+        copies = [
+            joinpath(root, "docs", "src", "components", "stargazers.data.ts"),
+            joinpath(root, "templates", "docs", "src", "components",
+                "stargazers.data.ts")
+        ]
+        for path in copies
+            # The template ships a `{{REPO}}` placeholder that is not valid JS;
+            # substitute a stand-in so both copies import identically. Node
+            # imports `.mjs`, so stage the (plain-JS) loader under that name.
+            src = replace(read(path, String), "{{REPO}}" => "Org/Pkg.jl")
+            mktempdir() do d
+                mjs = joinpath(d, "loader.mjs")
+                write(mjs, src)
+                @test success(pipeline(`$node $harness $mjs`;
+                    stdout = stdout, stderr = stderr))
+            end
+        end
+    end
+end
