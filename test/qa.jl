@@ -218,6 +218,17 @@
             @test occursin("after", joined)
         end
 
+        @testset "Contributing precedes citing in the section order" begin
+            # The kit renders its managed sections Contributing -> How to cite
+            # -> Code of conduct, so the constant must keep the Contributing
+            # group ahead of the citing/license group. Flipping it (to match a
+            # README that hand-places a citing section above Contributing) would
+            # fail every fresh scaffold's `order = true` check (#289).
+            S = EpiAwarePackageTools.STANDARD_README_SECTIONS
+            @test findfirst(g -> "Contributing" in g, S) <
+                  findfirst(g -> "License" in g, S)
+        end
+
         @testset "test_readme_sections" begin
             badges = EpiAwarePackageTools.BADGES_START * "\n" *
                      EpiAwarePackageTools.BADGES_END
