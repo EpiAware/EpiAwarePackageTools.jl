@@ -3710,3 +3710,29 @@ end
         end
     end
 end
+
+@testitem "dependabot groups bumps into one PR per ecosystem (#249)" begin
+    using Test
+    using EpiAwarePackageTools
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        scaffold(dir)
+        dep = read(_dest(dir, ".github/dependabot.yml"), String)
+        # Both ecosystems carry a `groups:` block with a wildcard pattern, so a
+        # run's bumps land in one grouped PR each rather than a PR per workflow
+        # file / per package — the storm Sam hit (#249).
+        @test count("groups:", dep) == 2
+        @test count("package-ecosystem:", dep) == 2
+        @test count("patterns:", dep) == 2
+        @test count("- \"*\"", dep) == 2
+        @test occursin("      github-actions:\n", dep)
+        @test occursin("      julia:\n", dep)
+        # No placeholder survives into the emitted config.
+        @test !occursin("{{", dep)
+    end
+end
