@@ -22,7 +22,8 @@ Every file the kit writes is one of two kinds.
   header; do not edit them by hand.
 - Package-owned files are written once and never overwritten: the package's
   unit tests, its QA config values, the navigation tree (`docs/pages.jl`), the
-  README body, `LICENSE`, `CITATION.cff` (your citation metadata), and the docs
+  README body, `LICENSE`, `CITATION.cff` (your citation metadata), `NEWS.md`
+  (see the [changelog convention](@ref changelog) for its shape), and the docs
   source pages such as this one.
   These are yours to edit.
 

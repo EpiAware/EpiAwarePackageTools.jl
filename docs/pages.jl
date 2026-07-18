@@ -21,6 +21,7 @@ pages = [
         "Infrastructure and template sync" => "getting-started/infrastructure.md",
         "Test infrastructure" => "getting-started/test-infrastructure.md",
         "Benchmarking" => "getting-started/benchmarking.md",
-        "AD tooling" => "getting-started/ad-tooling.md"
+        "AD tooling" => "getting-started/ad-tooling.md",
+        "Changelog convention" => "getting-started/changelog.md"
     ]
 ]

@@ -243,10 +243,11 @@ const SCAFFOLD_TEMPLATES = Template[
     # before its docstrings are defined for the templates to take effect (see
     # CensoredDistributions.jl `src/docstrings.jl`).
     Template("src/docstrings.jl", "src/docstrings.jl", false, false),
-    # The hybrid-changelog NEWS.md seed (major-release notes; GitHub Releases
-    # cover the rest — see `docs/release_notes_header.jl` /
-    # `docs/make.jl`'s release-notes.md step, which reads this file when
-    # present). Package-owned so a package's own entries are never touched.
+    # The NEWS.md seed: an empty `## Unreleased` section, per the org
+    # changelog convention (docs/src/getting-started/changelog.md) — see
+    # `docs/release_notes_header.jl` / `docs/make.jl`'s release-notes.md
+    # step, which reads this file when present. Package-owned so a
+    # package's own entries are never touched.
     Template("NEWS.md", "NEWS.md", false, false),
     Template("docs/Project.toml", "docs/Project.toml", false, true),
     # A placeholder logo, seeded once at this exact path so a package can drop
