@@ -984,6 +984,17 @@ function _write_benchmark_summary(io, rows)
         println(io)
         return
     end
+    # A single-revision package (or any run with no comparable baseline yet)
+    # has a `missing` ratio for every suite, so the table would be all-`n/a`
+    # and read as broken (#282). Render a short note in its place until a
+    # second revision provides something to compare against.
+    if all(r -> ismissing(r.ratio), rows)
+        println(io,
+            "_Not enough comparable revisions to compute ratios yet — the " *
+            "summary populates once a second revision is benchmarked._")
+        println(io)
+        return
+    end
     println(io, "| Suite | Median ratio | Trend | Status |")
     println(io, "|:---|:---:|:---:|:---:|")
     for r in rows
@@ -1131,6 +1142,13 @@ function _render_benchmark_overview(io, md::AbstractString,
     # (#231).
     headline = _headline_groups(metric_groups)
     series_by_suite = _suite_ratio_series_by_group(headline, length(col_labels))
+    # One orienting line so `## Performance history` (printed by the caller)
+    # is never an empty heading sitting directly above `## Benchmark summary
+    # (overall)` (#282).
+    println(io,
+        "The summary tracks each benchmark suite's headline timing across " *
+        "recent revisions.")
+    println(io)
     _write_benchmark_summary(io,
         _benchmark_summary_rows(series_by_suite;
             regression_threshold = regression_threshold))

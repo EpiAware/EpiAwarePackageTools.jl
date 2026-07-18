@@ -392,6 +392,17 @@
         io2 = IOBuffer()
         DB._write_benchmark_summary(io2, [])
         @test occursin("## Benchmark summary (overall)", String(take!(io2)))
+        # Every suite `n/a` (single-revision) -> a note replaces the table
+        # (#282), never a wall of `n/a` rows.
+        io5 = IOBuffer()
+        DB._write_benchmark_summary(io5,
+            [
+                (suite = "Baseline", ratio = missing, trend = "→", status = "n/a"),
+                (suite = "AD", ratio = missing, trend = "→", status = "n/a")
+            ])
+        out5 = String(take!(io5))
+        @test occursin("Not enough comparable revisions", out5)
+        @test !occursin("| Baseline |", out5)
         # `_fmt_ratio` never prints a literal "NaN"/"Inf" -- both degrade to
         # "n/a" like a `missing` ratio, defence in depth alongside the
         # zero-baseline guard in `_suite_ratio_series`.
@@ -501,7 +512,18 @@
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
         @test occursin("## Benchmark summary (overall)", out)
-        @test occursin("| Baseline | n/a | → | n/a |", out)
+        # Single revision -> no ratios, so a note replaces the all-`n/a`
+        # table (#282) rather than a row of `n/a` cells.
+        @test occursin("Not enough comparable revisions", out)
+        @test !occursin("| Baseline | n/a | → | n/a |", out)
+        # `## Performance history` is never an empty heading above the
+        # summary heading -- a one-line intro sits between them (#282).
+        hist_pos = findfirst("## Performance history", out)
+        intro_pos = findfirst("summary tracks each benchmark suite", out)
+        summary_pos = findfirst("## Benchmark summary (overall)", out)
+        @test hist_pos !== nothing && intro_pos !== nothing &&
+              summary_pos !== nothing
+        @test first(hist_pos) < first(intro_pos) < first(summary_pos)
         @test !isfile(joinpath(dirname(dest), "overall_trend.png"))
         @test !occursin("Overall benchmark trend", out)
     end
