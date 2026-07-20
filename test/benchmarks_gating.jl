@@ -36,7 +36,10 @@
             for f in BENCH_FILES
                 @test !isfile(joinpath(dir, f))
             end
-            # No dangling nav entry; the docs opt out via BENCHMARK_PAGE.
+            # No performance-history nav entry; the docs opt out via
+            # BENCHMARK_PAGE. A "Benchmarks" entry may still exist pointing at
+            # the AD-comparison page instead (`ad = true` is the scaffold
+            # default, #299) -- that is not this test's concern.
             pages = read(joinpath(dir, "docs/pages.jl"), String)
             @test !occursin("benchmarks.md", pages)
             cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
@@ -51,8 +54,12 @@
             for f in BENCH_FILES
                 @test isfile(joinpath(dir, f))
             end
+            # `ad = true` is the scaffold default, so the Benchmarks entry
+            # nests the performance-history page alongside AD comparison
+            # (#299) rather than pointing at "benchmarks.md" alone.
             pages = read(joinpath(dir, "docs/pages.jl"), String)
-            @test occursin("\"Benchmarks\" => \"benchmarks.md\"", pages)
+            @test occursin(
+                "\"Performance history\" => \"benchmarks.md\"", pages)
             cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
             @test occursin("const BENCHMARK_PAGE = true", cfg)
         end
