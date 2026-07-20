@@ -10,7 +10,7 @@ This page is a quickstart; the home page is the full reference.
     This documentation is itself produced by the kit's scaffold.
     The navigation, the VitePress theme, the GitHub-stars widget in the navbar,
     the API reference, the release-notes page, and the badge table on the home
-    page are all what `scaffold`/`scaffold_update` write for an adopting package.
+    page are all what `scaffold`/`update` write for an adopting package.
     So this site doubles as a reference for what your package's docs will look
     like once it adopts the kit.
     See [Infrastructure and template sync](@ref infrastructure) for how the
@@ -39,10 +39,14 @@ once and left for you to edit.
 
 ## Keeping a package in sync
 
-`scaffold_update` re-applies only the managed files and reports what changed:
+`update` re-applies only the managed files and reports what changed.
+It is `public`, not exported (#294) — a generic name like `update` is
+exactly the kind a domain package might also export, and `public` keeps it
+from colliding with that when both are loaded together — so call it
+qualified:
 
 ```julia
-scaffold_update(pkgdir(MyPackage))
+EpiAwarePackageTools.update(pkgdir(MyPackage))
 ```
 
 This is the entry point the scheduled template-sync workflow calls, so an
@@ -62,7 +66,8 @@ scaffold_generate("path/to/NewPkg", "NewPkg")
 
 - The home page documents every helper, the managed-versus-package-owned
   split, and the AD opt-in behaviour in full.
-- The [Public API](@ref public-api) lists the exported functions.
+- The [Public API](@ref public-api) lists the public functions (exported and
+  `public`-declared).
 - See [Customising your docs](@ref customising) for how to make the
   seeded pages (this one included) your own.
 - Questions or problems? Open an issue on the

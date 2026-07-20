@@ -1,5 +1,5 @@
 # Benchmarks are opt-in: a fresh scaffold writes no benchmark CI, suite, or docs
-# page; `benchmarks = true` writes them all. `scaffold_update` detects an adopter's state
+# page; `benchmarks = true` writes them all. `update` detects an adopter's state
 # from the managed benchmark workflows so a resync preserves an opt-in instead
 # of stripping it (the #72 idempotence trap), and bakes the value into the
 # scheduled template-sync call.
@@ -7,7 +7,7 @@
 @testitem "benchmarks opt-in gating + idempotence" begin
     using Test
     using EpiAwarePackageTools
-    using EpiAwarePackageTools: _detect_benchmarks
+    using EpiAwarePackageTools: _detect_benchmarks, update
 
     # A minimal package root so placeholder substitution has values to resolve.
     function _fake_pkg(dir; name = "FakePkg",
@@ -76,15 +76,15 @@
         end
     end
 
-    @testset "scaffold_update preserves an enabled adopter (no kwarg)" begin
+    @testset "update preserves an enabled adopter (no kwarg)" begin
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir; benchmarks = true)
             # A plain resync (as the scheduled sync's first run would do before
             # its template-sync.yaml carries the baked value) must not strip the
             # benchmark infra: detection recovers the enabled state.
-            scaffold_update(dir)
-            scaffold_update(dir)
+            update(dir)
+            update(dir)
             @test isfile(joinpath(dir, ".github/workflows/benchmark.yaml"))
             @test isfile(joinpath(dir,
                 ".github/workflows/benchmark-history.yaml"))
@@ -92,11 +92,11 @@
         end
     end
 
-    @testset "scaffold_update keeps a disabled adopter disabled (no kwarg)" begin
+    @testset "update keeps a disabled adopter disabled (no kwarg)" begin
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir; benchmarks = false)
-            scaffold_update(dir)
+            update(dir)
             @test !isfile(joinpath(dir, ".github/workflows/benchmark.yaml"))
             @test !isfile(joinpath(dir, "benchmark/run.jl"))
         end
@@ -157,7 +157,7 @@
 
             # A bare resync must preserve the parked state, not re-enable the
             # permanently-failing push/tag history run.
-            scaffold_update(dir)
+            update(dir)
             synced = read(wf, String)
             @test _detect_benchmark_history_parked(dir)
             @test !occursin(r"(?m)^  push:", synced)
@@ -167,7 +167,7 @@
             # Self-heal: once the package removes the park (restores push), the
             # next sync keeps the full triggers.
             write(wf, txt)
-            scaffold_update(dir)
+            update(dir)
             @test !_detect_benchmark_history_parked(dir)
             @test occursin(r"(?m)^  push:", read(wf, String))
         end
