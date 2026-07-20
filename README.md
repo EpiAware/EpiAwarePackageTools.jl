@@ -36,7 +36,10 @@ standard tooling:
 using EpiAwarePackageTools
 
 scaffold(pkgdir(MyPackage))   # adopt the standard tooling once
-scaffold_update(pkgdir(MyPackage))     # re-apply managed files later, report drift
+
+# re-apply managed files later, report drift; `scaffold_update` is `public`,
+# not exported (#294), so call it qualified.
+EpiAwarePackageTools.scaffold_update(pkgdir(MyPackage))
 ```
 
 ## Installation

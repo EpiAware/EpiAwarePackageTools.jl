@@ -39,10 +39,13 @@ once and left for you to edit.
 
 ## Keeping a package in sync
 
-`scaffold_update` re-applies only the managed files and reports what changed:
+`scaffold_update` re-applies only the managed files and reports what changed.
+It is `public`, not exported (so it cannot collide with a package's own
+`update`-shaped export when both are loaded together, #294), so call it
+qualified:
 
 ```julia
-scaffold_update(pkgdir(MyPackage))
+EpiAwarePackageTools.scaffold_update(pkgdir(MyPackage))
 ```
 
 This is the entry point the scheduled template-sync workflow calls, so an
@@ -62,7 +65,8 @@ scaffold_generate("path/to/NewPkg", "NewPkg")
 
 - The home page documents every helper, the managed-versus-package-owned
   split, and the AD opt-in behaviour in full.
-- The [Public API](@ref public-api) lists the exported functions.
+- The [Public API](@ref public-api) lists the public functions (exported and
+  `public`-declared).
 - See [Customising your docs](@ref customising) for how to make the
   seeded pages (this one included) your own.
 - Questions or problems? Open an issue on the

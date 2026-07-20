@@ -7,7 +7,8 @@
     using Pkg
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
-                                scaffold_inputs, _ad_selected, _bench_selected
+                                scaffold_inputs, scaffold_update,
+                                _ad_selected, _bench_selected
     using Dates: year, now
 
     # Absolute native path of a scaffold destination, mirroring the scaffold's
@@ -3045,7 +3046,7 @@ end # @testitem "scaffold + scaffold_update (logic)"
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _JULIA_FLOOR, _JULIA_COMPAT,
                                 _julia_compat_below_floor,
-                                _julia_versions_below_floor
+                                _julia_versions_below_floor, scaffold_update
 
     function _fake_pkg(dir; name = "Wombat", julia = nothing)
         compat = julia === nothing ? "" : "\n[compat]\njulia = \"$(julia)\"\n"
@@ -3296,7 +3297,7 @@ end
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _undeclared_test_stdlibs, _used_module_names,
                                 _declared_deps, _julia_stdlibs,
-                                _manifest_packages
+                                _manifest_packages, scaffold_update
     _p(dir, rel) = joinpath(dir, split(rel, '/')...)
     # A minimal resolved test manifest naming `pkgs` — the availability oracle
     # the scan reads (a real Manifest lists the full transitive set). Only the
@@ -3463,7 +3464,8 @@ end
     using Test
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _detect_org_branding, _org_footer_message,
-                                _ORG_LOGO_REL, _ORG_SITE, _ORG_GITHUB
+                                _ORG_LOGO_REL, _ORG_SITE, _ORG_GITHUB,
+                                scaffold_update
 
     function _fake_pkg(dir; name = "Wombat")
         write(joinpath(dir, "Project.toml"),

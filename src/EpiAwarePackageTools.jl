@@ -115,7 +115,20 @@ export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
-export scaffold, scaffold_update, scaffold_generate, scaffold_inputs, setup_checklist
+export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
+
+# `scaffold_update` is `public`, not `export`ed (#294): it is a generic-
+# sounding verb, and the kit sits in the same `Main` namespace as every
+# domain package it manages (every scaffolded `docs/make.jl` does
+# `using EpiAwarePackageTools` alongside `using <ThePackage>`). A bare
+# `export` collided with a package's own `update`-shaped export and left
+# `update` unbound in `Main` (#173, fixed there by the harder
+# `update`→`scaffold_update` rename); `public` keeps the name reachable,
+# documented, and `@ref`-able without binding it into a `using` caller's
+# namespace, so it can never cause that collision again regardless of what
+# a downstream package chooses to call its own verbs. See ComposedDistributions#221
+# for the same reasoning applied to that package's `update`.
+public scaffold_update
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
 export build_docs

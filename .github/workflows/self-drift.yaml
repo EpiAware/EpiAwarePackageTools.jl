@@ -36,7 +36,7 @@ jobs:
         run: julia --project=. -e '
           using Pkg; Pkg.instantiate();
           using EpiAwarePackageTools;
-          res = scaffold_update("."; ad = false);
+          res = EpiAwarePackageTools.scaffold_update("."; ad = false);
           println("re-applied ", length(res.updated), " managed files");'
       - name: Fail on any drift from the bundled templates
         # `scaffold_update` never rewrites LICENSE (it is package-owned, write-once), so
@@ -47,7 +47,7 @@ jobs:
           changes=$(git status --porcelain -- . ':!LICENSE')
           if [ -n "$changes" ]; then
             echo "::error::The kit has drifted from its own managed templates."
-            echo "Run julia -e 'using EpiAwarePackageTools; scaffold_update(\".\"; ad=false)' and commit."
+            echo "Run julia -e 'using EpiAwarePackageTools; EpiAwarePackageTools.scaffold_update(\".\"; ad=false)' and commit."
             echo "$changes"
             git --no-pager diff -- . ':!LICENSE'
             exit 1

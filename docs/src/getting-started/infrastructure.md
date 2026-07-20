@@ -164,8 +164,9 @@ You can drive the same sync from a Julia session:
 ```julia
 using EpiAwarePackageTools
 
-# Re-apply the managed standard files and report drift.
-scaffold_update(pkgdir(MyPackage))
+# Re-apply the managed standard files and report drift. `scaffold_update` is
+# `public`, not exported (#294), so call it qualified.
+EpiAwarePackageTools.scaffold_update(pkgdir(MyPackage))
 ```
 
 `scaffold_update` rewrites only the managed files and returns a manifest of what was

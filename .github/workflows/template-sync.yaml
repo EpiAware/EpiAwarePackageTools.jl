@@ -83,7 +83,7 @@ jobs:
               using Pkg
               Pkg.activate("."); Pkg.instantiate()
               using EpiAwarePackageTools
-              res = scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = true)
+              res = EpiAwarePackageTools.scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = true)
               println("re-applied ", length(res.updated), " managed files")'
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted

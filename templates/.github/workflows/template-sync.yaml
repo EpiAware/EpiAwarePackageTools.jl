@@ -83,7 +83,7 @@ jobs:
               using Pkg
               {{SYNC_INSTALL}}
               using EpiAwarePackageTools
-              res = scaffold_update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}})
+              res = EpiAwarePackageTools.scaffold_update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}})
               println("re-applied ", length(res.updated), " managed files")'
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted

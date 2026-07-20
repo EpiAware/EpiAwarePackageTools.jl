@@ -7,7 +7,7 @@
 @testitem "benchmarks opt-in gating + idempotence" begin
     using Test
     using EpiAwarePackageTools
-    using EpiAwarePackageTools: _detect_benchmarks
+    using EpiAwarePackageTools: _detect_benchmarks, scaffold_update
 
     # A minimal package root so placeholder substitution has values to resolve.
     function _fake_pkg(dir; name = "FakePkg",
