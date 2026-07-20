@@ -2622,6 +2622,11 @@
                 @test occursin(
                     "steps.app-token.outputs.token || secrets.GITHUB_TOKEN",
                     sync)
+                # The minted token is capped to exactly what the sync PR step
+                # needs, regardless of what else the App may hold at install.
+                @test occursin("permission-contents: write", sync)
+                @test occursin("permission-pull-requests: write", sync)
+                @test occursin("permission-workflows: write", sync)
             end
         end
 

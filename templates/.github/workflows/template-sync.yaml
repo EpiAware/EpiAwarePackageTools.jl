@@ -97,6 +97,10 @@ jobs:
       # pull-requests and workflows write. When the App is not configured the
       # step is skipped and the token falls back to `GITHUB_TOKEN` below —
       # non-workflow drift still syncs; only workflow drift needs the App.
+      # The `permission-*` inputs cap the minted token at exactly what
+      # `create-pull-request` below needs (commit+push, open a PR, touch
+      # `.github/workflows/`), regardless of what else the App may be
+      # granted at install time.
       - name: Mint an App token that can push workflow files
         id: app-token
         if: ${{ github.event_name != 'pull_request' && vars.TEMPLATE_SYNC_APP_ID != '' }}
@@ -104,6 +108,9 @@ jobs:
         with:
           app-id: ${{ vars.TEMPLATE_SYNC_APP_ID }}
           private-key: ${{ secrets.TEMPLATE_SYNC_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted
         if: github.event_name != 'pull_request'
