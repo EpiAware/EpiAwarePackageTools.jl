@@ -283,9 +283,17 @@ end
 """
     STANDARD_README_SECTIONS
 
-The standard EpiAware README section structure, in order, distilled from the
-CensoredDistributions gold standard and used as the default `required` set by
-[`test_readme_sections`](@ref).
+The standard EpiAware README section structure, in order, used as the default
+`required` set by [`test_readme_sections`](@ref).
+
+The order mirrors the sections the kit itself renders into a managed README —
+Contributing, then the citation section (`## How to cite`), then Code of
+conduct — so a freshly scaffolded package passes the `order = true` check out of
+the box. The Contributing group therefore precedes the citing/license group by
+design; a README that hand-places a `## License` or `## Supporting and citing`
+section *above* Contributing must move it below to conform, rather than this
+order being flipped (flipping it would fail every fresh scaffold, whose managed
+block renders Contributing first).
 
 Each entry is a tuple of accepted `##`-heading texts (case-insensitive,
 substring match), and the check passes if any variant is present; the H1 title
