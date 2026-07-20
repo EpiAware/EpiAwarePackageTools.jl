@@ -267,13 +267,19 @@ end
 
 # ---- README -> index.md ---------------------------------------------------
 
-# Whether `line` opens or closes a fenced code block. Matches the same bare
-# three-backtick convention `build_index` already special-cases for
-# ```` ```julia ````; nested fences of a different backtick count (CommonMark
-# lets a longer outer fence "quote" a shorter one verbatim) are not
-# distinguished, but that is no less than the pre-existing ```julia handling
-# already assumes.
-_is_fence_delimiter(line::AbstractString) = startswith(line, "```")
+# Whether `line` opens or closes a fenced code block: three-or-more backticks
+# (the bare convention `build_index` already special-cases for
+# ```` ```julia ````) or three-or-more tildes (`~~~`, CommonMark's other fence
+# syntax). Nested fences of a different backtick/tilde count (CommonMark lets
+# a longer outer fence "quote" a shorter one verbatim) are not distinguished,
+# but that is no less than the pre-existing ```julia handling already assumes.
+# Indented (4-space) code blocks and inline single-backtick code spans are
+# CommonMark code too but are NOT recognised here -- see `build_index`'s
+# docstring for what that means for a comment shown inside one (#301 review).
+function _is_fence_delimiter(line::AbstractString)
+    startswith(line, "```") ||
+        startswith(line, "~~~")
+end
 
 # Strip HTML comments from one README line, carrying `in_comment` (whether a
 # multi-line comment opened on an earlier line and has not yet closed) in and
@@ -320,10 +326,15 @@ into the README) is stripped too: DocumenterVitepress' typographic pass turns
 the `--` inside a surviving comment into an en-dash, which breaks HTML-comment
 syntax and renders the marker as literal text on the built page (#297). The
 README itself keeps every comment untouched — only the generated index has
-them removed. The strip is fenced-code-block-aware (#301): a `<!-- -->` shown
-as literal example text inside a ```` ``` ```` fence (e.g. a README teaching a
-reader what the managed markers look like) survives verbatim; only a comment
-in prose, outside any fence, is stripped. ```julia fences become runnable
+them removed. The strip recognises fenced code blocks (#301): a `<!-- -->`
+shown as literal example text inside a ```` ``` ```` or `~~~` fence (e.g. a
+README teaching a reader what the managed markers look like) survives
+verbatim. This covers the two CommonMark fence styles, not every way
+CommonMark can mark up code — an indented (4-space) code block or an inline
+single-backtick code span showing the same literal text is not recognised as
+code and gets stripped like ordinary prose (a documented limitation, not a
+silent one, tracked in #306; #300's disclosure precedent). ```julia fences
+become runnable
 `@example readme` blocks when `execute` is `true`. Each `from => to` in
 `rewrites` is applied line by line
 (e.g. an absolute docs URL rewritten to an in-site `@ref`). Any heading whose

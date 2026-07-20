@@ -177,6 +177,38 @@
         @test count("<!-- standard-sections:end -->", out) == 1
     end
 
+    @testset "build_index: a comment inside a tilde fence survives too (#301 review)" begin
+        # `~~~` is valid CommonMark fence syntax alongside triple backticks;
+        # the fence-delimiter check must recognise both.
+        readme_with_tilde_fence = """
+        # Pkg
+
+        ~~~html
+        <!-- standard-sections:start -->
+        some content
+        <!-- standard-sections:end -->
+        ~~~
+
+        <!-- standard-sections:start -->
+        real content
+        <!-- standard-sections:end -->
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_tilde_fence)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        @test occursin("~~~html", out)
+        @test occursin(
+            "<!-- standard-sections:start -->\nsome content\n" *
+            "<!-- standard-sections:end -->",
+            out)
+        @test occursin("real content", out)
+        @test count("<!-- standard-sections:start -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 1
+    end
+
     @testset "build_index: a comment spanning a fence boundary stays comment interior (#301)" begin
         # Pathological case the issue asks to define and test either way:
         # comment state wins over fence state, so a fence-looking delimiter
