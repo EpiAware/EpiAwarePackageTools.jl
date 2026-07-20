@@ -1590,14 +1590,16 @@ end
 
 # The docs-env `[deps]` block the page executes against: the seeded
 # `ADFixtures` registry (same fresh UUID as the AD test env, path-sourced
-# below), DifferentiationInterfaceTest (the benchmark driver), the
-# DataFrames/plotting stack, and the stdlibs the page loads.
+# below), DifferentiationInterfaceTest (the benchmark driver), Chairmarks
+# (DIT 0.11+ needs it loaded explicitly for `benchmark_differentiation`),
+# the DataFrames/plotting stack, and the stdlibs the page loads.
 function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
     ad || return ""
     return string(
         "ADFixtures = \"", adfix_uuid, "\"\n",
         "AlgebraOfGraphics = \"cbdf2221-f076-402e-a563-3d30da359d67\"\n",
         "CairoMakie = \"13f3f980-e62b-5c42-98c6-ff1f3baf88f0\"\n",
+        "Chairmarks = \"0ca39b1e-fe0b-4e98-acfc-b1656634c4de\"\n",
         "DataFramesMeta = \"1313f7d8-7da2-5740-9ea0-a2ca25f37964\"\n",
         "DifferentiationInterfaceTest = ",
         "\"a82114a7-5aa3-49a8-9643-716bb13727a3\"\n",
@@ -1618,8 +1620,9 @@ function _ad_docs_compat(ad::Bool)
     return string(
         "AlgebraOfGraphics = \"0.13\"\n",
         "CairoMakie = \"0.15\"\n",
+        "Chairmarks = \"1\"\n",
         "DataFramesMeta = \"0.15\"\n",
-        "DifferentiationInterfaceTest = \"0.9, 0.10\"\n",
+        "DifferentiationInterfaceTest = \"0.9, 0.10, 0.11\"\n",
         "Markdown = \"1\"\n",
         "Statistics = \"1\"\n")
 end

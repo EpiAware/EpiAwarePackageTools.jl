@@ -1238,10 +1238,13 @@
                 @test occursin(
                     "ADFixtures = {path = \"../test/ADFixtures\"}", dp)
                 for dep in ("DifferentiationInterfaceTest", "CairoMakie",
-                    "AlgebraOfGraphics", "DataFramesMeta", "Statistics",
-                    "Markdown")
+                    "AlgebraOfGraphics", "Chairmarks", "DataFramesMeta",
+                    "Statistics", "Markdown")
                     @test occursin(dep, dp)
                 end
+                # DIT 0.11 needs Chairmarks loaded explicitly for
+                # `benchmark_differentiation`/`run_benchmark!` to resolve.
+                @test occursin("using Chairmarks", txt)
                 @test occursin("CairoMakie = \"0.15\"", dp)
                 @test !occursin("{{", dp)
             end
