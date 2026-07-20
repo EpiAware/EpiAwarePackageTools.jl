@@ -1720,7 +1720,7 @@ end
     end
 end
 
-@testitem "build_api_pages: extended generics get signature-qualified @docs entries (#290)" begin
+@testitem "build_api_pages: qualified @docs for extended generics (#290)" begin
     using Test
     using EpiAwarePackageTools
     using Statistics: Statistics, mean
@@ -1762,4 +1762,37 @@ end
     # Statistics' own `mean` docstring wholesale -- is absent.
     @test !occursin("Pkg290.mean\n", pub)
     @test !occursin("Pkg290.mean\r\n", pub)
+end
+
+@testitem "build_api_pages: an optional-arg method falls back, not crashes" begin
+    using Test
+    using EpiAwarePackageTools
+    using Statistics: Statistics, mean
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # A method with a default value for a positional argument is recorded by
+    # Julia's docsystem as one `Union{Tuple{...}, Tuple{...}}` signature, not
+    # a `Tuple` -- `unwrap_unionall` passes a `Union` through unchanged (it is
+    # not a `UnionAll`), and `Union` carries no `.parameters` field. Building
+    # the qualified entry must not crash on this shape (#303 review); it
+    # should fall back to the bare form (with a warning) for this one name
+    # instead of erroring the whole `build_api_pages` call.
+    module Pkg303
+    using Statistics: Statistics, mean
+    struct Plain
+        x::Float64
+    end
+    "Pkg303's own docstring for mean(::Plain, ::Real)."
+    function Statistics.mean(w::Plain, scale::Real = 1.0)
+        return w.x * scale
+    end
+    export Plain, mean
+    end
+
+    dir = mktempdir()
+    lib = joinpath(dir, "lib")
+    @test_logs (:warn,) match_mode=:any DB.build_api_pages(Pkg303, lib)
+    pub = read(joinpath(lib, "public.md"), String)
+    # Falls back to the bare form rather than raising.
+    @test occursin("Pkg303.mean\n", pub)
 end

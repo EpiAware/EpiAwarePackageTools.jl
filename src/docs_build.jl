@@ -1408,24 +1408,32 @@ end
 # `Base.Docs.signature` + `eval` in `mod`, evaluated in `mod` and checked for
 # exact type equality with `sig`, before trusting it: some signatures (a
 # `where` clause, a `Vararg`, a closed-over `TypeVar`) may not stringify into
-# syntax that reconstructs the identical type. Returns `nothing` on any
-# mismatch or error, so the caller can fall back rather than emit a `@docs`
-# entry Documenter would resolve to the wrong (or no) docstring.
+# syntax that reconstructs the identical type. A method with an optional
+# positional argument (a default value) is recorded by the docsystem as one
+# `Union{Tuple{...}, Tuple{...}}` signature rather than a `Tuple` -- not a
+# `UnionAll`, so `unwrap_unionall` passes it through unchanged, and a `Union`
+# has no `.parameters` field (`FieldError`, not the arity mismatch this
+# function is built to catch). Building the entry string is inside the `try`
+# for exactly that reason: any signature shape this function does not know
+# how to render falls back to `nothing` rather than crashing the whole
+# `build_api_pages` call. Returns `nothing` on any mismatch or error, so the
+# caller can fall back rather than emit a `@docs` entry Documenter would
+# resolve to the wrong (or no) docstring.
 function _qualified_docs_entry(mod::Module, name::Symbol, sig::Type)
-    params = Base.unwrap_unionall(sig).parameters
-    entry = if isempty(params)
-        string(mod, ".", name, "()")
-    else
-        args = join(("::" * string(p) for p in params), ", ")
-        string(mod, ".", name, "(", args, ")")
-    end
     try
+        params = Base.unwrap_unionall(sig).parameters
+        entry = if isempty(params)
+            string(mod, ".", name, "()")
+        else
+            args = join(("::" * string(p) for p in params), ", ")
+            string(mod, ".", name, "(", args, ")")
+        end
         sig_expr = Base.Docs.signature(Meta.parse(entry))
         Core.eval(mod, sig_expr) === sig || return nothing
+        return entry
     catch
         return nothing
     end
-    return entry
 end
 
 # The `@docs` entry/entries to emit for `name`: the bare `mod.name` form when
