@@ -140,6 +140,71 @@
         @test occursin("content", out)
     end
 
+    @testset "build_index: a comment shown as fence example text survives (#301)" begin
+        # A README teaching a reader what the managed markers look like, by
+        # quoting them inside a fence -- the fence content must survive
+        # verbatim; only the real, unfenced markers below it are stripped.
+        readme_with_fenced_comment = """
+        # Pkg
+
+        Here's how the managed markers look:
+
+        ```html
+        <!-- standard-sections:start -->
+        some content
+        <!-- standard-sections:end -->
+        ```
+
+        <!-- standard-sections:start -->
+        real content
+        <!-- standard-sections:end -->
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_fenced_comment)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        # The fenced example markers survive, verbatim, inside the fence.
+        @test occursin("```html", out)
+        @test occursin(
+            "<!-- standard-sections:start -->\nsome content\n" *
+            "<!-- standard-sections:end -->",
+            out)
+        # The real, unfenced markers below are still stripped.
+        @test occursin("real content", out)
+        @test count("<!-- standard-sections:start -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 1
+    end
+
+    @testset "build_index: a comment spanning a fence boundary stays comment interior (#301)" begin
+        # Pathological case the issue asks to define and test either way:
+        # comment state wins over fence state, so a fence-looking delimiter
+        # inside a still-open multi-line comment does not toggle `in_fence`
+        # -- it is swallowed as more comment text, and fence tracking only
+        # resumes once the comment actually closes.
+        readme_spanning = """
+        # Pkg
+
+        <!-- comment opens here
+        ```
+        still inside the comment
+        -->
+
+        real content after
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_spanning)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        @test !occursin("<!--", out)
+        @test !occursin("comment opens here", out)
+        @test !occursin("still inside the comment", out)
+        @test occursin("real content after", out)
+    end
+
     @testset "build_index: execute=false leaves ```julia" begin
         dir = mktempdir()
         readme = joinpath(dir, "README.md")
