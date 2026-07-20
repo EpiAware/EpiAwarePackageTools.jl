@@ -2617,6 +2617,19 @@
                 @test occursin("scaffold_update", sync)
                 @test occursin("peter-evans/create-pull-request", sync)
                 @test occursin("branch: chore/template-sync", sync)
+                # The PR is opened with an App token when one is configured so
+                # the sync can push workflow-file drift (the default token is
+                # forbidden from touching `.github/workflows/`), falling back to
+                # `GITHUB_TOKEN` for non-workflow drift when no App is set.
+                @test occursin("actions/create-github-app-token", sync)
+                @test occursin(
+                    "steps.app-token.outputs.token || secrets.GITHUB_TOKEN",
+                    sync)
+                # The minted token is capped to exactly what the sync PR step
+                # needs, regardless of what else the App may hold at install.
+                @test occursin("permission-contents: write", sync)
+                @test occursin("permission-pull-requests: write", sync)
+                @test occursin("permission-workflows: write", sync)
             end
         end
 
