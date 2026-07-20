@@ -1380,6 +1380,88 @@ function api_owning_modules(mod::Module)
     return owners
 end
 
+# Whether `mod` itself (or a submodule) owns `name`'s docstring, or `name` is
+# a generic function `mod` only adds methods to (e.g. extending
+# `Statistics.mean`). A bare `@docs mod.name` entry resolves with an implicit
+# `typesig = Union{}`; since `Union{} <: anything`, Documenter's fallback
+# subtype search then matches *every* signature registered anywhere under the
+# binding it aliases to — including the owning package's own, unrelated
+# docstrings for that generic (#290). Safe to emit bare only when `mod` is the
+# sole owner, so there is nothing else registered under the binding to bleed
+# in.
+function _owns_binding(mod::Module, name::Symbol)
+    b = Base.Docs.aliasof(Base.Docs.Binding(mod, name))
+    return _within(b.mod, mod)
+end
+
+# Construct a signature-qualified `@docs` entry (e.g.
+# `Pkg.mean(::Pkg.SomeType)`) for one method `mod` itself attaches a docstring
+# to, so Documenter resolves an *exact* typesig match instead of the
+# bleed-prone bare form (#290). Each parameter renders via its default
+# `string`, which Base already fully module-qualifies for anything not a
+# well-known Base/Core name (confirmed: `string(MyPkg.MyType)` prints
+# `MyPkg.MyType`, not a bare `MyType`) — so the entry resolves correctly
+# regardless of which module Documenter evaluates the `@docs` block's
+# signature expression in, not just `mod`'s own scope.
+#
+# Round-trips the constructed string back through `Meta.parse` +
+# `Base.Docs.signature` + `eval` in `mod`, evaluated in `mod` and checked for
+# exact type equality with `sig`, before trusting it: some signatures (a
+# `where` clause, a `Vararg`, a closed-over `TypeVar`) may not stringify into
+# syntax that reconstructs the identical type. Returns `nothing` on any
+# mismatch or error, so the caller can fall back rather than emit a `@docs`
+# entry Documenter would resolve to the wrong (or no) docstring.
+function _qualified_docs_entry(mod::Module, name::Symbol, sig::Type)
+    params = Base.unwrap_unionall(sig).parameters
+    entry = if isempty(params)
+        string(mod, ".", name, "()")
+    else
+        args = join(("::" * string(p) for p in params), ", ")
+        string(mod, ".", name, "(", args, ")")
+    end
+    try
+        sig_expr = Base.Docs.signature(Meta.parse(entry))
+        Core.eval(mod, sig_expr) === sig || return nothing
+    catch
+        return nothing
+    end
+    return entry
+end
+
+# The `@docs` entry/entries to emit for `name`: the bare `mod.name` form when
+# `mod` owns the binding outright (the common case, and the simplest render);
+# otherwise one signature-qualified entry per method `mod` itself documents,
+# so a generic `mod` only extends (e.g. `Statistics.mean`) never pulls in the
+# owning package's own docstrings for it (#290). Falls back to the bare form,
+# with a warning, if `mod`'s own `MultiDoc` for the binding is missing (should
+# not happen for a name `api_bindings` already confirmed is documented) or if
+# any of its signatures fails the round-trip check in
+# [`_qualified_docs_entry`](@ref) — a bare entry re-risks the bleed, but a
+# `@docs` block Documenter cannot resolve at all is worse.
+function _docs_entries(mod::Module, name::Symbol)
+    bare = string(mod, ".", name)
+    _owns_binding(mod, name) && return [bare]
+    b = Base.Docs.aliasof(Base.Docs.Binding(mod, name))
+    own_md = get(Base.Docs.meta(mod), b, nothing)
+    if own_md === nothing || isempty(own_md.order)
+        @warn "no own MultiDoc found for $bare (extends $(b.mod).$(name)); " *
+              "emitting the bare entry, which may pull in $(b.mod)'s own docs"
+        return [bare]
+    end
+    entries = String[]
+    for sig in own_md.order
+        qualified = _qualified_docs_entry(mod, name, sig)
+        if qualified === nothing
+            @warn "could not build a signature-qualified @docs entry for " *
+                  "$bare at signature $sig; falling back to the bare entry, " *
+                  "which may pull in $(b.mod)'s own docs for this method too"
+            return [bare]
+        end
+        push!(entries, qualified)
+    end
+    return entries
+end
+
 function _write_api_page(path, title, anchor, page, intro, api_heading,
         mod, names)
     mkpath(dirname(path))
@@ -1409,7 +1491,9 @@ function _write_api_page(path, title, anchor, page, intro, api_heading,
         println(io)
         println(io, "```@docs")
         for name in names
-            println(io, string(mod, ".", name))
+            for entry in _docs_entries(mod, name)
+                println(io, entry)
+            end
         end
         println(io, "```")
     end
