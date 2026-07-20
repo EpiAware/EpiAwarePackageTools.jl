@@ -275,7 +275,13 @@ Generate `dest` (the docs home page) from the package `readme`.
 
 The managed badge block (between the `<!-- badges:start -->` /
 `<!-- badges:end -->` markers) and an inline logo `<img>` in the title are
-removed. ```julia fences become runnable `@example readme` blocks when
+removed. Every other HTML comment (`<!-- ... -->`, including one spanning
+several lines, such as the managed-section markers/header `scaffold` writes
+into the README) is stripped too: DocumenterVitepress' typographic pass turns
+the `--` inside a surviving comment into an en-dash, which breaks HTML-comment
+syntax and renders the marker as literal text on the built page (#297). The
+README itself keeps every comment untouched — only the generated index has
+them removed. ```julia fences become runnable `@example readme` blocks when
 `execute` is `true`. Each `from => to` in `rewrites` is applied line by line
 (e.g. an absolute docs URL rewritten to an in-site `@ref`). Any heading whose
 title is listed in `strip_sections` is dropped together with its body (up to
@@ -288,50 +294,56 @@ function build_index(; readme::AbstractString, dest::AbstractString,
         rewrites = Pair{String, String}[],
         strip_sections = String[])
     mkpath(dirname(dest))
-    open(dest, "w") do io
-        println(io, "```@meta")
-        println(io, "EditURL = \"https://github.com/$repo/blob/main/README.md\"")
-        println(io, "```")
-        println(io)
-        in_badges = false
-        strip_level = 0
-        for line in eachline(readme)
-            if occursin("<!-- badges:start -->", line)
-                in_badges = true
-                continue
-            elseif occursin("<!-- badges:end -->", line)
-                in_badges = false
-                continue
+    buf = IOBuffer()
+    println(buf, "```@meta")
+    println(buf, "EditURL = \"https://github.com/$repo/blob/main/README.md\"")
+    println(buf, "```")
+    println(buf)
+    in_badges = false
+    strip_level = 0
+    for line in eachline(readme)
+        if occursin("<!-- badges:start -->", line)
+            in_badges = true
+            continue
+        elseif occursin("<!-- badges:end -->", line)
+            in_badges = false
+            continue
+        end
+        in_badges && continue
+        # Named-section stripping (package-config driven). A heading at a
+        # level <= the section being stripped ends the stripped span; that
+        # heading is then itself considered as a possible new strip start.
+        m = match(r"^(#+)\s+(.*?)\s*$", line)
+        if m !== nothing
+            level = length(m.captures[1])
+            if strip_level > 0 && level <= strip_level
+                strip_level = 0
             end
-            in_badges && continue
-            # Named-section stripping (package-config driven). A heading at a
-            # level <= the section being stripped ends the stripped span; that
-            # heading is then itself considered as a possible new strip start.
-            m = match(r"^(#+)\s+(.*?)\s*$", line)
-            if m !== nothing
-                level = length(m.captures[1])
-                if strip_level > 0 && level <= strip_level
-                    strip_level = 0
-                end
-                if strip_level == 0 && strip(m.captures[2]) in strip_sections
-                    strip_level = level
-                    continue
-                end
-            end
-            strip_level > 0 && continue
-            if execute && startswith(line, "```julia")
-                println(io, "```@example readme")
-            elseif occursin("docs/src/assets/logo.svg", line)
-                println(io, replace(line,
-                    r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
-            else
-                for (from, to) in rewrites
-                    line = replace(line, from => to)
-                end
-                println(io, line)
+            if strip_level == 0 && strip(m.captures[2]) in strip_sections
+                strip_level = level
+                continue
             end
         end
+        strip_level > 0 && continue
+        if execute && startswith(line, "```julia")
+            println(buf, "```@example readme")
+        elseif occursin("docs/src/assets/logo.svg", line)
+            println(buf, replace(line,
+                r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
+        else
+            for (from, to) in rewrites
+                line = replace(line, from => to)
+            end
+            println(buf, line)
+        end
     end
+    # Strip every HTML comment left in the assembled page (badges are already
+    # removed as full blocks above; this is everything else, e.g. the
+    # managed-section markers). `s` (DOTALL) lets `.` cross the newlines in a
+    # multi-line comment; non-greedy so a comment closes at its own `-->`
+    # rather than a later one.
+    content = replace(String(take!(buf)), r"<!--.*?-->"s => "")
+    write(dest, content)
     println("Generated index.md from README.md")
     return dest
 end
