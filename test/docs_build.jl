@@ -93,6 +93,50 @@
         @test occursin("| 1 | 2 |", out)
     end
 
+    @testset "build_index: strips HTML comments outside the badges block (#297)" begin
+        # The managed-section markers (single-line) and the MANAGED header
+        # (a multi-line comment) survive verbatim in the README for
+        # `update`'s own resync, but DocumenterVitepress' typographic pass
+        # turns their `--` into an en-dash, breaking comment syntax so they
+        # render as literal text on the generated docs index page. The
+        # transform must drop every HTML comment -- single- or multi-line --
+        # while keeping the real content around them.
+        readme_with_comments = """
+        # Pkg
+
+        Tagline.
+
+        <!-- standard-sections:start -->
+        <!-- MANAGED by EpiAwarePackageTools.scaffold -- do not edit between
+             the markers. These standard sections are re-rendered on every
+             update; edit the package-owned sections outside them. -->
+
+        ## Contributing
+
+        See CONTRIBUTING.md.
+        <!-- standard-sections:end -->
+
+        ## Other
+
+        content
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_comments)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        @test !occursin("<!--", out)
+        @test !occursin("<!–", out)
+        @test !occursin("standard-sections", out)
+        @test !occursin("MANAGED by EpiAwarePackageTools.scaffold", out)
+        # The real content around the stripped comments survives.
+        @test occursin("## Contributing", out)
+        @test occursin("See CONTRIBUTING.md.", out)
+        @test occursin("## Other", out)
+        @test occursin("content", out)
+    end
+
     @testset "build_index: execute=false leaves ```julia" begin
         dir = mktempdir()
         readme = joinpath(dir, "README.md")
