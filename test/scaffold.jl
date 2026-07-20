@@ -1253,10 +1253,13 @@
                 @test occursin(
                     "ADFixtures = {path = \"../test/ADFixtures\"}", dp)
                 for dep in ("DifferentiationInterfaceTest", "CairoMakie",
-                    "AlgebraOfGraphics", "DataFramesMeta", "Statistics",
-                    "Markdown")
+                    "AlgebraOfGraphics", "Chairmarks", "DataFramesMeta",
+                    "Statistics", "Markdown")
                     @test occursin(dep, dp)
                 end
+                # DIT 0.11 needs Chairmarks loaded explicitly for
+                # `benchmark_differentiation`/`run_benchmark!` to resolve.
+                @test occursin("using Chairmarks", txt)
                 @test occursin("CairoMakie = \"0.15\"", dp)
                 @test !occursin("{{", dp)
             end
@@ -2629,6 +2632,19 @@
                 @test occursin("update", sync)
                 @test occursin("peter-evans/create-pull-request", sync)
                 @test occursin("branch: chore/template-sync", sync)
+                # The PR is opened with an App token when one is configured so
+                # the sync can push workflow-file drift (the default token is
+                # forbidden from touching `.github/workflows/`), falling back to
+                # `GITHUB_TOKEN` for non-workflow drift when no App is set.
+                @test occursin("actions/create-github-app-token", sync)
+                @test occursin(
+                    "steps.app-token.outputs.token || secrets.GITHUB_TOKEN",
+                    sync)
+                # The minted token is capped to exactly what the sync PR step
+                # needs, regardless of what else the App may hold at install.
+                @test occursin("permission-contents: write", sync)
+                @test occursin("permission-pull-requests: write", sync)
+                @test occursin("permission-workflows: write", sync)
             end
         end
 

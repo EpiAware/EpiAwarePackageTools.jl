@@ -106,6 +106,9 @@ md"""
 
 using {{PACKAGE}}
 import DifferentiationInterfaceTest as DIT
+## DIT 0.11 dropped its Chairmarks dependency; `benchmark_differentiation`
+## needs it loaded explicitly to resolve `run_benchmark!`.
+using Chairmarks
 using DataFramesMeta
 using Statistics
 using CairoMakie
