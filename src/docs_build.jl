@@ -315,11 +315,11 @@ function build_index(; readme::AbstractString, dest::AbstractString,
         # heading is then itself considered as a possible new strip start.
         m = match(r"^(#+)\s+(.*?)\s*$", line)
         if m !== nothing
-            level = length(m.captures[1])
+            level = length(something(m.captures[1]))
             if strip_level > 0 && level <= strip_level
                 strip_level = 0
             end
-            if strip_level == 0 && strip(m.captures[2]) in strip_sections
+            if strip_level == 0 && strip(something(m.captures[2])) in strip_sections
                 strip_level = level
                 continue
             end
