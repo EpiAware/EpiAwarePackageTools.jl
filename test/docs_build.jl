@@ -130,6 +130,9 @@
         @test !occursin("<!–", out)
         @test !occursin("standard-sections", out)
         @test !occursin("MANAGED by EpiAwarePackageTools.scaffold", out)
+        # Stripping the multi-line comment leaves no more than one blank
+        # line behind (collapsed from the several the removed lines left).
+        @test !occursin("\n\n\n", out)
         # The real content around the stripped comments survives.
         @test occursin("## Contributing", out)
         @test occursin("See CONTRIBUTING.md.", out)

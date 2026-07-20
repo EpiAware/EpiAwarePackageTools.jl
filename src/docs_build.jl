@@ -281,7 +281,10 @@ into the README) is stripped too: DocumenterVitepress' typographic pass turns
 the `--` inside a surviving comment into an en-dash, which breaks HTML-comment
 syntax and renders the marker as literal text on the built page (#297). The
 README itself keeps every comment untouched — only the generated index has
-them removed. ```julia fences become runnable `@example readme` blocks when
+them removed. The strip is not fenced-code-block-aware: a `<!-- -->` shown as
+literal example text inside a ```` ``` ```` fence is stripped too, so do not
+use an HTML comment as fence content in a README (tracked for a fence-aware
+follow-up in #301). ```julia fences become runnable `@example readme` blocks when
 `execute` is `true`. Each `from => to` in `rewrites` is applied line by line
 (e.g. an absolute docs URL rewritten to an in-site `@ref`). Any heading whose
 title is listed in `strip_sections` is dropped together with its body (up to
@@ -343,6 +346,12 @@ function build_index(; readme::AbstractString, dest::AbstractString,
     # multi-line comment; non-greedy so a comment closes at its own `-->`
     # rather than a later one.
     content = replace(String(take!(buf)), r"<!--.*?-->"s => "")
+    # A multi-line comment leaves a run of blank lines behind (one per
+    # removed line); collapse any run of 2+ to a single blank line so the
+    # generated index.md itself reads tidily -- CommonMark already collapses
+    # these on render, so this is cosmetic for the built page, but the
+    # intermediate file is sometimes diffed or spot-checked directly.
+    content = replace(content, r"\n{3,}" => "\n\n")
     write(dest, content)
     println("Generated index.md from README.md")
     return dest
