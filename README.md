@@ -37,9 +37,9 @@ using EpiAwarePackageTools
 
 scaffold(pkgdir(MyPackage))   # adopt the standard tooling once
 
-# re-apply managed files later, report drift; `scaffold_update` is `public`,
+# re-apply managed files later, report drift; `update` is `public`,
 # not exported (#294), so call it qualified.
-EpiAwarePackageTools.scaffold_update(pkgdir(MyPackage))
+EpiAwarePackageTools.update(pkgdir(MyPackage))
 ```
 
 ## Installation
@@ -62,7 +62,7 @@ Pkg.add("EpiAwarePackageTools")
 - Want to get started? See the
   [Getting started](https://epiawarepackagetools.epiaware.org/dev/getting-started)
   guide.
-- Want to know what `scaffold`/`scaffold_update` manage versus what stays
+- Want to know what `scaffold`/`update` manage versus what stays
   package-owned? See
   [Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/dev/getting-started/infrastructure).
 - Want the full interface? Browse the
@@ -73,7 +73,7 @@ Pkg.add("EpiAwarePackageTools")
 
 <!-- standard-sections:start -->
 <!-- MANAGED by EpiAwarePackageTools.scaffold — do not edit between the
-     markers. These standard sections are re-rendered on every scaffold_update;
+     markers. These standard sections are re-rendered on every update;
      edit the package-owned sections outside them, or CITATION.cff. -->
 
 ## Part of the EpiAware ecosystem

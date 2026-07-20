@@ -22,7 +22,7 @@ function _setup_checklist_steps(pkg::AbstractString, repo::AbstractString)
         string("Enable GitHub Pages for ", pkg, "'s `gh-pages` branch ",
             "(Settings -> Pages) so the docs site deploys."),
         string("If ", pkg, " uses a custom docs subdomain (the ",
-            "`docs_subdomain` input to `scaffold`/`scaffold_update`), add a DNS ",
+            "`docs_subdomain` input to `scaffold`/`update`), add a DNS ",
             "CNAME for it and set it as the custom domain in Settings -> ",
             "Pages; the default project-pages URL needs no DNS."),
         string("Protect ", pkg, "'s `main` branch (Settings -> Branches): ",

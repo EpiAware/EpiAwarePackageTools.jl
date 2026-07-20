@@ -1,14 +1,14 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # Scheduled template-sync. Re-applies the managed EpiAware standard
-# (`scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = true)`) and, when the
+# (`update("."; ad = false, benchmarks = false, downgrade_compat = true)`) and, when the
 # committed infra has drifted from
 # the kit, opens (or refreshes) a PR with the refresh. This is the auto-refresh
 # half of the self-sync loop: the `self-drift` check guards every push/PR, and
 # this workflow proactively pulls the newest standard on a schedule so a repo
 # never silently falls behind.
 #
-# Refs are preserved: `scaffold_update` keeps whatever reusable-workflow SHA Dependabot
+# Refs are preserved: `update` keeps whatever reusable-workflow SHA Dependabot
 # has pinned in this repo, so a sync never reverts a Dependabot bump — it only
 # re-applies the rest of the managed standard.
 #
@@ -43,7 +43,7 @@ jobs:
     steps:
       # On a Dependabot PR this job runs under Dependabot's restricted context
       # (a read-only token, no access to Actions secrets). Every real step below
-      # — installing the kit, `scaffold_update`, opening a PR — needs that
+      # — installing the kit, `update`, opening a PR — needs that
       # access, so the job errored and every Dependabot PR carried a spurious
       # red `sync` (#256). It also could never have *fixed* anything from a PR:
       # the sync only pushes to a branch it opened itself (#215). So on a PR the
@@ -70,7 +70,7 @@ jobs:
         if: github.event_name != 'pull_request'
       - name: Fetch gh-pages so the docs custom domain can be reconciled
         if: github.event_name != 'pull_request'
-        # scaffold_update reconciles `docs/make.jl`'s deploy_url against the
+        # update reconciles `docs/make.jl`'s deploy_url against the
         # gh-pages CNAME (a Pages custom domain set out of band): a mismatch
         # ships a CSS-less site that CI otherwise cannot see. The default
         # checkout does not fetch gh-pages, so fetch it here. `|| true` keeps a
@@ -83,7 +83,7 @@ jobs:
               using Pkg
               Pkg.activate("."); Pkg.instantiate()
               using EpiAwarePackageTools
-              res = EpiAwarePackageTools.scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = true)
+              res = EpiAwarePackageTools.update("."; ad = false, benchmarks = false, downgrade_compat = true)
               println("re-applied ", length(res.updated), " managed files")'
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted
@@ -99,7 +99,7 @@ jobs:
             ci
           body: |
             Automated re-apply of the managed EpiAwarePackageTools standard
-            (`scaffold_update("."; ad = false, benchmarks = false, downgrade_compat = true)`).
+            (`update("."; ad = false, benchmarks = false, downgrade_compat = true)`).
 
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,

@@ -1,14 +1,14 @@
 name: Self-drift
 
 # Dogfooding guard: the kit manages its OWN repo with its own tooling. This
-# re-applies the managed standard files to the kit (`scaffold_update(".", ad = false)` —
+# re-applies the managed standard files to the kit (`update(".", ad = false)` —
 # the kit is a tooling package with no differentiable code, so it opts out of
 # the AD infra) and fails if the working tree changed (tracked OR untracked, so
 # a newly added managed template that was not committed is caught too). A
 # non-empty result means the committed infra has drifted from the bundled
 # templates, so the kit no longer keeps itself to the standard it ships.
 #
-# `scaffold_update` preserves the reusable-workflow refs Dependabot pins (see
+# `update` preserves the reusable-workflow refs Dependabot pins (see
 # `_preserve_reusable_refs`), so a Dependabot SHA bump never trips this check.
 # The scheduled `template-sync` workflow is the proactive other half: it opens a
 # PR when drift appears between commits.
@@ -36,10 +36,10 @@ jobs:
         run: julia --project=. -e '
           using Pkg; Pkg.instantiate();
           using EpiAwarePackageTools;
-          res = EpiAwarePackageTools.scaffold_update("."; ad = false);
+          res = EpiAwarePackageTools.update("."; ad = false);
           println("re-applied ", length(res.updated), " managed files");'
       - name: Fail on any drift from the bundled templates
-        # `scaffold_update` never rewrites LICENSE (it is package-owned, write-once), so
+        # `update` never rewrites LICENSE (it is package-owned, write-once), so
         # it cannot drift here; the explicit exclude keeps that guarantee clear.
         # `git status --porcelain` reports tracked changes AND untracked files,
         # so a newly added managed template that was not committed also fails.
@@ -47,7 +47,7 @@ jobs:
           changes=$(git status --porcelain -- . ':!LICENSE')
           if [ -n "$changes" ]; then
             echo "::error::The kit has drifted from its own managed templates."
-            echo "Run julia -e 'using EpiAwarePackageTools; EpiAwarePackageTools.scaffold_update(\".\"; ad=false)' and commit."
+            echo "Run julia -e 'using EpiAwarePackageTools; EpiAwarePackageTools.update(\".\"; ad=false)' and commit."
             echo "$changes"
             git --no-pager diff -- . ':!LICENSE'
             exit 1

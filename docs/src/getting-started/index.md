@@ -10,7 +10,7 @@ This page is a quickstart; the home page is the full reference.
     This documentation is itself produced by the kit's scaffold.
     The navigation, the VitePress theme, the GitHub-stars widget in the navbar,
     the API reference, the release-notes page, and the badge table on the home
-    page are all what `scaffold`/`scaffold_update` write for an adopting package.
+    page are all what `scaffold`/`update` write for an adopting package.
     So this site doubles as a reference for what your package's docs will look
     like once it adopts the kit.
     See [Infrastructure and template sync](@ref infrastructure) for how the
@@ -39,13 +39,14 @@ once and left for you to edit.
 
 ## Keeping a package in sync
 
-`scaffold_update` re-applies only the managed files and reports what changed.
-It is `public`, not exported (so it cannot collide with a package's own
-`update`-shaped export when both are loaded together, #294), so call it
+`update` re-applies only the managed files and reports what changed.
+It is `public`, not exported (#294) — a generic name like `update` is
+exactly the kind a domain package might also export, and `public` keeps it
+from colliding with that when both are loaded together — so call it
 qualified:
 
 ```julia
-EpiAwarePackageTools.scaffold_update(pkgdir(MyPackage))
+EpiAwarePackageTools.update(pkgdir(MyPackage))
 ```
 
 This is the entry point the scheduled template-sync workflow calls, so an

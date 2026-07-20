@@ -68,5 +68,5 @@ history. A repo whose `NEWS.md` predates this page keeps its existing
 entries as they are; write new entries in the shape above going forward.
 Backfilling old entries to match (adding `Closes` links, splitting a
 paragraph into per-category bullets) is a judgement call for that repo's
-maintainer, not something `scaffold_update` will ever do for you — `NEWS.md`
+maintainer, not something `update` will ever do for you — `NEWS.md`
 stays package-owned and untouched by sync.

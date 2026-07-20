@@ -30,7 +30,7 @@ infrastructure into a package — root dev config, CI caller workflows +
 dependabot, and the QA/AD/benchmark test-infra drivers that call these
 helpers — so a package adopts the whole kit at once. [`scaffold_generate`](@ref) does the
 same for a brand-new package, laying down its `Project.toml` and source module
-first. [`scaffold_update`](@ref) re-applies the managed standard files (the scheduled
+first. [`update`](@ref) re-applies the managed standard files (the scheduled
 template-sync entry point), leaving package-owned tests, AD scenarios, and QA
 config values untouched.
 
@@ -39,7 +39,7 @@ steps `scaffold`/`scaffold_generate` cannot do for us (Codecov, GitHub Pages, br
 protection, the first registry registration), plus a ready-to-paste tracking
 issue body.
 
-The AD harness + AD CI are opt-in: `scaffold`/`scaffold_generate`/`scaffold_update` take an
+The AD harness + AD CI are opt-in: `scaffold`/`scaffold_generate`/`update` take an
 `ad::Bool` keyword (default `true`). A numerical package keeps `ad = true`; a
 tooling/non-numerical package passes `ad = false` to scaffold none of the AD
 infrastructure. The kit manages its own repo with `ad = false`.
@@ -117,18 +117,23 @@ export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
 export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
 
-# `scaffold_update` is `public`, not `export`ed (#294): it is a generic-
-# sounding verb, and the kit sits in the same `Main` namespace as every
-# domain package it manages (every scaffolded `docs/make.jl` does
-# `using EpiAwarePackageTools` alongside `using <ThePackage>`). A bare
-# `export` collided with a package's own `update`-shaped export and left
-# `update` unbound in `Main` (#173, fixed there by the harder
-# `update`→`scaffold_update` rename); `public` keeps the name reachable,
-# documented, and `@ref`-able without binding it into a `using` caller's
-# namespace, so it can never cause that collision again regardless of what
-# a downstream package chooses to call its own verbs. See ComposedDistributions#221
-# for the same reasoning applied to that package's `update`.
-public scaffold_update
+# `update` is `public`, not `export`ed (#294): the kit sits in the same
+# `Main` namespace as every domain package it manages (every scaffolded
+# `docs/make.jl` does `using EpiAwarePackageTools` alongside
+# `using <ThePackage>`), and a bare `export`ed `update` used to collide with
+# a package's own `update`-shaped export, leaving `update` unbound in `Main`
+# (#173) and breaking Documenter `@ref` resolution — fixed at the time by
+# renaming this function to `scaffold_update`. `public` closes that
+# collision a different way: a `public`-not-`export`ed name is never
+# brought into scope by a bare `using`, so it cannot fight another
+# package's export regardless of what either package calls its own verb.
+# That makes the short name safe again, so #294 renamed it back to
+# `update`; `scaffold_update` is kept `public` too, as a transitional
+# alias (`const scaffold_update = update` in `scaffold.jl`) so an existing
+# qualified caller is unaffected by the rename. See
+# ComposedDistributions#221 for the same export→public reasoning applied
+# to that package's own `update`.
+public update, scaffold_update
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
 export build_docs
