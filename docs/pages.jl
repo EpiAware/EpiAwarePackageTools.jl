@@ -22,6 +22,7 @@ pages = [
         "Test infrastructure" => "getting-started/test-infrastructure.md",
         "Benchmarking" => "getting-started/benchmarking.md",
         "AD tooling" => "getting-started/ad-tooling.md",
-        "Changelog convention" => "getting-started/changelog.md"
+        "Changelog convention" => "getting-started/changelog.md",
+        "Extension design" => "getting-started/extension-design.md"
     ]
 ]
