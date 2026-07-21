@@ -278,6 +278,80 @@ function test_import_centralisation(mod::Module)
     end
 end
 
+# --- Eager option validation (kit#310) --------------------------------------
+
+# A name outside `valid`, matching `valid`'s element flavour (`Symbol` vs
+# `AbstractString`) so it round-trips through the same `string`/`repr`
+# formatting the caller's own error message uses. Retries on a collision;
+# the option-name spaces this checks are small enough in practice that a
+# random 12-character suffix essentially never collides, but retrying keeps
+# the fuzz honest rather than assuming that.
+function _random_name_excluding(valid, rng::Random.AbstractRNG)
+    taken = Set(string.(valid))
+    as_symbol = !isempty(valid) && first(valid) isa Symbol
+    for _ in 1:1000
+        candidate = "fuzz_" * Random.randstring(rng, 'a':'z', 12)
+        candidate in taken && continue
+        return as_symbol ? Symbol(candidate) : candidate
+    end
+    error("could not find a name outside $(repr(valid)) after 1000 tries")
+end
+
+"""
+    test_option_validation(f, valid; n = 50, rng = Random.default_rng())
+
+Fuzz `f`'s eager validation of a named option.
+
+Calls `f(bad)` with `n` random names outside `valid` and asserts each call
+throws, with an error message that names the rejected value and lists
+every entry of `valid` — the convention `scaffold`'s own licence check
+follows (`unsupported license \$(repr(license)); choose one of ...`,
+backed by `EpiAwarePackageTools.SUPPORTED_LICENSES`): a caller who
+mistypes an option name gets an immediate, self-explaining failure naming
+the mistake and the full valid set, rather than a value silently ignored
+and the mistake surfacing later, far from its cause.
+
+`f` is any single-argument callable performing the validation itself (and
+throwing on rejection). A function that accepts a whole bag of named
+options (keyword arguments, a scenario/backend registry, a set of sweep
+axes) is exercised by wrapping it so one bad key reaches it, e.g.
+`test_option_validation(k -> configure(; Dict(k => true)...), VALID_KEYS)`.
+
+`valid` is the collection of legitimate values `f` accepts (`Symbol`s or
+`AbstractString`s); fuzzed names are drawn from the same flavour so they
+round-trip through `f`'s own formatting.
+
+```julia
+test_option_validation(
+    lic -> EpiAwarePackageTools._validate_license(lic),
+    EpiAwarePackageTools.SUPPORTED_LICENSES)
+```
+"""
+function test_option_validation(f, valid; n::Integer = 50,
+        rng::Random.AbstractRNG = Random.default_rng())
+    return @testset "option validation" begin
+        for _ in 1:n
+            bad = _random_name_excluding(valid, rng)
+            caught = nothing
+            try
+                f(bad)
+            catch err
+                caught = err
+            end
+            @testset "rejects $(repr(bad))" begin
+                @test caught !== nothing
+                if caught !== nothing
+                    msg = sprint(showerror, caught)
+                    @test occursin(string(bad), msg)
+                    for v in valid
+                        @test occursin(string(v), msg)
+                    end
+                end
+            end
+        end
+    end
+end
+
 # --- README section structure ----------------------------------------------
 
 """
