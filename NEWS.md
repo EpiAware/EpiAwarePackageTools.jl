@@ -1,5 +1,26 @@
 ## Unreleased
 
+**New**: the AD backend-comparison benchmark moves off the `ad-backends`
+tutorial page onto its own `ad-comparison` page, filed under the Benchmarks
+nav rather than Tutorials (#299).
+The benchmark table and plots read as a cost report, not a how-to guide, so
+EpiAwareADTools#28 asked for the split.
+`ad-backends` keeps the backend-support table, Enzyme configuration, and
+debugging sections, and now cross-links to `ad-comparison` for the numbers
+instead of carrying them.
+
+`docs/pages.jl` is package-owned and write-once, so `update` cannot add the
+new nav entry to an adopter's file automatically.
+An existing `ad = true` adopter needs to add one line to the end of the
+`pages` array in their `docs/pages.jl`, after their first sync on this kit
+version: `"Benchmarks" => "getting-started/tutorials/ad-comparison.md"` if
+they don't also have `benchmarks = true`, or the nested form
+(`"Benchmarks" => ["Performance history" => "benchmarks.md", "AD comparison"
+=> "getting-started/tutorials/ad-comparison.md"]`) if they do.
+Until that edit lands, the new page still builds and is still cross-linked
+from `ad-backends` — `@ref` resolution doesn't depend on the nav listing —
+it just won't appear in the sidebar.
+
 **Breaking**: `scaffold_update` is renamed back to `update`, and is now
 `public`, not `export`ed (#294).
 A bare `using EpiAwarePackageTools` no longer brings it into scope — call
