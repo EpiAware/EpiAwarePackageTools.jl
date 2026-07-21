@@ -6,6 +6,7 @@
 @testitem "QA helpers" begin
     using Test
     using EpiAwarePackageTools
+    using Random
 
     # A testset that tallies Fail/Error and never throws. The helpers under test
     # build their own nested `@testset`s; with `CountingTestSet` as the outer set
@@ -870,6 +871,59 @@
                 undocumented_names = false, piracies = false,
                 stale_deps = (; ignore = [:Statistics]))
             @test ts isa Test.DefaultTestSet
+        end
+
+        @testset "test_option_validation" begin
+            # Distinctive, multi-character names throughout (not `:a`/`:b`/
+            # `:c`): a single-letter symbol is prone to an incidental
+            # substring match inside ordinary error-message prose (e.g. `:c`
+            # inside "unre`c`ognised"), which would mask exactly the omission
+            # bugs these cases exist to catch.
+            valid_syms = (:alpha, :bravo, :charlie)
+            # A conforming validator, mirroring the exemplar this helper's
+            # docstring cites: rejects any name outside `valid_syms`, naming
+            # the offender and listing the full valid set.
+            conforming(k) = k in valid_syms || error(
+                "unrecognised option $(repr(k)); valid options are " *
+                join(repr.(valid_syms), ", "))
+            @test !check_flags(() -> test_option_validation(
+                conforming, valid_syms; n = 20, rng = MersenneTwister(1)))
+
+            # A validator that silently accepts anything is exactly the
+            # latent bug this convention exists to catch, and fails every
+            # fuzz call.
+            silent(_k) = nothing
+            @test check_flags(() -> test_option_validation(
+                silent, valid_syms; n = 5, rng = MersenneTwister(2)))
+
+            # A validator that throws but whose message omits the offending
+            # value also fails.
+            vague(_k) = error("bad option")
+            @test check_flags(() -> test_option_validation(
+                vague, valid_syms; n = 5, rng = MersenneTwister(3)))
+
+            # A validator whose message omits an entry of the valid set
+            # also fails.
+            incomplete(k) = k in valid_syms || error(
+                "unrecognised option $(repr(k)); valid options are " *
+                "$(repr(:alpha)), $(repr(:bravo))")
+            @test check_flags(() -> test_option_validation(
+                incomplete, valid_syms; n = 5, rng = MersenneTwister(4)))
+
+            # A `String`-flavoured valid set: fuzzed names are strings too.
+            valid_strs = ("MIT", "Apache-2.0")
+            conforming_str(s) = s in valid_strs || error(
+                "unsupported license $(repr(s)); choose one of " *
+                join(repr.(valid_strs), ", "))
+            @test !check_flags(() -> test_option_validation(
+                conforming_str, valid_strs; n = 10, rng = MersenneTwister(5)))
+
+            # Dogfoods the actual exemplar the docstring cites: `scaffold`'s
+            # own licence check.
+            @test !check_flags(() -> test_option_validation(
+                EpiAwarePackageTools._validate_license,
+                EpiAwarePackageTools.SUPPORTED_LICENSES; n = 10,
+                rng = MersenneTwister(6)))
         end
     end # @testset "QA helpers"
 end # @testitem "QA helpers"

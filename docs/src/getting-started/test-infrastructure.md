@@ -79,6 +79,49 @@ checks without editing the managed file.
 Aqua relaxations, ExplicitImports ignore lists, docstring cross-reference
 ignores, the README requirements, and the list of extensions to ambiguity-check.
 
+## Eager option validation
+
+Any function that accepts a set of named options — keyword arguments, a
+scenario or backend registry, a set of sweep axes — should validate them
+eagerly and, on an unrecognised name, raise an error that names every
+offending key and lists the valid set.
+An option name that is silently ignored is a latent bug: a caller believes
+they set a value when they did not, and the mistake only surfaces (if at
+all) as a wrong result far from its cause.
+The worst case is a sweep axis, where a mistyped name can send a whole run
+down the wrong path and only become visible deep inside it.
+
+The reference implementation is `scaffold`'s own licence check
+(`EpiAwarePackageTools.SUPPORTED_LICENSES`, checked by the internal
+`_validate_license`):
+
+```julia
+license in SUPPORTED_LICENSES || error(
+    "unsupported license $(repr(license)); choose one of " *
+    join(repr.(SUPPORTED_LICENSES), ", "))
+```
+
+Follow the same shape for every option-accepting entry point: name the
+offending value with `repr`, list the valid set the same way, and, where a
+plausible-looking option is deliberately excluded, explain why in a
+parenthetical (e.g. `` `:legacy_mode` is intentionally excluded; use
+`:mode` instead` ``).
+
+[`test_option_validation`](@ref) enforces this by fuzzing a validating
+function: it feeds `f` a run of random names outside the valid set and
+asserts each call raises an error naming the offending value and listing
+every valid entry, so a package inherits the check by pointing it at each
+option-accepting entry point rather than auditing by hand.
+
+```julia
+test_option_validation(k -> configure(; Dict(k => true)...), VALID_KEYS)
+```
+
+Wire this into your own quality testset (or any `@testitem`) once per
+option-accepting entry point; it is not part of the generic checks in
+`test/package/quality.jl` above, since each entry point needs its own
+wrapper.
+
 ## Isolated JET and formatter environments
 
 JET and JuliaFormatter each pin their own version of JuliaSyntax, and those pins

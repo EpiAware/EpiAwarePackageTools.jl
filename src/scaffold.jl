@@ -485,6 +485,20 @@ const KIT_UUID = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
 const DEFAULT_LICENSE = "MIT"
 
+# Eager validation of a named option (kit#310): reject an unsupported
+# `license` immediately, naming the offending value and listing the valid
+# set, rather than letting it propagate into a template substitution that
+# fails later with no reference back to the bad input. This is the
+# reference implementation `test_option_validation` (`quality.jl`) fuzzes
+# against in `test/scaffold.jl` — extend a new option-accepting entry
+# point the same way rather than silently accepting an unrecognised value.
+function _validate_license(license::AbstractString)
+    license in SUPPORTED_LICENSES || error(
+        "unsupported license $(repr(license)); choose one of " *
+        join(repr.(SUPPORTED_LICENSES), ", "))
+    return nothing
+end
+
 # Absolute path to the bundled `templates/` directory.
 function _templates_dir()
     dir = pkgdir(EpiAwarePackageTools)
@@ -817,9 +831,7 @@ function scaffold_inputs(target_dir::AbstractString;
     # to the scaffold default.
     license = license === nothing ?
               something(_detect_license(target_dir), DEFAULT_LICENSE) : license
-    license in SUPPORTED_LICENSES || error(
-        "unsupported license $(repr(license)); choose one of " *
-        join(repr.(SUPPORTED_LICENSES), ", "))
+    _validate_license(license)
     proj = joinpath(target_dir, "Project.toml")
     pkg = package === nothing ? _project_string(proj, "name") : package
     auth_vec = _project_authors(proj)
