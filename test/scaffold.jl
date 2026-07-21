@@ -1207,7 +1207,6 @@
                 # Managed, substituted, and anchored for cross-references.
                 @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
                 @test occursin("@id ad-backends", txt)
-                @test occursin("using Wombat", txt)
                 @test occursin(
                     "github.com/EpiAware/Wombat.jl/actions/workflows/ad.yaml",
                     txt)
@@ -1220,6 +1219,12 @@
                 # (the same table the README badge block renders).
                 n = length(EpiAwarePackageTools._AD_BACKENDS)
                 @test count("graph/badge.svg?flag=ad-", txt) == n
+                # The benchmark itself moved to the sibling ad-comparison page
+                # (#299): this page keeps the how-to-choose narrative and
+                # links there rather than duplicating the DIT/Chairmarks setup.
+                @test occursin("@ref ad-comparison", txt)
+                @test !occursin("using Chairmarks", txt)
+                @test !occursin("benchmark_differentiation", txt)
                 # The substituted script is valid Julia (Literate executes it
                 # in the docs build): parse it whole and require no error or
                 # incomplete trailing expression.
@@ -1253,15 +1258,99 @@
                 @test occursin(
                     "ADFixtures = {path = \"../test/ADFixtures\"}", dp)
                 for dep in ("DifferentiationInterfaceTest", "CairoMakie",
-                    "AlgebraOfGraphics", "Chairmarks", "DataFramesMeta",
+                    "Chairmarks", "DataFramesMeta",
                     "Statistics", "Markdown")
                     @test occursin(dep, dp)
                 end
+                @test occursin("CairoMakie = \"0.15\"", dp)
+                @test !occursin("{{", dp)
+            end
+        end
+
+        @testset "ad = true ships the AD-comparison benchmark page (#299)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                tut = _dest(dir,
+                    "docs/src/getting-started/tutorials/ad-comparison.jl")
+                @test isfile(tut)
+                txt = read(tut, String)
+                # Managed, substituted, and anchored for cross-references.
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("@id ad-comparison", txt)
+                @test occursin("using Wombat", txt)
+                @test !occursin("{{", txt)
+                # Links back to the AD-backends page for the how-to-choose
+                # narrative and configuration, rather than duplicating it.
+                @test occursin("@ref ad-backends", txt)
+                # The benchmark computation itself, moved here from
+                # ad-backends.jl (#299).
+                @test occursin("benchmark_differentiation", txt)
                 # DIT 0.11 needs Chairmarks loaded explicitly for
                 # `benchmark_differentiation`/`run_benchmark!` to resolve.
                 @test occursin("using Chairmarks", txt)
-                @test occursin("CairoMakie = \"0.15\"", dp)
-                @test !occursin("{{", dp)
+                # The substituted script is valid Julia (Literate executes it
+                # in the docs build): parse it whole and require no error or
+                # incomplete trailing expression.
+                parsed = Meta.parseall(txt)
+                @test parsed isa Expr
+                @test !any(
+                    ex -> ex isa Expr && ex.head in (:error, :incomplete),
+                    parsed.args)
+
+                # Registered in the package-owned docs seeds: the Literate
+                # pipeline (heavy tutorial + fast-build stub) and the Benchmarks
+                # nav (not Tutorials -- the whole point of the split).
+                cfg = read(_dest(dir, "docs/docs_config.jl"), String)
+                @test occursin("\"ad-comparison.jl\"", cfg)
+                @test occursin(
+                    "\"ad-comparison.md\" => \"# [AD backend " *
+                    "comparison](@id ad-comparison)\"", cfg)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                @test occursin(
+                    "getting-started/tutorials/ad-comparison.md", pgs)
+                @test occursin("\"Benchmarks\"", pgs)
+                @test !occursin("{{", pgs)
+            end
+        end
+
+        @testset "Benchmarks nav nests performance history + AD comparison when both are on (#299)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; benchmarks = true)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                @test occursin("\"Performance history\" => \"benchmarks.md\"",
+                    pgs)
+                @test occursin(
+                    "\"AD comparison\" =>\n            " *
+                    "\"getting-started/tutorials/ad-comparison.md\"", pgs)
+                @test !occursin("{{", pgs)
+            end
+        end
+
+        @testset "Benchmarks nav is a lone AD-comparison entry with no history suite" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; benchmarks = false)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                # Scope to the substituted `pages` array itself, not the
+                # header comment above it (which mentions "benchmarks.md" as
+                # prose describing the benchmarks=true case).
+                arr = pgs[findfirst("pages = [", pgs)[1]:end]
+                @test occursin(
+                    "\"Benchmarks\" => " *
+                    "\"getting-started/tutorials/ad-comparison.md\"", arr)
+                @test !occursin("benchmarks.md", arr)
+            end
+        end
+
+        @testset "Benchmarks nav is absent with neither ad nor benchmarks" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, benchmarks = false)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                arr = pgs[findfirst("pages = [", pgs)[1]:end]
+                @test !occursin("\"Benchmarks\"", arr)
             end
         end
 
