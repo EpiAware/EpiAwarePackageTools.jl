@@ -140,6 +140,103 @@
         @test occursin("content", out)
     end
 
+    @testset "build_index: a comment shown as fence example text survives (#301)" begin
+        # A README teaching a reader what the managed markers look like, by
+        # quoting them inside a fence -- the fence content must survive
+        # verbatim; only the real, unfenced markers below it are stripped.
+        readme_with_fenced_comment = """
+        # Pkg
+
+        Here's how the managed markers look:
+
+        ```html
+        <!-- standard-sections:start -->
+        some content
+        <!-- standard-sections:end -->
+        ```
+
+        <!-- standard-sections:start -->
+        real content
+        <!-- standard-sections:end -->
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_fenced_comment)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        # The fenced example markers survive, verbatim, inside the fence.
+        @test occursin("```html", out)
+        @test occursin(
+            "<!-- standard-sections:start -->\nsome content\n" *
+            "<!-- standard-sections:end -->",
+            out)
+        # The real, unfenced markers below are still stripped.
+        @test occursin("real content", out)
+        @test count("<!-- standard-sections:start -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 1
+    end
+
+    @testset "build_index: a comment inside a tilde fence survives too (#301 review)" begin
+        # `~~~` is valid CommonMark fence syntax alongside triple backticks;
+        # the fence-delimiter check must recognise both.
+        readme_with_tilde_fence = """
+        # Pkg
+
+        ~~~html
+        <!-- standard-sections:start -->
+        some content
+        <!-- standard-sections:end -->
+        ~~~
+
+        <!-- standard-sections:start -->
+        real content
+        <!-- standard-sections:end -->
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_tilde_fence)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        @test occursin("~~~html", out)
+        @test occursin(
+            "<!-- standard-sections:start -->\nsome content\n" *
+            "<!-- standard-sections:end -->",
+            out)
+        @test occursin("real content", out)
+        @test count("<!-- standard-sections:start -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 1
+    end
+
+    @testset "build_index: a comment spanning a fence boundary stays comment interior (#301)" begin
+        # Pathological case the issue asks to define and test either way:
+        # comment state wins over fence state, so a fence-looking delimiter
+        # inside a still-open multi-line comment does not toggle `in_fence`
+        # -- it is swallowed as more comment text, and fence tracking only
+        # resumes once the comment actually closes.
+        readme_spanning = """
+        # Pkg
+
+        <!-- comment opens here
+        ```
+        still inside the comment
+        -->
+
+        real content after
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_spanning)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        @test !occursin("<!--", out)
+        @test !occursin("comment opens here", out)
+        @test !occursin("still inside the comment", out)
+        @test occursin("real content after", out)
+    end
+
     @testset "build_index: execute=false leaves ```julia" begin
         dir = mktempdir()
         readme = joinpath(dir, "README.md")
@@ -1718,4 +1815,81 @@ end
             end
         end
     end
+end
+
+@testitem "build_api_pages: qualified @docs for extended generics (#290)" begin
+    using Test
+    using EpiAwarePackageTools
+    using Statistics: Statistics, mean
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # A package that adds its own method (with its own docstring) to an
+    # upstream generic function it does not own. A bare `@docs Pkg290.mean`
+    # entry resolves with an implicit `typesig = Union{}`; since
+    # `Union{} <: anything`, Documenter's subtype fallback then matches every
+    # signature registered under the binding it aliases to (`Statistics.mean`)
+    # -- including Statistics' own, unrelated docstring for `mean(itr)` and
+    # its own cross-references, which is exactly the CensoredDistributions#881
+    # break this issue tracks. The fix must instead emit one
+    # signature-qualified entry per method `Pkg290` itself documents.
+    module Pkg290
+    using Statistics: Statistics, mean
+    struct OwnType
+        x::Float64
+    end
+    "Pkg290's own docstring for mean(::OwnType)."
+    function Statistics.mean(d::OwnType)
+        return d.x
+    end
+    export OwnType, mean
+    end
+
+    pubs, privs = DB.api_bindings(Pkg290)
+    @test :mean in pubs
+
+    dir = mktempdir()
+    lib = joinpath(dir, "lib")
+    DB.build_api_pages(Pkg290, lib)
+    pub = read(joinpath(lib, "public.md"), String)
+
+    # The qualified, signature-specific entry is present...
+    @test occursin("Pkg290.mean(::", pub)
+    @test occursin("OwnType", pub)
+    # ...and the bleed-prone bare form -- which would have pulled in
+    # Statistics' own `mean` docstring wholesale -- is absent.
+    @test !occursin("Pkg290.mean\n", pub)
+    @test !occursin("Pkg290.mean\r\n", pub)
+end
+
+@testitem "build_api_pages: an optional-arg method falls back, not crashes" begin
+    using Test
+    using EpiAwarePackageTools
+    using Statistics: Statistics, mean
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # A method with a default value for a positional argument is recorded by
+    # Julia's docsystem as one `Union{Tuple{...}, Tuple{...}}` signature, not
+    # a `Tuple` -- `unwrap_unionall` passes a `Union` through unchanged (it is
+    # not a `UnionAll`), and `Union` carries no `.parameters` field. Building
+    # the qualified entry must not crash on this shape (#303 review); it
+    # should fall back to the bare form (with a warning) for this one name
+    # instead of erroring the whole `build_api_pages` call.
+    module Pkg303
+    using Statistics: Statistics, mean
+    struct Plain
+        x::Float64
+    end
+    "Pkg303's own docstring for mean(::Plain, ::Real)."
+    function Statistics.mean(w::Plain, scale::Real = 1.0)
+        return w.x * scale
+    end
+    export Plain, mean
+    end
+
+    dir = mktempdir()
+    lib = joinpath(dir, "lib")
+    @test_logs (:warn,) match_mode=:any DB.build_api_pages(Pkg303, lib)
+    pub = read(joinpath(lib, "public.md"), String)
+    # Falls back to the bare form rather than raising.
+    @test occursin("Pkg303.mean\n", pub)
 end

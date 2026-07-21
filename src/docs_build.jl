@@ -267,6 +267,51 @@ end
 
 # ---- README -> index.md ---------------------------------------------------
 
+# Whether `line` opens or closes a fenced code block: three-or-more backticks
+# (the bare convention `build_index` already special-cases for
+# ```` ```julia ````) or three-or-more tildes (`~~~`, CommonMark's other fence
+# syntax). Nested fences of a different backtick/tilde count (CommonMark lets
+# a longer outer fence "quote" a shorter one verbatim) are not distinguished,
+# but that is no less than the pre-existing ```julia handling already assumes.
+# Indented (4-space) code blocks and inline single-backtick code spans are
+# CommonMark code too but are NOT recognised here -- see `build_index`'s
+# docstring for what that means for a comment shown inside one (#301 review).
+function _is_fence_delimiter(line::AbstractString)
+    startswith(line, "```") ||
+        startswith(line, "~~~")
+end
+
+# Strip HTML comments from one README line, carrying `in_comment` (whether a
+# multi-line comment opened on an earlier line and has not yet closed) in and
+# out. Loops so multiple comments -- or a close followed by a fresh open --
+# on the same line are all handled, not just the first. Returns the
+# stripped line and the outgoing `in_comment` state.
+function _strip_line_comments(line::AbstractString, in_comment::Bool)
+    out = IOBuffer()
+    rest = line
+    while true
+        if in_comment
+            close = findfirst("-->", rest)
+            close === nothing && return String(take!(out)), true
+            rest = rest[(close[end] + 1):end]
+            in_comment = false
+        else
+            open = findfirst("<!--", rest)
+            if open === nothing
+                print(out, rest)
+                return String(take!(out)), false
+            end
+            print(out, rest[1:(open[1] - 1)])
+            after_open = rest[(open[end] + 1):end]
+            close = findfirst("-->", after_open)
+            if close === nothing
+                return String(take!(out)), true
+            end
+            rest = after_open[(close[end] + 1):end]
+        end
+    end
+end
+
 """
     build_index(; readme, dest, repo, execute=true,
                 rewrites=Pair{String,String}[], strip_sections=String[])
@@ -281,11 +326,17 @@ into the README) is stripped too: DocumenterVitepress' typographic pass turns
 the `--` inside a surviving comment into an en-dash, which breaks HTML-comment
 syntax and renders the marker as literal text on the built page (#297). The
 README itself keeps every comment untouched — only the generated index has
-them removed. The strip is not fenced-code-block-aware: a `<!-- -->` shown as
-literal example text inside a ```` ``` ```` fence is stripped too, so do not
-use an HTML comment as fence content in a README (tracked for a fence-aware
-follow-up in #301). ```julia fences become runnable `@example readme` blocks when
-`execute` is `true`. Each `from => to` in `rewrites` is applied line by line
+them removed. The strip recognises fenced code blocks (#301): a `<!-- -->`
+shown as literal example text inside a ```` ``` ```` or `~~~` fence (e.g. a
+README teaching a reader what the managed markers look like) survives
+verbatim. This covers the two CommonMark fence styles, not every way
+CommonMark can mark up code — an indented (4-space) code block or an inline
+single-backtick code span showing the same literal text is not recognised as
+code and gets stripped like ordinary prose (a documented limitation, not a
+silent one, tracked in #306; #300's disclosure precedent). ```julia fences
+become runnable
+`@example readme` blocks when `execute` is `true`. Each `from => to` in
+`rewrites` is applied line by line
 (e.g. an absolute docs URL rewritten to an in-site `@ref`). Any heading whose
 title is listed in `strip_sections` is dropped together with its body (up to
 the next heading of the same or a higher level) — this is the package-owned
@@ -304,6 +355,8 @@ function build_index(; readme::AbstractString, dest::AbstractString,
     println(buf)
     in_badges = false
     strip_level = 0
+    in_fence = false
+    in_comment = false
     for line in eachline(readme)
         if occursin("<!-- badges:start -->", line)
             in_badges = true
@@ -313,6 +366,18 @@ function build_index(; readme::AbstractString, dest::AbstractString,
             continue
         end
         in_badges && continue
+        if in_comment
+            # A multi-line comment opened on an earlier, non-fenced line and
+            # has not yet closed: this line is comment interior regardless of
+            # what it looks like -- comment state wins over fence state, so a
+            # fence delimiter that happens to fall inside a still-open
+            # comment does not toggle `in_fence` (#301's pathological case,
+            # a comment spanning a fence boundary; defined this way and
+            # covered by a test rather than left to chance).
+            rest, in_comment = _strip_line_comments(line, true)
+            println(buf, rest)
+            continue
+        end
         # Named-section stripping (package-config driven). A heading at a
         # level <= the section being stripped ends the stripped span; that
         # heading is then itself considered as a possible new strip start.
@@ -328,6 +393,15 @@ function build_index(; readme::AbstractString, dest::AbstractString,
             end
         end
         strip_level > 0 && continue
+        # Fenced-code-block tracking (#301): a `<!-- -->` shown as literal
+        # example text inside a fence must survive verbatim -- only a
+        # comment in prose, outside any fence, gets stripped below. A line
+        # opening or closing a fence (three-or-more backticks) toggles
+        # `in_fence`; `was_in_fence` (captured before the toggle) governs
+        # comment-stripping for *this* line, so the delimiter line itself and
+        # everything up to and including the matching close are left alone.
+        was_in_fence = in_fence
+        _is_fence_delimiter(line) && (in_fence = !in_fence)
         if execute && startswith(line, "```julia")
             println(buf, "```@example readme")
         elseif occursin("docs/src/assets/logo.svg", line)
@@ -337,15 +411,13 @@ function build_index(; readme::AbstractString, dest::AbstractString,
             for (from, to) in rewrites
                 line = replace(line, from => to)
             end
+            if !was_in_fence
+                line, in_comment = _strip_line_comments(line, false)
+            end
             println(buf, line)
         end
     end
-    # Strip every HTML comment left in the assembled page (badges are already
-    # removed as full blocks above; this is everything else, e.g. the
-    # managed-section markers). `s` (DOTALL) lets `.` cross the newlines in a
-    # multi-line comment; non-greedy so a comment closes at its own `-->`
-    # rather than a later one.
-    content = replace(String(take!(buf)), r"<!--.*?-->"s => "")
+    content = String(take!(buf))
     # A multi-line comment leaves a run of blank lines behind (one per
     # removed line); collapse any run of 2+ to a single blank line so the
     # generated index.md itself reads tidily -- CommonMark already collapses
@@ -1380,6 +1452,96 @@ function api_owning_modules(mod::Module)
     return owners
 end
 
+# Whether `mod` itself (or a submodule) owns `name`'s docstring, or `name` is
+# a generic function `mod` only adds methods to (e.g. extending
+# `Statistics.mean`). A bare `@docs mod.name` entry resolves with an implicit
+# `typesig = Union{}`; since `Union{} <: anything`, Documenter's fallback
+# subtype search then matches *every* signature registered anywhere under the
+# binding it aliases to — including the owning package's own, unrelated
+# docstrings for that generic (#290). Safe to emit bare only when `mod` is the
+# sole owner, so there is nothing else registered under the binding to bleed
+# in.
+function _owns_binding(mod::Module, name::Symbol)
+    b = Base.Docs.aliasof(Base.Docs.Binding(mod, name))
+    return _within(b.mod, mod)
+end
+
+# Construct a signature-qualified `@docs` entry (e.g.
+# `Pkg.mean(::Pkg.SomeType)`) for one method `mod` itself attaches a docstring
+# to, so Documenter resolves an *exact* typesig match instead of the
+# bleed-prone bare form (#290). Each parameter renders via its default
+# `string`, which Base already fully module-qualifies for anything not a
+# well-known Base/Core name (confirmed: `string(MyPkg.MyType)` prints
+# `MyPkg.MyType`, not a bare `MyType`) — so the entry resolves correctly
+# regardless of which module Documenter evaluates the `@docs` block's
+# signature expression in, not just `mod`'s own scope.
+#
+# Round-trips the constructed string back through `Meta.parse` +
+# `Base.Docs.signature` + `eval` in `mod`, evaluated in `mod` and checked for
+# exact type equality with `sig`, before trusting it: some signatures (a
+# `where` clause, a `Vararg`, a closed-over `TypeVar`) may not stringify into
+# syntax that reconstructs the identical type. A method with an optional
+# positional argument (a default value) is recorded by the docsystem as one
+# `Union{Tuple{...}, Tuple{...}}` signature rather than a `Tuple` -- not a
+# `UnionAll`, so `unwrap_unionall` passes it through unchanged, and a `Union`
+# has no `.parameters` field (`FieldError`, not the arity mismatch this
+# function is built to catch). Building the entry string is inside the `try`
+# for exactly that reason: any signature shape this function does not know
+# how to render falls back to `nothing` rather than crashing the whole
+# `build_api_pages` call. Returns `nothing` on any mismatch or error, so the
+# caller can fall back rather than emit a `@docs` entry Documenter would
+# resolve to the wrong (or no) docstring.
+function _qualified_docs_entry(mod::Module, name::Symbol, sig::Type)
+    try
+        params = Base.unwrap_unionall(sig).parameters
+        entry = if isempty(params)
+            string(mod, ".", name, "()")
+        else
+            args = join(("::" * string(p) for p in params), ", ")
+            string(mod, ".", name, "(", args, ")")
+        end
+        sig_expr = Base.Docs.signature(Meta.parse(entry))
+        Core.eval(mod, sig_expr) === sig || return nothing
+        return entry
+    catch
+        return nothing
+    end
+end
+
+# The `@docs` entry/entries to emit for `name`: the bare `mod.name` form when
+# `mod` owns the binding outright (the common case, and the simplest render);
+# otherwise one signature-qualified entry per method `mod` itself documents,
+# so a generic `mod` only extends (e.g. `Statistics.mean`) never pulls in the
+# owning package's own docstrings for it (#290). Falls back to the bare form,
+# with a warning, if `mod`'s own `MultiDoc` for the binding is missing (should
+# not happen for a name `api_bindings` already confirmed is documented) or if
+# any of its signatures fails the round-trip check in
+# [`_qualified_docs_entry`](@ref) — a bare entry re-risks the bleed, but a
+# `@docs` block Documenter cannot resolve at all is worse.
+function _docs_entries(mod::Module, name::Symbol)
+    bare = string(mod, ".", name)
+    _owns_binding(mod, name) && return [bare]
+    b = Base.Docs.aliasof(Base.Docs.Binding(mod, name))
+    own_md = get(Base.Docs.meta(mod), b, nothing)
+    if own_md === nothing || isempty(own_md.order)
+        @warn "no own MultiDoc found for $bare (extends $(b.mod).$(name)); " *
+              "emitting the bare entry, which may pull in $(b.mod)'s own docs"
+        return [bare]
+    end
+    entries = String[]
+    for sig in own_md.order
+        qualified = _qualified_docs_entry(mod, name, sig)
+        if qualified === nothing
+            @warn "could not build a signature-qualified @docs entry for " *
+                  "$bare at signature $sig; falling back to the bare entry, " *
+                  "which may pull in $(b.mod)'s own docs for this method too"
+            return [bare]
+        end
+        push!(entries, qualified)
+    end
+    return entries
+end
+
 function _write_api_page(path, title, anchor, page, intro, api_heading,
         mod, names)
     mkpath(dirname(path))
@@ -1409,7 +1571,9 @@ function _write_api_page(path, title, anchor, page, intro, api_heading,
         println(io)
         println(io, "```@docs")
         for name in names
-            println(io, string(mod, ".", name))
+            for entry in _docs_entries(mod, name)
+                println(io, entry)
+            end
         end
         println(io, "```")
     end
