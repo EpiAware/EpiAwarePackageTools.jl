@@ -1,0 +1,22 @@
+<!-- EpiAwarePackageTools.jl logo. A package/cube mark (the kit scaffolds and
+     maintains a Julia package's infrastructure), white on EpiAware green.
+     Package-owned: written on scaffold, never overwritten on sync, so editing
+     here is safe. The README title and the DocumenterVitepress site logo both
+     resolve this exact path (see docs/make.jl's README -> index.md step), so no
+     other wiring is needed. Replace with a bespoke mark any time. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150"
+     viewBox="0 0 150 150" role="img" aria-label="EpiAwarePackageTools logo">
+  <title>EpiAwarePackageTools logo</title>
+  <rect width="150" height="150" rx="20" fill="#389826"/>
+  <!-- isometric package/cube: hexagon silhouette + interior Y edges -->
+  <g fill="none" stroke="#ffffff" stroke-width="6.5"
+     stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="75,28 119,53 119,97 75,122 31,97 31,53"/>
+    <polyline points="31,53 75,77 119,53"/>
+    <line x1="75" y1="77" x2="75" y2="122"/>
+  </g>
+  <!-- three Julia-ecosystem accent dots along the top face -->
+  <circle cx="75" cy="45.5" r="4.5" fill="#cb3c33"/>
+  <circle cx="60" cy="54"   r="4.5" fill="#9558b2"/>
+  <circle cx="90" cy="54"   r="4.5" fill="#4063d8"/>
+</svg>
