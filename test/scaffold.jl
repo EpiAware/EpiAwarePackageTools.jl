@@ -1258,7 +1258,7 @@
                 @test occursin(
                     "ADFixtures = {path = \"../test/ADFixtures\"}", dp)
                 for dep in ("DifferentiationInterfaceTest", "CairoMakie",
-                    "AlgebraOfGraphics", "Chairmarks", "DataFramesMeta",
+                    "Chairmarks", "DataFramesMeta",
                     "Statistics", "Markdown")
                     @test occursin(dep, dp)
                 end

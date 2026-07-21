@@ -36,7 +36,6 @@ using Chairmarks
 using DataFramesMeta
 using Statistics
 using CairoMakie
-using AlgebraOfGraphics
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 set_theme!(theme_latexfonts(); fontsize = 14)
@@ -203,20 +202,25 @@ plot_df = @chain rel begin
     end
 end
 
-## Order the facets time-then-allocations.
-metric_order = sorter(["Relative time", "Relative allocations"])
+## Facet order: time then allocations. Plain CairoMakie rather than
+## AlgebraOfGraphics -- the grammar-of-graphics `mapping`/`visual` calls pull
+## in DimensionalData via Makie, which conflicts with FlexiChains' compat
+## range in any package that hard-deps both (kit#283).
+metric_order = ["Relative time", "Relative allocations"]
 
-fig_relative = draw(
-    data(plot_df) *
-    mapping(
-        :backend => "",
-        :value => "Cost relative to $baseline",
-        col = :metric => metric_order) *
-    visual(BoxPlot);
-    figure = (size = (1200, 500),),
-    axis = (yscale = log10, xticklabelrotation = pi / 4),
-    facet = (; linkyaxes = :none)
-);
+fig_relative = Figure(size = (1200, 500))
+for (col, metric) in enumerate(metric_order)
+    sub = @rsubset plot_df :metric == metric
+    backend_order = sort(unique(sub.backend))
+    ax = Axis(fig_relative[1, col];
+        title = metric,
+        ylabel = col == 1 ? "Cost relative to $baseline" : "",
+        yscale = log10,
+        xticks = (1:length(backend_order), backend_order),
+        xticklabelrotation = pi / 4)
+    xs = [findfirst(==(b), backend_order) for b in sub.backend]
+    boxplot!(ax, xs, sub.value)
+end
 
 md"""
 ```@raw html
@@ -241,19 +245,44 @@ md"""
 ```
 """
 
-fig_scenarios = draw(
-    data(plot_df) *
-    mapping(
-        :scenario => "",
-        :value => "Cost relative to $baseline",
-        color = :family => "Backend family",
-        marker = :mode => "Mode",
-        col = :metric => metric_order) *
-    visual(Scatter, markersize = 11);
-    figure = (size = (1600, 800),),
-    axis = (yscale = log10, xticklabelrotation = pi / 4),
-    facet = (; linkyaxes = :none)
-);
+families = sort(unique(plot_df.family))
+modes = sort(unique(plot_df.mode))
+palette = Makie.wong_colors()
+marker_shapes = [:circle, :utriangle, :rect, :diamond, :star5]
+
+## Axes built up front (one assignment per binding, not mutated in the loop
+## below) so a top-level `@example` block -- which runs each statement in
+## global scope -- can't hit Julia's soft-scope "ambiguous assignment in a
+## for loop" trap.
+scenario_orders = [sort(unique((@rsubset plot_df :metric == m).scenario))
+                    for m in metric_order]
+fig_scenarios = Figure(size = (1600, 800))
+axes_scenarios = [Axis(fig_scenarios[1, col];
+                       title = metric_order[col],
+                       ylabel = col == 1 ? "Cost relative to $baseline" : "",
+                       yscale = log10,
+                       xticks = (1:length(scenario_orders[col]),
+                           scenario_orders[col]),
+                       xticklabelrotation = pi / 4)
+                   for col in eachindex(metric_order)]
+
+for (col, metric) in enumerate(metric_order)
+    sub = @rsubset plot_df :metric == metric
+    scenario_order = scenario_orders[col]
+    ax = axes_scenarios[col]
+    for (fi, fam) in enumerate(families), (mi, mode) in enumerate(modes)
+        grp = @rsubset sub :family == fam && :mode == mode
+        isempty(grp) && continue
+        xs = [findfirst(==(s), scenario_order) for s in grp.scenario]
+        scatter!(ax, xs, grp.value;
+            color = palette[mod1(fi, length(palette))],
+            marker = marker_shapes[mod1(mi, length(marker_shapes))],
+            markersize = 11,
+            label = "$fam ($mode)")
+    end
+end
+Legend(fig_scenarios[1, length(metric_order) + 1], axes_scenarios[1];
+    merge = true, unique = true, title = "Backend family / Mode");
 
 md"""
 ```@raw html

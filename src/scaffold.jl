@@ -1620,7 +1620,6 @@ function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
     ad || return ""
     return string(
         "ADFixtures = \"", adfix_uuid, "\"\n",
-        "AlgebraOfGraphics = \"cbdf2221-f076-402e-a563-3d30da359d67\"\n",
         "CairoMakie = \"13f3f980-e62b-5c42-98c6-ff1f3baf88f0\"\n",
         "Chairmarks = \"0ca39b1e-fe0b-4e98-acfc-b1656634c4de\"\n",
         "DataFramesMeta = \"1313f7d8-7da2-5740-9ea0-a2ca25f37964\"\n",
@@ -1641,7 +1640,6 @@ end
 function _ad_docs_compat(ad::Bool)
     ad || return ""
     return string(
-        "AlgebraOfGraphics = \"0.13\"\n",
         "CairoMakie = \"0.15\"\n",
         "Chairmarks = \"1\"\n",
         "DataFramesMeta = \"0.15\"\n",
