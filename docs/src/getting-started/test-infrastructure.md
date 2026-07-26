@@ -75,9 +75,10 @@ The check logic is managed and stays in `quality.jl`.
 Everything a check needs that is specific to your package lives in the
 package-owned `qa_config.jl` as a `QA_CONFIG` named tuple, so you tune the
 checks without editing the managed file.
-`QA_CONFIG` carries the module under test, the JET environment path, per-check
-Aqua relaxations, ExplicitImports ignore lists, docstring cross-reference
-ignores, the README requirements, and the list of extensions to ambiguity-check.
+`QA_CONFIG` carries the module under test, the JET and formatter environment
+paths, per-check Aqua relaxations, ExplicitImports ignore lists, docstring
+cross-reference ignores, the README requirements, and the list of extensions to
+ambiguity-check.
 
 ## Isolated JET and formatter environments
 

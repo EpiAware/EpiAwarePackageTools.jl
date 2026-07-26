@@ -516,6 +516,45 @@
             end
         end
 
+        @testset "quality.jl runs formatting in the isolated formatter env (#321)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # The formatting testitem must pass the pinned formatter
+                # environment through, or JuliaFormatter resolves from the
+                # shared (unpinned) test environment and floats with the CI
+                # Julia in use rather than the exact pin (#321).
+                ql = read(_dest(dir, "test/package/quality.jl"), String)
+                @test occursin("test_formatting(QA_CONFIG.mod; env = env)", ql)
+                @test occursin("hasproperty(QA_CONFIG, :formatter_env)", ql)
+                cfg = read(_dest(dir, "test/package/qa_config.jl"), String)
+                @test occursin(
+                    "formatter_env = joinpath(@__DIR__, \"..\", \"formatter\")",
+                    cfg)
+
+                # An adopter's pre-existing qa_config.jl (package-owned, never
+                # re-applied by `update`) can predate the `formatter_env` key.
+                # The guard must resolve to `nothing` (today's in-process
+                # behaviour) rather than erroring on the missing field — but,
+                # unlike a bare `get(...)` default, it must also warn, so a
+                # typoed key does not quietly revert to the exact
+                # floating-JuliaFormatter-version failure #321 is about
+                # (#188).
+                lines = split(ql, "\n")
+                i = findfirst(l -> occursin("env = if hasproperty", l), lines)
+                j = findfirst(
+                    l -> occursin("test_formatting(QA_CONFIG.mod; env = env)",
+                        l), lines)
+                prelude = joinpath(dir, "test", "package", "_prelude321.jl")
+                write(prelude,
+                    "const QA_CONFIG = (; mod = Base)\n" *
+                    join(lines[i:(j - 1)], "\n") * "\n")
+                m = Module()
+                @test_logs (:warn,) match_mode=:any Base.include(m, prelude)
+                @test Base.invokelatest(getproperty, m, :env) === nothing
+            end
+        end
+
         @testset "guarded config fallbacks warn when they engage (#188)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
