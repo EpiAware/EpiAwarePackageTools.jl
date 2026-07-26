@@ -1939,16 +1939,47 @@
                     @test !occursin("XXXXXXX", ctxt)
                 end
 
-                # A hand-edited CITATION.cff survives update untouched.
+                # A hand-edited CITATION.cff survives update untouched. `update`
+                # seeds a missing file (#322, tested separately below) but still
+                # never rewrites one that already exists.
                 custom = txt * "\nversion: 1.2.3\n"
                 write(cff, custom)
                 ures = update(dir; ad = false)
-                @test ures.citation === :skipped
+                @test ures.citation === :preserved
                 @test read(cff, String) == custom
 
                 # A second scaffold preserves it too.
                 sres = scaffold(dir; ad = false)
                 @test sres.citation === :preserved
+                @test read(cff, String) == custom
+            end
+        end
+
+        @testset "update seeds a missing CITATION.cff (#322)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "PreCitation")
+                scaffold(dir; ad = false)
+                cff = joinpath(dir, "CITATION.cff")
+                @test isfile(cff)
+                # Simulate a package that adopted the template before CITATION
+                # seeding existed (#67): the managed "How to cite" section
+                # `update` re-renders on every sync links to CITATION.cff
+                # unconditionally, so without this, `update` could never make
+                # that link resolve -- a permanent 404 once the README reaches
+                # a linkchecked docs build.
+                rm(cff)
+                res = update(dir; ad = false)
+                @test res.citation === :created
+                @test isfile(cff)
+                txt = read(cff, String)
+                @test occursin("title: \"PreCitation.jl\"", txt)
+
+                # Write-once still holds: a second update never rewrites the
+                # file it just created.
+                custom = txt * "\nversion: 1.2.3\n"
+                write(cff, custom)
+                res2 = update(dir; ad = false)
+                @test res2.citation === :preserved
                 @test read(cff, String) == custom
             end
         end
