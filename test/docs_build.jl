@@ -294,10 +294,12 @@
         @test occursin(
             "Use `<!-- standard-sections:start -->` inline to show the syntax.",
             out)
-        # The real markers below are still stripped.
+        # The real markers below are still stripped: the only surviving start
+        # marker is the one in the span, and no end marker appears anywhere
+        # (the span shows the start marker alone).
         @test occursin("real content", out)
         @test count("<!-- standard-sections:start -->", out) == 1
-        @test count("<!-- standard-sections:end -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 0
     end
 
     @testset "build_index: execute=false leaves ```julia" begin
@@ -1311,7 +1313,10 @@ end
     src = joinpath(dir, "src")
     DB.build_api_pages(Pkg313, joinpath(src, "lib"))
     pub = read(joinpath(src, "lib", "public.md"), String)
-    @test occursin("```@docs\nPkg313.Pkg313\n```", pub)
+    # `Pkg313` is nested inside this testitem's anonymous evaluation module,
+    # so the emitted entry carries that full prefix (`string(mod)`); a real
+    # top-level package gets the bare `Pkg.Pkg` form.
+    @test occursin("```@docs\n$(Pkg313).Pkg313\n```", pub)
 
     # And it counts towards a real `:all` completeness scan: no
     # "not included in the manual" warning for a package with nothing else
