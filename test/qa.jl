@@ -889,6 +889,13 @@
             @test !check_flags(() -> test_option_validation(
                 conforming, valid_syms; n = 20, rng = MersenneTwister(1)))
 
+            # The same validator through the documented defaults (`n = 50`,
+            # `rng = Random.default_rng()`). Every other case here pins both
+            # for reproducibility, which leaves the bare two-argument call —
+            # the form an adopter actually writes — unexercised.
+            @test !check_flags(() -> test_option_validation(
+                conforming, valid_syms))
+
             # A validator that silently accepts anything is exactly the
             # latent bug this convention exists to catch, and fails every
             # fuzz call.

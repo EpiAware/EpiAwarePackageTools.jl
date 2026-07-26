@@ -282,19 +282,17 @@ end
 
 # A name outside `valid`, matching `valid`'s element flavour (`Symbol` vs
 # `AbstractString`) so it round-trips through the same `string`/`repr`
-# formatting the caller's own error message uses. Retries on a collision;
-# the option-name spaces this checks are small enough in practice that a
-# random 12-character suffix essentially never collides, but retrying keeps
-# the fuzz honest rather than assuming that.
+# formatting the caller's own error message uses. Exclusion is by
+# construction rather than by retry: the random part is drawn at least as
+# long as the longest entry of `valid`, so the `"fuzz_"` prefix puts the
+# candidate strictly over that length and it cannot equal any entry. A
+# retry loop instead would need a "gave up after N tries" branch that no
+# test can reach — untestable by construction, so permanently uncovered.
 function _random_name_excluding(valid, rng::Random.AbstractRNG)
-    taken = Set(string.(valid))
     as_symbol = !isempty(valid) && first(valid) isa Symbol
-    for _ in 1:1000
-        candidate = "fuzz_" * Random.randstring(rng, 'a':'z', 12)
-        candidate in taken && continue
-        return as_symbol ? Symbol(candidate) : candidate
-    end
-    error("could not find a name outside $(repr(valid)) after 1000 tries")
+    width = max(12, maximum(length ∘ string, valid; init = 0))
+    candidate = "fuzz_" * Random.randstring(rng, 'a':'z', width)
+    return as_symbol ? Symbol(candidate) : candidate
 end
 
 """
