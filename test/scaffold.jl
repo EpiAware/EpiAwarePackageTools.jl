@@ -3768,3 +3768,55 @@ end
         @test !occursin("{{", dep)
     end
 end
+
+@testitem "coverage task actually instruments the test run (#315)" begin
+    using Test
+    using EpiAwarePackageTools
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    function _fake_pkg(dir; name = "Wombat")
+        write(joinpath(dir, "Project.toml"),
+            "name = \"$name\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        return dir
+    end
+
+    # `Pkg.test()` spawns its own child process for the actual test run, so an
+    # outer `--code-coverage=user` on the driving `julia` process never reaches
+    # it; only `Pkg.test(coverage=true, ...)` controls the child's
+    # instrumentation. `coverage-ad` runs `runtests.jl` directly (no spawned
+    # child), so its own `--code-coverage=user` is legitimate and left alone —
+    # assertions below are scoped to the `coverage:` task's own recipe.
+    function _check_coverage_recipe(dir)
+        tf = read(_dest(dir, "Taskfile.yml"), String)
+        cov_recipe = split(tf, "coverage-ad:")[1]
+        @test occursin("Pkg.test(coverage=true, test_args=[\"skip_quality\"])",
+            cov_recipe)
+        @test !occursin("--code-coverage=user", cov_recipe)
+        # The post-processing step used to `Pkg.add("Coverage")` into
+        # `--project=test`, dirtying the adopter's tracked `test/Project.toml`
+        # (adds the dep, reorders entries) on every routine coverage run. A
+        # shared environment keeps that dependency out of the tracked project
+        # files.
+        @test occursin("julia --project=@coverage -e", cov_recipe)
+        @test !occursin("julia --project=test -e 'using Pkg; Pkg.add(\"Coverage\")",
+            cov_recipe)
+    end
+
+    @testset "ad = true (Taskfile.yml)" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true)
+            _check_coverage_recipe(dir)
+        end
+    end
+
+    @testset "ad = false (Taskfile.noad.yml)" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = false)
+            _check_coverage_recipe(dir)
+        end
+    end
+end
