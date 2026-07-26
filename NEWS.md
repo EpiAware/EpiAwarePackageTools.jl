@@ -31,3 +31,5 @@ Every template-sync/self-drift caller shipped by the kit now calls
 unqualified after a bare `using EpiAwarePackageTools`) needs a one-line
 fix — qualify the call — before their first sync on this kit version, or
 the sync run itself fails.
+
+`build_index`'s HTML-comment strip now recognises the two remaining CommonMark code forms it previously missed: a 4-space indented code block and an inline single-backtick code span. A `<!-- -->` shown as literal example text inside either now survives verbatim on the generated docs index, closing the gap #301/PR#304 deliberately left open (#306).

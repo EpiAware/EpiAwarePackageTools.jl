@@ -273,12 +273,20 @@ end
 # syntax). Nested fences of a different backtick/tilde count (CommonMark lets
 # a longer outer fence "quote" a shorter one verbatim) are not distinguished,
 # but that is no less than the pre-existing ```julia handling already assumes.
-# Indented (4-space) code blocks and inline single-backtick code spans are
-# CommonMark code too but are NOT recognised here -- see `build_index`'s
-# docstring for what that means for a comment shown inside one (#301 review).
+# Indented (4-space) code blocks and inline single-backtick code spans are the
+# other two CommonMark code forms; they are handled separately below (#306)
+# since neither toggles multi-line state the way a fence does.
 function _is_fence_delimiter(line::AbstractString)
     startswith(line, "```") ||
         startswith(line, "~~~")
+end
+
+# Whether `line` is an indented (4-space) CommonMark code block line. Unlike a
+# fence this is a per-line property, not a toggled span: each line stands on
+# its own, so the caller need only skip comment-stripping for lines where this
+# holds (#306) rather than track an `in_indented_code` state across lines.
+function _is_indented_code_line(line::AbstractString)
+    startswith(line, "    ")
 end
 
 # Strip HTML comments from one README line, carrying `in_comment` (whether a
@@ -312,6 +320,31 @@ function _strip_line_comments(line::AbstractString, in_comment::Bool)
     end
 end
 
+# Inline single-backtick code spans (`` `...` ``) are CommonMark code and must
+# survive verbatim even where they show literal `<!--`/`-->` text (#306), but
+# -- unlike a fence -- they open and close within the same line, so no
+# multi-line state is needed for them: a line-level regex finds each span and
+# `_strip_line_comments` runs only on the text between spans, threading
+# `in_comment` across those gaps so a comment that opens before, or continues
+# after, a span is still tracked correctly. Text inside a span never toggles
+# `in_comment`, even if it looks like comment syntax, because it is code.
+const _INLINE_CODE_SPAN = r"`[^`]*`"
+
+function _strip_line_comments_outside_code_spans(line::AbstractString, in_comment::Bool)
+    out = IOBuffer()
+    pos = firstindex(line)
+    for m in eachmatch(_INLINE_CODE_SPAN, line)
+        before, in_comment = _strip_line_comments(line[pos:prevind(line, m.offset)],
+            in_comment)
+        print(out, before)
+        print(out, m.match)
+        pos = m.offset + ncodeunits(m.match)
+    end
+    tail, in_comment = _strip_line_comments(line[pos:end], in_comment)
+    print(out, tail)
+    return String(take!(out)), in_comment
+end
+
 """
     build_index(; readme, dest, repo, execute=true,
                 rewrites=Pair{String,String}[], strip_sections=String[])
@@ -329,12 +362,10 @@ README itself keeps every comment untouched — only the generated index has
 them removed. The strip recognises fenced code blocks (#301): a `<!-- -->`
 shown as literal example text inside a ```` ``` ```` or `~~~` fence (e.g. a
 README teaching a reader what the managed markers look like) survives
-verbatim. This covers the two CommonMark fence styles, not every way
-CommonMark can mark up code — an indented (4-space) code block or an inline
-single-backtick code span showing the same literal text is not recognised as
-code and gets stripped like ordinary prose (a documented limitation, not a
-silent one, tracked in #306; #300's disclosure precedent). ```julia fences
-become runnable
+verbatim. This also covers an indented (4-space) code block and an inline
+single-backtick code span showing the same literal text (#306): all four
+CommonMark ways to mark up code are recognised, and a comment shown inside
+any of them survives untouched. ```julia fences become runnable
 `@example readme` blocks when `execute` is `true`. Each `from => to` in
 `rewrites` is applied line by line
 (e.g. an absolute docs URL rewritten to an in-site `@ref`). Any heading whose
@@ -402,6 +433,10 @@ function build_index(; readme::AbstractString, dest::AbstractString,
         # everything up to and including the matching close are left alone.
         was_in_fence = in_fence
         _is_fence_delimiter(line) && (in_fence = !in_fence)
+        # An indented (4-space) code block line is code even outside a fence
+        # (#306); it has no delimiter to toggle a span, so it is checked and
+        # skipped per line, same as `was_in_fence` above.
+        in_indented_code = !was_in_fence && _is_indented_code_line(line)
         if execute && startswith(line, "```julia")
             println(buf, "```@example readme")
         elseif occursin("docs/src/assets/logo.svg", line)
@@ -411,8 +446,8 @@ function build_index(; readme::AbstractString, dest::AbstractString,
             for (from, to) in rewrites
                 line = replace(line, from => to)
             end
-            if !was_in_fence
-                line, in_comment = _strip_line_comments(line, false)
+            if !was_in_fence && !in_indented_code
+                line, in_comment = _strip_line_comments_outside_code_spans(line, false)
             end
             println(buf, line)
         end

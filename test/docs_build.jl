@@ -237,6 +237,69 @@
         @test occursin("real content after", out)
     end
 
+    @testset "build_index: a comment shown in an indented code block survives (#306)" begin
+        # A README showing the markers via a classic 4-space indented code
+        # block instead of a fence -- CommonMark's other block-code syntax,
+        # not recognised by #301/PR#304's fence-only tracking.
+        readme_with_indented_comment = """
+        # Pkg
+
+        Here's how the managed markers look:
+
+            <!-- standard-sections:start -->
+            some content
+            <!-- standard-sections:end -->
+
+        <!-- standard-sections:start -->
+        real content
+        <!-- standard-sections:end -->
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_indented_comment)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        # The indented example markers survive, verbatim, 4-space-indented.
+        @test occursin(
+            "    <!-- standard-sections:start -->\n    some content\n" *
+            "    <!-- standard-sections:end -->",
+            out)
+        # The real, unindented markers below are still stripped.
+        @test occursin("real content", out)
+        @test count("<!-- standard-sections:start -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 1
+    end
+
+    @testset "build_index: a comment shown in an inline code span survives (#306)" begin
+        # A README showing a marker inline, via a single-backtick code span,
+        # instead of a block -- the other CommonMark code form #301/PR#304's
+        # fence-only tracking does not recognise.
+        readme_with_inline_comment = """
+        # Pkg
+
+        Use `<!-- standard-sections:start -->` inline to show the syntax.
+
+        <!-- standard-sections:start -->
+        real content
+        <!-- standard-sections:end -->
+        """
+        dir = mktempdir()
+        readme = joinpath(dir, "README.md")
+        write(readme, readme_with_inline_comment)
+        dest = joinpath(dir, "index.md")
+        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        out = read(dest, String)
+        # The inline example span survives, verbatim, inside the backticks.
+        @test occursin(
+            "Use `<!-- standard-sections:start -->` inline to show the syntax.",
+            out)
+        # The real markers below are still stripped.
+        @test occursin("real content", out)
+        @test count("<!-- standard-sections:start -->", out) == 1
+        @test count("<!-- standard-sections:end -->", out) == 1
+    end
+
     @testset "build_index: execute=false leaves ```julia" begin
         dir = mktempdir()
         readme = joinpath(dir, "README.md")
