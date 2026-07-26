@@ -1434,7 +1434,11 @@ function api_bindings(mod::Module)
     public = Symbol[]
     private = Symbol[]
     for v in candidates
-        v === nameof(mod) && continue  # skip the module's own docstring
+        # Skip the module's own docstring here: folded into this alphabetical
+        # split it would render mid-list, without introducing the package, so
+        # `build_api_pages` instead renders it separately, prepended to
+        # `public.md` (see `_has_own_docstring`, #313).
+        v === nameof(mod) && continue
         # A re-exported / `public` name that carries no docstring is dropped so
         # the emitted `@docs` block stays render-safe; `mod`'s own meta entries
         # are documented by construction.
@@ -1442,6 +1446,18 @@ function api_bindings(mod::Module)
         push!(_is_public(mod, v) ? public : private, v)
     end
     return public, private
+end
+
+# Whether `mod` itself carries a docstring (the `"""..."""` immediately above
+# its `module mod ... end` line). `api_bindings` deliberately excludes this
+# one binding from its public/private split (see the `continue` above), so
+# without a separate check nothing else in `build_api_pages` would ever
+# render it -- and a `checkdocs = :all` scan (the default for a package with
+# no re-exports) would then always flag it as "not included in the manual",
+# however tidy the rest of the docs are (#313). `build_api_pages` uses this to
+# decide whether to prepend a `@docs` block for `mod` to `public.md`.
+function _has_own_docstring(mod::Module)
+    haskey(Base.Docs.meta(mod), Base.Docs.Binding(mod, nameof(mod)))
 end
 
 # Whether `m` is `root` or nested inside it (a submodule at any depth). The
@@ -1578,7 +1594,7 @@ function _docs_entries(mod::Module, name::Symbol)
 end
 
 function _write_api_page(path, title, anchor, page, intro, api_heading,
-        mod, names)
+        mod, names; own_docstring_entry::Union{Nothing, AbstractString} = nothing)
     mkpath(dirname(path))
     open(path, "w") do io
         if anchor === nothing
@@ -1589,6 +1605,16 @@ function _write_api_page(path, title, anchor, page, intro, api_heading,
         println(io)
         println(io, intro)
         println(io)
+        # `mod`'s own module docstring, when present: rendered ahead of
+        # Contents/Index rather than folded into the alphabetical `@docs`
+        # block below, so it reads as the page's introduction -- the one
+        # place a new visitor actually gets to read it (#313).
+        if own_docstring_entry !== nothing
+            println(io, "```@docs")
+            println(io, own_docstring_entry)
+            println(io, "```")
+            println(io)
+        end
         println(io, "## Contents")
         println(io)
         println(io, "```@contents")
@@ -1619,15 +1645,20 @@ end
     build_api_pages(mod, lib_dir)
 
 Write `lib/public.md` and `lib/internals.md` under `lib_dir` from `mod`'s
-documented bindings (see [`api_bindings`](@ref)).
+documented bindings (see [`api_bindings`](@ref)). `mod`'s own module
+docstring -- deliberately excluded from that public/private split -- is
+prepended to `public.md` as its own `@docs` block when `mod` carries one, so
+it is both readable on the built site and counted towards a `:all`
+`checkdocs` completeness scan (#313).
 """
 function build_api_pages(mod::Module, lib_dir::AbstractString)
     public, private = api_bindings(mod)
+    own_docstring = _has_own_docstring(mod) ? string(mod, ".", nameof(mod)) : nothing
     _write_api_page(
         joinpath(lib_dir, "public.md"),
         "Public Documentation", "public-api", "public.md",
         "Documentation for `$mod`'s public interface.",
-        "Public API", mod, public)
+        "Public API", mod, public; own_docstring_entry = own_docstring)
     _write_api_page(
         joinpath(lib_dir, "internals.md"),
         "Internal Documentation", nothing, "internals.md",
@@ -1953,8 +1984,9 @@ completeness check off the same `modules` list — with no working way to scope
 that check while widening `@docs` resolution — the completeness check is
 disabled whenever the resolution set is widened, so a package is never held
 responsible for a dependency's own missing-docstring hygiene (`mod`'s own
-completeness is already guaranteed by construction: `api_bindings` emits every
-docstring `mod` owns).
+completeness is already guaranteed by construction: [`build_api_pages`](@ref)
+renders every docstring `mod` owns, including `mod`'s own module docstring,
+prepended to `public.md` (#313)).
 
 Each owning module also needs a source remote, which Documenter cannot derive
 for a dependency installed from a git URL (#190). [`api_remotes`](@ref) derives
@@ -2058,9 +2090,13 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     # whenever we widen for re-export resolution we disable the completeness
     # check (`:none`), keeping a package off the hook for its dependencies'
     # own missing-docstring hygiene; `mod`'s own completeness needs no check
-    # here because `api_bindings` emits every docstring `mod` owns by
-    # construction. With no re-exports the default `:all` check over `mod`
-    # alone is kept.
+    # here because `build_api_pages` renders every docstring `mod` owns --
+    # including `mod`'s own module docstring, which `api_bindings` excludes
+    # from its public/private split but `build_api_pages` prepends to
+    # `public.md` in its place (#313; leaving that one binding unrendered
+    # anywhere used to make a `:all` scan misfire on every package with no
+    # re-exports, however tidy its docs otherwise were). With no re-exports
+    # the default `:all` check over `mod` alone is kept.
     checkdocs = length(doc_modules) > 1 ? :none : :all
     # Documenter needs a source remote for every module it resolves docstrings
     # from, and cannot derive one for a dependency installed from a git URL —

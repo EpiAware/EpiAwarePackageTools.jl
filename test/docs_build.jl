@@ -882,6 +882,10 @@
         @test !(:scaffold in private)
         # Every documented binding lands in exactly one bucket.
         @test isempty(intersect(public, private))
+        # The module's own docstring is deliberately excluded from this split
+        # (#313) -- `build_api_pages` renders it separately, below.
+        @test !(:EpiAwarePackageTools in public)
+        @test !(:EpiAwarePackageTools in private)
         dir = mktempdir()
         lib = joinpath(dir, "lib")
         DB.build_api_pages(EpiAwarePackageTools, lib)
@@ -889,9 +893,17 @@
         @test occursin("# [Public Documentation](@id public-api)", pub)
         @test occursin("```@docs", pub)
         @test occursin("EpiAwarePackageTools.scaffold", pub)
+        # The module's own docstring is prepended ahead of Contents/Index
+        # (#313), not folded into the alphabetical Public API list.
+        @test occursin("```@docs\nEpiAwarePackageTools.EpiAwarePackageTools\n```",
+            pub)
+        @test findfirst("EpiAwarePackageTools.EpiAwarePackageTools", pub)[1] <
+              findfirst("## Contents", pub)[1]
         intr = read(joinpath(lib, "internals.md"), String)
         @test occursin("# Internal Documentation", intr)
         @test !occursin("@id public-api", intr)
+        # Only the public page gets the module's own docstring prepended.
+        @test !occursin("EpiAwarePackageTools.EpiAwarePackageTools", intr)
     end
 
     @testset "_check_index_not_truncated fails on a short copy (#91)" begin
@@ -1268,6 +1280,54 @@ end
     widened_checked = makedocs_warnings(doc_modules; checkdocs = :all)
     @test nodocs(widened_checked) == 0
     @test any(m -> occursin("Dep175.dep_only", m), widened_checked)
+end
+
+@testitem "module's own docstring counted by checkdocs :all (#313)" begin
+    using Test
+    using Documenter
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+    const CL = Base.CoreLogging
+
+    # A package with no re-exports (so `build_docs` keeps the default `:all`
+    # checkdocs) whose own `module Pkg313 ... end` line carries a docstring --
+    # the shape #313 reported: `api_bindings` deliberately never lists the
+    # module's own docstring (its `v === nameof(mod) && continue`), so before
+    # the fix nothing ever put it in a `@docs` block and a `:all` scan always
+    # flagged it, however tidy the rest of the docs were.
+    """
+    Pkg313 docstring.
+    """
+    module Pkg313
+    "native docstring"
+    native
+    native() = 1
+    export native
+    end
+
+    # The module's own docstring is rendered -- prepended to `public.md`,
+    # ahead of Contents/Index -- so a visitor actually gets to read it.
+    dir = mktempdir()
+    src = joinpath(dir, "src")
+    DB.build_api_pages(Pkg313, joinpath(src, "lib"))
+    pub = read(joinpath(src, "lib", "public.md"), String)
+    @test occursin("```@docs\nPkg313.Pkg313\n```", pub)
+
+    # And it counts towards a real `:all` completeness scan: no
+    # "not included in the manual" warning for a package with nothing else
+    # missing.
+    write(joinpath(src, "index.md"), "# Home\n\nHome.\n")
+    pages = ["Home" => "index.md",
+        "Public" => "lib/public.md", "Internals" => "lib/internals.md"]
+    logger = Test.TestLogger(; min_level = CL.Debug)
+    CL.with_logger(logger) do
+        Documenter.makedocs(; root = dir, sitename = "Pkg313",
+            modules = Module[Pkg313], pages = pages, remotes = nothing,
+            doctest = false, warnonly = true, checkdocs = :all,
+            format = Documenter.HTML())
+    end
+    msgs = [string(r.message) for r in logger.logs if r.level >= CL.Warn]
+    @test !any(m -> occursin("not included in the manual", m), msgs)
 end
 
 @testitem "benchmark history table reshaping (#193)" begin
