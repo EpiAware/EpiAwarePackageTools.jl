@@ -7,10 +7,15 @@ The extensions are read from the package's own `Project.toml` rather than
 gated by a kwarg: an extension is a fact about the package, unlike the
 benchmark and AD opt-ins.
 The pages are package-owned and write-once, so authored scope prose survives
-every sync, and each ships its public-API `@autodocs` block commented out —
-an extension module exists only once its weakdeps load, so a live block would
-red the docs build of a package whose docs environment does not carry them
-yet.
+every sync, and each ships its public-API `@autodocs` block inert, as a code
+sample inside an outer fence — an extension module exists only once its
+weakdeps load, so a live block would red the docs build of a package whose
+docs environment does not carry them yet.
+An HTML comment would not do: Documenter parses with the `Markdown` stdlib,
+which has no CommonMark HTML-block handling, so a fence inside `<!-- -->` is
+still live to it (the quirk behind #301/#304).
+A page that the write-once nav in `docs/pages.jl` does not list is reported as
+a warning naming the entry to add, rather than left unreachable.
 A build drops any Extensions entry whose page is missing, so a package that
 was scaffolded before this, or that removed an extension, never publishes a
 dangling link.

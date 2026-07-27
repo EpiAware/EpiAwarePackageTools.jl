@@ -1644,9 +1644,14 @@ end
 # The part of an extension module name that identifies it: the package name
 # prefix and the conventional `Ext` suffix carry no information
 # (`DistributionsPlotComposedDistributionsExt` -> `ComposedDistributions`).
-# Stripping two fixed affixes preserves uniqueness, so distinct extensions
-# keep distinct stems. Falls back to the full name when stripping would leave
-# nothing (an extension named exactly `<Package>Ext`).
+# Falls back to the full name when stripping would leave nothing (an extension
+# named exactly `<Package>Ext`).
+#
+# Stripping is not injective: only the prefixed name carries the package, so
+# `WombatPlotsExt` and a bare `PlotsExt` in the same package both stem to
+# `Plots`. `_package_extensions` resolves the resulting slug collision, since
+# two nav entries pointing at one page would silently document one extension
+# under both labels.
 function _extension_stem(name::AbstractString, package::AbstractString)
     stem = String(name)
     startswith(stem, package) && (stem = stem[(ncodeunits(package) + 1):end])
@@ -1697,7 +1702,18 @@ function _package_extensions(target_dir::AbstractString)
         push!(pages, ExtensionPage(String(name), title, _extension_slug(stem)))
     end
     sort!(pages, by = p -> (p.title, p.name))
-    return pages
+    # Stemming can map two distinct extensions onto one slug (a prefixed
+    # `WombatPlotsExt` and a bare `PlotsExt`), which would point two nav
+    # entries at one page and leave one extension documented under the other's
+    # label. The extension names themselves are unique by construction, so
+    # every member of a colliding set falls back to its own full name.
+    counts = Dict{String, Int}()
+    for p in pages
+        counts[p.slug] = get(counts, p.slug, 0) + 1
+    end
+    return ExtensionPage[counts[p.slug] == 1 ? p :
+                         ExtensionPage(p.name, p.title,
+                             _extension_slug(p.name)) for p in pages]
 end
 
 # The top-level "Extensions" nav group for `docs/pages.jl`. Empty (no group at
@@ -1715,13 +1731,21 @@ end
 # The seeded page for one extension. Package-owned: it carries the scope prose
 # the package authors write, so the kit seeds a stub and never returns to it.
 #
-# The public-API block is seeded commented out. An extension module only
-# exists once its weakdeps are loaded, so an `@autodocs` block over
-# `Base.get_extension` errors the whole docs build in a docs environment that
-# does not yet carry those weakdeps — which is every freshly-scaffolded
-# package. Seeding it live would hand each adopter a red docs build; seeding
-# it commented, next to the one-line docs-env change it needs, leaves the
-# build green and the step obvious.
+# The public-API block is seeded inert, as the body of an outer ````markdown
+# fence. An extension module only exists once its weakdeps are loaded, so a
+# live `@autodocs` block over `Base.get_extension` kills the docs build of a
+# docs environment that does not yet carry them — which is every
+# freshly-scaffolded package: the expression evaluates to `nothing`, and
+# Documenter's `DocSystem.getmeta(nothing)` `MethodError`s outside the `try`
+# that `warnonly = [:autodocs_block]` catches, so it is fatal rather than a
+# warning.
+#
+# An HTML comment cannot do this job. Documenter parses pages with the
+# `Markdown` stdlib, which has no CommonMark HTML-block handling, so a
+# ```@autodocs fence inside `<!-- -->` is still a live code block to it (the
+# same parser quirk that made `build_index` strip README comments by hand in
+# #301/#304). The nested fence renders as a visible, inert code sample, which
+# also reads better: the adopter sees exactly what to paste.
 function _render_extension_page(page::ExtensionPage, package::AbstractString)
     return string(
         "# [", page.title, " extension](@id extension-", page.slug, ")\n",
@@ -1736,18 +1760,17 @@ function _render_extension_page(page::ExtensionPage, package::AbstractString)
         "\n",
         "## Public API\n",
         "\n",
-        "Uncomment the block below once the docs environment loads ",
-        page.title, "\n",
-        "(add it to `docs/Project.toml`, and the extension module to ",
-        "`EXTRA_MODULES`\n",
-        "in `docs/docs_config.jl`), and the extension's docstrings render ",
-        "here.\n",
+        "Add ", page.title, " to `docs/Project.toml` and the extension ",
+        "module to\n",
+        "`EXTRA_MODULES` in `docs/docs_config.jl`, then replace this block ",
+        "with the\n",
+        "one inside it, and the extension's docstrings render here.\n",
         "\n",
-        "<!--\n",
+        "````markdown\n",
         "```@autodocs\n",
         "Modules = [Base.get_extension(", package, ", :", page.name, ")]\n",
         "```\n",
-        "-->\n")
+        "````\n")
 end
 
 # Seed the package-owned extension pages under `docs/src/extensions`, one per
@@ -1773,6 +1796,40 @@ function _apply_extension_pages(target_dir::AbstractString,
         push!(created, dest)
     end
     return (created, preserved)
+end
+
+# The extension pages a package has on disk that nothing in its nav points at.
+#
+# `docs/pages.jl` is package-owned and write-once, so the `EXTENSIONS_NAV`
+# group only ever reflects the `[extensions]` declared at first scaffold. A
+# package that declares an extension later and re-runs an unforced `scaffold`
+# gets the page seeded (it is absent, so write-once writes it) but no nav
+# entry, leaving a file nothing links to and the build-time strip nothing to
+# strip. Name it, with the entry to add, rather than leaving it to be noticed
+# on a published site (#319). Returns a `warnings` message, or `nothing` when
+# every page is reachable.
+function _extension_pages_unlinked(target_dir::AbstractString)
+    pages = _package_extensions(target_dir)
+    isempty(pages) && return nothing
+    nav = _dest_path(target_dir, "docs/pages.jl")
+    isfile(nav) || return nothing
+    text = read(nav, String)
+    missing_pages = [p for p in pages
+                     if !occursin("extensions/" * p.slug * ".md", text)]
+    isempty(missing_pages) && return nothing
+    entries = join(
+        (string("\"", p.title, "\" => \"extensions/", p.slug,
+             ".md\"") for p in missing_pages), ", ")
+    return string("docs/pages.jl has no nav entry for ",
+        length(missing_pages) == 1 ? "the extension page " : "the extension pages ",
+        join((string("extensions/", p.slug, ".md") for p in missing_pages),
+            ", "),
+        ", so ", length(missing_pages) == 1 ? "it is" : "they are",
+        " built but unreachable. `pages.jl` is package-owned and written ",
+        "once, so the kit cannot add ", length(missing_pages) == 1 ? "it" :
+                                        "them",
+        " on a later run: add ", entries,
+        " to the \"Extensions\" group by hand (#319).")
 end
 
 # The `[sources]` path pin from the docs env to the registry.
@@ -2929,6 +2986,12 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     ext_created, ext_preserved = managed_only ? (String[], String[]) :
                                  _apply_extension_pages(
         target_dir, inputs; force = force)
+    # A page the write-once seeding just laid down (or one already present)
+    # that the write-once nav never learned about is built but unreachable —
+    # see `_extension_pages_unlinked`. Warn with the exact entry to add
+    # rather than let it be found on a published site.
+    ext_unlinked = _extension_pages_unlinked(target_dir)
+    ext_unlinked === nothing || push!(warnings, ext_unlinked)
     # LICENSE is package-owned and write-once: only `scaffold`/`scaffold_generate`
     # (`managed_only = false`) may write it, and only when absent. `update`
     # (`managed_only = true`) never touches it, so a deliberate licence stands.
@@ -3292,7 +3355,8 @@ managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 managed files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, warnings)` named tuple:
+gitignore, logo, standard_sections, citation, org_branding, extension_pages,
+warnings)` named tuple:
 destination paths newly written, managed files overwritten, package-owned
 files left in place, retired managed paths deleted (`RETIRED_PATHS`, #185),
 the README badge action (`:created`, `:injected`, `:refreshed`, or
@@ -3302,8 +3366,10 @@ action (`:created`, `:injected`, or `:refreshed`), the README logo-title
 action (`:injected`, `:preserved`, or `:skipped` when no logo file exists
 yet), the managed standard-sections action (`:refreshed`, `:injected`, or
 `:skipped`), the `CITATION.cff` action (`:created`, `:preserved`, or
-`:skipped`), and non-fatal `warnings` raised while applying (a
-`Vector{String}`).
+`:skipped`), the org-branding asset action, the seeded per-extension docs
+pages as a `(created, preserved)` pair of path vectors (#319; both empty for
+a package with no `[extensions]`), and non-fatal `warnings` raised while
+applying (a `Vector{String}`).
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
@@ -3429,15 +3495,18 @@ Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, org_branding, warnings)` named
+gitignore, logo, standard_sections, citation, org_branding, extension_pages,
+warnings)` named
 tuple: managed files newly added, managed files rewritten, preserved files,
 retired paths deleted, the README badge action, the `LICENSE` action
 (`:skipped` on update), the root `[workspace]` stanza action, the `.gitignore`
 managed-block action, the README logo-title action, the managed
 standard-sections action, the `CITATION.cff` action (`:created` or
 `:preserved` — unlike `LICENSE`, `update` seeds this one when absent, #322),
-the org-branding asset action, and non-fatal warnings raised while applying (a
-`Vector{String}`).
+the org-branding asset action, the per-extension docs pages as a
+`(created, preserved)` pair of path vectors (both always empty here: those
+pages are package-owned, and only `scaffold` seeds them, #319), and non-fatal
+warnings raised while applying (a `Vector{String}`).
 """
 function update(target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,

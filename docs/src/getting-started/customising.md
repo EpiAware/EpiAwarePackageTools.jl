@@ -53,13 +53,13 @@ reader sees `Plots`, not `MyPackagePlotsExt`.
 
 Each page is yours: write what the extension adds and what a reader has
 to load to get it.
-The public-API block is seeded commented out, because an extension module
-exists only once its weakdeps are loaded — a live `@autodocs` block would
-fail the docs build of a package whose docs environment does not carry
-them.
+The public-API block is seeded inert, shown as a code sample rather than
+run, because an extension module exists only once its weakdeps are loaded
+— a live `@autodocs` block would fail the docs build of a package whose
+docs environment does not carry them.
 To turn it on, add the weakdep to `docs/Project.toml`, add the extension
-module to `EXTRA_MODULES` in `docs/docs_config.jl`, and uncomment the
-block.
+module to `EXTRA_MODULES` in `docs/docs_config.jl`, and replace the outer
+block with the one inside it.
 
 `docs/pages.jl` is written once, so an extension added after scaffolding
 needs its page and its one nav line by hand — as a package does today
