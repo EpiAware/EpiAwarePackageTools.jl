@@ -1831,6 +1831,38 @@ end
 # (at any nesting depth). Used when the benchmark page is disabled but a
 # package-owned `pages.jl` still lists the entry, so the built nav carries no
 # dangling link. Every non-benchmark entry is kept unchanged.
+# Remove any `... => "extensions/<page>.md"` leaf whose source page is not
+# present under `src_dir`, and any nav group left empty by that removal. The
+# extension nav group is written once into the package-owned `pages.jl` from
+# the `[extensions]` a package declared at scaffold time (`EXTENSIONS_NAV`),
+# and its pages are package-owned too, so a package that drops an extension
+# (or was scaffolded before the kit seeded these pages) would otherwise build
+# a nav with a dangling link. Judging on the page rather than on the current
+# `[extensions]` table keeps an authored page that outlives its extension —
+# what the package committed wins, as everywhere else in the docs build (#319).
+function _strip_extensions_nav(pages, src_dir::AbstractString)
+    kept = Any[]
+    for entry in pages
+        if entry isa Pair && entry.second isa AbstractString
+            target = entry.second
+            if startswith(target, "extensions/") && endswith(target, ".md") &&
+               !isfile(joinpath(src_dir, split(target, '/')...))
+                continue
+            end
+            push!(kept, entry)
+        elseif entry isa Pair && entry.second isa AbstractVector
+            inner = _strip_extensions_nav(entry.second, src_dir)
+            # A group that held only extension pages, all now stripped, is
+            # itself dropped: an empty "Extensions" dropdown is worse than none.
+            isempty(inner) && !isempty(entry.second) && continue
+            push!(kept, entry.first => inner)
+        else
+            push!(kept, entry)
+        end
+    end
+    return kept
+end
+
 function _strip_benchmark_nav(pages)
     kept = Any[]
     for entry in pages
@@ -1980,6 +2012,9 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         # tree with no dangling "benchmarks.md" link.
         pages = _strip_benchmark_nav(pages)
     end
+    # Unconditional, unlike the benchmark strip: there is no extensions flag to
+    # gate on — the nav is honest when every entry it lists has a page (#319).
+    pages = _strip_extensions_nav(pages, src_dir)
     build_api_pages(mod, joinpath(src_dir, "lib"))
 
     # --- render ------------------------------------------------------------

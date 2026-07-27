@@ -74,6 +74,10 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
                            TYPEDFIELDS, TYPEDSIGNATURES
 import Dates
 import UUIDs
+# `Pkg.TOML` parses a target's Project.toml where a line scan will not do —
+# the `[extensions]` table's values are strings or arrays of strings (see
+# `_package_extensions`). Pkg is already a hard dependency of the kit.
+import Pkg
 # `Test` (the module) is needed for the test-runner machinery in
 # `run_tests.jl` (`Test.push_testset`/`get_testset`/`record`/`finish`); the
 # selective `using Test: ...` above only pulls in the assertion macros.

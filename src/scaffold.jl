@@ -1607,6 +1607,162 @@ function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
         "Statistics = \"10745b16-79ce-11e8-11f9-7d13ad32a3b2\"\n")
 end
 
+# --- the extensions docs surface --------------------------------------------
+#
+# A package that ships `[extensions]` gets an "Extensions" nav group in its
+# docs, one entry per extension, each pointing at a package-owned page under
+# `docs/src/extensions/`. This mirrors the `BENCHMARKS_NAV` /
+# `AD_TUTORIALS_NAV` substitution pattern rather than adding a mechanism: the
+# nav block is rendered into the package-owned `docs/pages.jl` at scaffold
+# time, and `DocsBuild._strip_extensions_nav` keeps a built site honest when a
+# page named there no longer exists (#319).
+#
+# Detected from the target's Project.toml, not gated by a kwarg: an extension
+# is a fact about the package, unlike the benchmark and AD opt-ins, which
+# choose whether to run CI a package could equally do without.
+
+# One extension's docs page: the `[extensions]` key (the extension module
+# name), the nav label, and the page basename under `docs/src/extensions`.
+struct ExtensionPage
+    name::String
+    title::String
+    slug::String
+end
+
+# The part of an extension module name that identifies it: the package name
+# prefix and the conventional `Ext` suffix carry no information
+# (`DistributionsPlotComposedDistributionsExt` -> `ComposedDistributions`).
+# Stripping two fixed affixes preserves uniqueness, so distinct extensions
+# keep distinct stems. Falls back to the full name when stripping would leave
+# nothing (an extension named exactly `<Package>Ext`).
+function _extension_stem(name::AbstractString, package::AbstractString)
+    stem = String(name)
+    startswith(stem, package) && (stem = stem[(ncodeunits(package) + 1):end])
+    endswith(stem, "Ext") && (stem = stem[1:(end - 3)])
+    return isempty(stem) ? String(name) : stem
+end
+
+# The page basename for an extension: its stem in kebab-case
+# (`ComposedDistributions` -> `composed-distributions`), so the published URL
+# reads like the rest of the site rather than like a module name.
+function _extension_slug(stem::AbstractString)
+    kebab = replace(String(stem), r"(?<=[a-z0-9])(?=[A-Z])" => "-")
+    return lowercase(kebab)
+end
+
+# The extensions a package declares, as docs pages, sorted by title so the nav
+# order is deterministic (TOML tables are unordered).
+#
+# The nav label comes from the weakdep(s) the extension loads on rather than
+# from the extension module name: a reader recognises "Plots", not
+# "CensoredDistributionsPlotsExt". An extension triggered by several weakdeps
+# is labelled with all of them. Falls back to the stem for an extension whose
+# `[weakdeps]` entry is missing.
+#
+# Returns empty when there is no Project.toml, no `[extensions]` table, or the
+# file does not parse — an unsubstituted template still carrying
+# `{{PLACEHOLDER}}` is not valid TOML, and is not worth an error here.
+function _package_extensions(target_dir::AbstractString)
+    proj = joinpath(target_dir, "Project.toml")
+    isfile(proj) || return ExtensionPage[]
+    parsed = try
+        Pkg.TOML.parsefile(proj)
+    catch
+        return ExtensionPage[]
+    end
+    exts = get(parsed, "extensions", nothing)
+    exts isa AbstractDict || return ExtensionPage[]
+    package = string(get(parsed, "name", ""))
+    pages = ExtensionPage[]
+    for (name, triggers) in exts
+        stem = _extension_stem(name, package)
+        # A `[extensions]` value is one weakdep or a list of them.
+        weakdeps = triggers isa AbstractVector ?
+                   String[string(t) for t in triggers] :
+                   String[string(triggers)]
+        filter!(!isempty, weakdeps)
+        title = isempty(weakdeps) ? stem : join(sort!(weakdeps), " + ")
+        push!(pages, ExtensionPage(String(name), title, _extension_slug(stem)))
+    end
+    sort!(pages, by = p -> (p.title, p.name))
+    return pages
+end
+
+# The top-level "Extensions" nav group for `docs/pages.jl`. Empty (no group at
+# all) for a package with no extensions, exactly as `BENCHMARKS_NAV` is empty
+# without benchmarks.
+function _extensions_nav(target_dir::AbstractString)
+    pages = _package_extensions(target_dir)
+    isempty(pages) && return ""
+    entries = [string("        \"", p.title, "\" => \"extensions/", p.slug,
+                   ".md\"") for p in pages]
+    return string(",\n    \"Extensions\" => [\n", join(entries, ",\n"),
+        "\n    ]")
+end
+
+# The seeded page for one extension. Package-owned: it carries the scope prose
+# the package authors write, so the kit seeds a stub and never returns to it.
+#
+# The public-API block is seeded commented out. An extension module only
+# exists once its weakdeps are loaded, so an `@autodocs` block over
+# `Base.get_extension` errors the whole docs build in a docs environment that
+# does not yet carry those weakdeps — which is every freshly-scaffolded
+# package. Seeding it live would hand each adopter a red docs build; seeding
+# it commented, next to the one-line docs-env change it needs, leaves the
+# build green and the step obvious.
+function _render_extension_page(page::ExtensionPage, package::AbstractString)
+    return string(
+        "# [", page.title, " extension](@id extension-", page.slug, ")\n",
+        "\n",
+        "`", page.name, "` is loaded automatically when ", page.title,
+        " is available alongside ", package, ".\n",
+        "\n",
+        "## Scope\n",
+        "\n",
+        "Describe what this extension adds, and what a reader needs to load ",
+        "to get it.\n",
+        "\n",
+        "## Public API\n",
+        "\n",
+        "Uncomment the block below once the docs environment loads ",
+        page.title, "\n",
+        "(add it to `docs/Project.toml`, and the extension module to ",
+        "`EXTRA_MODULES`\n",
+        "in `docs/docs_config.jl`), and the extension's docstrings render ",
+        "here.\n",
+        "\n",
+        "<!--\n",
+        "```@autodocs\n",
+        "Modules = [Base.get_extension(", package, ", :", page.name, ")]\n",
+        "```\n",
+        "-->\n")
+end
+
+# Seed the package-owned extension pages under `docs/src/extensions`, one per
+# declared extension. Write-once, like LICENSE and CITATION.cff: an existing
+# page is never rewritten, so authored scope prose survives every sync.
+# Returns `(created, preserved)` destination paths.
+function _apply_extension_pages(target_dir::AbstractString,
+        inputs::NamedTuple; force::Bool)
+    created = String[]
+    preserved = String[]
+    pkg = inputs.PACKAGE
+    pkg === nothing && return (created, preserved)
+    for page in _package_extensions(target_dir)
+        dest = _dest_path(target_dir,
+            string("docs/src/extensions/", page.slug, ".md"))
+        if isfile(dest) && !force
+            push!(preserved, dest)
+            continue
+        end
+        mkpath(dirname(dest))
+        _make_writable(dest)
+        write(dest, _render_extension_page(page, String(pkg)))
+        push!(created, dest)
+    end
+    return (created, preserved)
+end
+
 # The `[sources]` path pin from the docs env to the registry.
 function _ad_docs_sources(ad::Bool)
     ad || return ""
@@ -2610,6 +2766,10 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             AD_HEAVY_TUTORIALS = _ad_heavy_tutorials(ad),
             AD_TUTORIAL_STUBS = _ad_tutorial_stubs(ad),
             AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
+            # The extensions docs surface: the nav group for whatever
+            # `[extensions]` the target declares, empty when it declares none
+            # (see `_extensions_nav`).
+            EXTENSIONS_NAV = _extensions_nav(target_dir),
             AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
             AD_DOCS_SOURCES = _ad_docs_sources(ad),
             AD_DOCS_COMPAT = _ad_docs_compat(ad),
@@ -2735,6 +2895,18 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # separately (`citation`) so the template manifest stays template-driven.
     citation_action = managed_only ? :skipped :
                       _apply_citation_cff(target_dir, inputs)
+    # The per-extension docs pages are package-owned and write-once, like
+    # CITATION.cff: only `scaffold`/`scaffold_generate` seed them, and only
+    # when absent, so authored scope prose survives every sync. Their nav
+    # group lives in the package-owned `docs/pages.jl` (`EXTENSIONS_NAV`), so
+    # a package that adds an extension after adopting the kit adds the page
+    # and its one nav line by hand — the same contract as flipping
+    # `benchmarks = true` on an already-scaffolded package. Reported
+    # separately (`extension_pages`) so the template manifest stays
+    # template-driven (#319).
+    ext_created, ext_preserved = managed_only ? (String[], String[]) :
+                                 _apply_extension_pages(
+        target_dir, inputs; force = force)
     # LICENSE is package-owned and write-once: only `scaffold`/`scaffold_generate`
     # (`managed_only = false`) may write it, and only when absent. `update`
     # (`managed_only = true`) never touches it, so a deliberate licence stands.
@@ -2829,6 +3001,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         workspace = workspace_action, gitignore = gitignore_action,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
+        extension_pages = (created = ext_created, preserved = ext_preserved),
         warnings = warnings)
 end
 

@@ -1893,3 +1893,42 @@ end
     # Falls back to the bare form rather than raising.
     @test occursin("Pkg303.mean\n", pub)
 end
+
+@testitem "_strip_extensions_nav drops entries with no page (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    mktempdir() do src_dir
+        mkpath(joinpath(src_dir, "extensions"))
+        write(joinpath(src_dir, "extensions", "plots.md"), "# Plots\n")
+        pages = [
+            "Home" => "index.md",
+            "Extensions" => [
+                "Plots" => "extensions/plots.md",
+                "Tables" => "extensions/tables.md"
+            ],
+            "Benchmarks" => "benchmarks.md"]
+        out = DB._strip_extensions_nav(pages, src_dir)
+        # The page that exists is kept; the one that does not is dropped, so
+        # the built nav carries no dangling link.
+        @test length(out) == 3
+        exts = only(e.second for e in out if e.first == "Extensions")
+        @test exts == ["Plots" => "extensions/plots.md"]
+        # Nothing outside the extensions pages is touched.
+        @test out[1] == ("Home" => "index.md")
+        @test out[end] == ("Benchmarks" => "benchmarks.md")
+
+        # With no pages at all the group itself goes: an empty dropdown is
+        # worse than none. This is the package-scaffolded-before-#319 case.
+        gone = DB._strip_extensions_nav(
+            ["Home" => "index.md",
+                "Extensions" => ["Tables" => "extensions/tables.md"]], src_dir)
+        @test gone == ["Home" => "index.md"]
+
+        # A tree with no extensions entries is returned unchanged in shape.
+        plain = ["Home" => "index.md",
+            "API reference" => ["Public API" => "lib/public.md"]]
+        @test DB._strip_extensions_nav(plain, src_dir) == plain
+    end
+end

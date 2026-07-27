@@ -20,6 +20,9 @@ This page explains which files are yours to rewrite and where to start.
 - `CITATION.cff` — your citation metadata (authors, DOI, version).
   Seeded once so GitHub renders a "Cite this repository" widget, then
   never rewritten; edit it as the package is released.
+- `docs/src/extensions/*.md` — one page per package extension, seeded
+  from the `[extensions]` your `Project.toml` declared at scaffold time.
+  See [Documenting extensions](@ref documenting-extensions) below.
 
 See [Infrastructure and template sync](@ref infrastructure) for the
 full managed-versus-package-owned breakdown.
@@ -39,6 +42,31 @@ The kit's own copies of these pages (the ones this documentation site
 renders) are the worked example: this site is a real adopter of the
 scaffold, seeded once and then hand-edited the same way any adopting
 package's docs would be.
+
+## [Documenting extensions](@id documenting-extensions)
+
+A package that declares `[extensions]` gets an `Extensions` group in its
+nav when it is scaffolded, one entry per extension, each pointing at a
+seeded page under `docs/src/extensions/`.
+The entry is labelled with the weakdep that triggers the extension, so a
+reader sees `Plots`, not `MyPackagePlotsExt`.
+
+Each page is yours: write what the extension adds and what a reader has
+to load to get it.
+The public-API block is seeded commented out, because an extension module
+exists only once its weakdeps are loaded — a live `@autodocs` block would
+fail the docs build of a package whose docs environment does not carry
+them.
+To turn it on, add the weakdep to `docs/Project.toml`, add the extension
+module to `EXTRA_MODULES` in `docs/docs_config.jl`, and uncomment the
+block.
+
+`docs/pages.jl` is written once, so an extension added after scaffolding
+needs its page and its one nav line by hand — as a package does today
+when it turns benchmarks on.
+A build drops any `Extensions` entry whose page is missing, so a nav
+never carries a dangling link, and the group disappears entirely once
+nothing is left in it.
 
 ## What stays managed
 

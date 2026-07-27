@@ -1,5 +1,23 @@
 ## Unreleased
 
+A package that declares `[extensions]` now gets an "Extensions" group in its
+docs nav, one entry per extension, each pointing at a seeded page under
+`docs/src/extensions/` (#319).
+The extensions are read from the package's own `Project.toml` rather than
+gated by a kwarg: an extension is a fact about the package, unlike the
+benchmark and AD opt-ins.
+The pages are package-owned and write-once, so authored scope prose survives
+every sync, and each ships its public-API `@autodocs` block commented out —
+an extension module exists only once its weakdeps load, so a live block would
+red the docs build of a package whose docs environment does not carry them
+yet.
+A build drops any Extensions entry whose page is missing, so a package that
+was scaffolded before this, or that removed an extension, never publishes a
+dangling link.
+`docs/pages.jl` is package-owned and written once, so an already-scaffolded
+package adds the group by hand, as it does today when it flips
+`benchmarks = true`.
+
 **Breaking**: `scaffold_update` is renamed back to `update`, and is now
 `public`, not `export`ed (#294).
 A bare `using EpiAwarePackageTools` no longer brings it into scope — call

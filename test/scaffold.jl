@@ -3768,3 +3768,101 @@ end
         @test !occursin("{{", dep)
     end
 end
+
+@testitem "extensions get a docs nav group and seeded pages (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions, _extensions_nav,
+                                _extension_stem, _extension_slug
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    # The stem drops the two affixes that carry no information, so the nav and
+    # the page name read as the feature rather than as a module name.
+    @test _extension_stem("WombatPlotsExt", "Wombat") == "Plots"
+    @test _extension_stem("WombatComposedDistributionsExt", "Wombat") ==
+          "ComposedDistributions"
+    # An extension named exactly `<Package>Ext` keeps its full name rather
+    # than stemming to nothing.
+    @test _extension_stem("WombatExt", "Wombat") == "WombatExt"
+    @test _extension_slug("ComposedDistributions") == "composed-distributions"
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n" *
+            "\n[weakdeps]\n" *
+            "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+            "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+            "\n[extensions]\n" *
+            "WombatPlotsExt = \"Plots\"\n" *
+            "WombatTablesExt = [\"DataFrames\", \"Plots\"]\n")
+
+        # Detected from Project.toml, with no opt-in kwarg: an extension is a
+        # fact about the package, not a CI choice.
+        pages = _package_extensions(dir)
+        @test length(pages) == 2
+        # Labelled by the weakdep(s) that trigger the extension, sorted so the
+        # nav order does not depend on TOML table order.
+        @test [p.title for p in pages] == ["DataFrames + Plots", "Plots"]
+        @test [p.slug for p in pages] == ["tables", "plots"]
+
+        nav = _extensions_nav(dir)
+        @test occursin("\"Extensions\" => [", nav)
+        @test occursin("\"Plots\" => \"extensions/plots.md\"", nav)
+        @test occursin("\"DataFrames + Plots\" => \"extensions/tables.md\"",
+            nav)
+
+        scaffold(dir)
+        pages_jl = read(_dest(dir, "docs/pages.jl"), String)
+        @test occursin("\"Extensions\" => [", pages_jl)
+        @test occursin("extensions/plots.md", pages_jl)
+        @test occursin("extensions/tables.md", pages_jl)
+        @test !occursin("{{", pages_jl)
+        # The nav tree still evaluates: a malformed substitution would take
+        # every adopter's docs build down at `include("pages.jl")`.
+        nav_pages = include(_dest(dir, "docs/pages.jl"))
+        @test any(e -> e isa Pair && e.first == "Extensions", nav_pages)
+
+        # Every entry resolves to a seeded page.
+        plots_md = _dest(dir, "docs/src/extensions/plots.md")
+        @test isfile(plots_md)
+        @test isfile(_dest(dir, "docs/src/extensions/tables.md"))
+        page = read(plots_md, String)
+        @test occursin("(@id extension-plots)", page)
+        @test occursin("WombatPlotsExt", page)
+        # The public-API block ships commented out: an extension module only
+        # exists once its weakdeps load, so a live `@autodocs` over
+        # `Base.get_extension` would red every freshly-scaffolded docs build.
+        @test occursin("Modules = [Base.get_extension(Wombat, " *
+                       ":WombatPlotsExt)]", page)
+        @test occursin("<!--", page)
+
+        # The pages are package-owned: authored scope prose survives a sync.
+        write(plots_md, "# Plots extension\n\nAuthored prose.\n")
+        EpiAwarePackageTools.update(dir)
+        @test read(plots_md, String) == "# Plots extension\n\nAuthored prose.\n"
+    end
+end
+
+@testitem "a package with no extensions gets no Extensions nav (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions, _extensions_nav
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        @test isempty(_package_extensions(dir))
+        @test _extensions_nav(dir) == ""
+
+        scaffold(dir)
+        pages_jl = read(_dest(dir, "docs/pages.jl"), String)
+        @test !occursin("Extensions", pages_jl[
+            (something(findfirst("pages = [", pages_jl)).start):end])
+        @test !isdir(_dest(dir, "docs/src/extensions"))
+    end
+end
