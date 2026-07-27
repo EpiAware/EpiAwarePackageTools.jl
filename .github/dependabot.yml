@@ -8,9 +8,12 @@ updates:
     directory: "/"
     schedule:
       # Daily, so a fix in the shared workflows reaches this repository within a
-      # day rather than waiting up to a week. Grouping (below) is what keeps the
-      # cost of that flat: a daily run refreshes the one open grouped PR instead
-      # of opening more (#312).
+      # day rather than waiting up to a week. Grouping (below) is what makes
+      # that affordable: a daily run refreshes the one open grouped PR instead
+      # of opening more, so the open-PR count is unchanged. It is not free —
+      # each refresh is a new commit, and so a new CI run, where a weekly
+      # interval let a week's bumps share one — that is the trade #312 takes
+      # deliberately (#312).
       interval: "daily"
     # Bundle every github-actions bump (third-party actions + the EpiAware
     # reusable-workflow SHAs) into a single grouped PR per run, so one
@@ -33,7 +36,10 @@ updates:
     schedule:
       # Daily for the same reason as the github-actions ecosystem above: the
       # grouped PR is refreshed in place, so a shorter interval buys faster
-      # dependency updates without more open PRs (#312).
+      # dependency updates without more open PRs. This is the ecosystem where
+      # a refresh costs the most CI (the full test matrix reruns), so a
+      # package that would rather trade update latency for runner time sets
+      # this one back to `weekly` — the grouping is what matters (#312).
       interval: "daily"
     # One grouped PR per run for all Julia dependency bumps across the
     # workspace environments, rather than a separate PR per package (#249).

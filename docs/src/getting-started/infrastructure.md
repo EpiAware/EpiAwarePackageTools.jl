@@ -122,6 +122,9 @@ Two workflows keep an adopting package aligned with the kit.
   repository without manual edits.
   It runs daily, and every bump within an ecosystem is grouped into one pull
   request, so a run refreshes that pull request rather than opening more.
+  The refresh is a new commit, so it costs a check run; a package that would
+  rather wait longer than spend the runner time sets the `julia` ecosystem
+  back to `weekly` in its own copy.
 
 An improvement made once in the kit therefore propagates to every adopting
 package on the next sync.
