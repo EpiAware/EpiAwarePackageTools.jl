@@ -94,9 +94,9 @@ tasks:
     desc: Run tests with coverage and generate an lcov report
     cmds:
       - echo "📊 Running tests with coverage..."
-      - julia --project=. --code-coverage=user -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
+      - julia --project=. -e 'using Pkg; Pkg.test(coverage=true, test_args=["skip_quality"])'
       - echo "📊 Processing coverage data..."
-      - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; LCOV.writefile("lcov.info", process_folder())'
+      - julia --project=@coverage -e 'using Pkg; Pkg.add("Coverage"); using Coverage; LCOV.writefile("lcov.info", process_folder())'
       - echo "✅ Coverage report generated (lcov.info)"
 
   coverage-ad:

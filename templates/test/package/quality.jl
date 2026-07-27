@@ -63,7 +63,23 @@ end
 @testitem "Quality: formatting" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
-    test_formatting(QA_CONFIG.mod)
+    # `formatter_env` is a newer package-owned `QA_CONFIG` field; `qa_config.jl`
+    # is package-owned (not re-applied by `update`), so an adopter predating it
+    # has no `formatter_env` key. Fall back to the in-process check (today's
+    # behaviour, which floats with the shared test environment's resolved
+    # JuliaFormatter) rather than erroring on the missing field. Warn, so a
+    # typoed key does not quietly revert to the floating in-process check
+    # that #321 is about (#188, #321).
+    env = if hasproperty(QA_CONFIG, :formatter_env)
+        QA_CONFIG.formatter_env
+    else
+        @warn "QA_CONFIG has no `formatter_env` field; checking formatting " *
+              "in-process against the shared test environment, whose " *
+              "JuliaFormatter version floats with the CI Julia in use. Add " *
+              "one to qa_config.jl to pin it via the isolated formatter env."
+        nothing
+    end
+    test_formatting(QA_CONFIG.mod; env = env)
 end
 
 @testitem "Quality: linting (JET)" tags=[:quality] begin
