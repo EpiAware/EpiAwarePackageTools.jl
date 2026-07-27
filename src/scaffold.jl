@@ -1705,15 +1705,41 @@ function _package_extensions(target_dir::AbstractString)
     # Stemming can map two distinct extensions onto one slug (a prefixed
     # `WombatPlotsExt` and a bare `PlotsExt`), which would point two nav
     # entries at one page and leave one extension documented under the other's
-    # label. The extension names themselves are unique by construction, so
-    # every member of a colliding set falls back to its own full name.
-    counts = Dict{String, Int}()
+    # label. Falling back to the full extension name fixes that pair, but is
+    # not itself a guarantee: a fallback can land on a slug that was unique in
+    # the first pass (`WombatPlotsExtExt` stems to the same `PlotsExt` a bare
+    # `PlotsExt` slugs to). So uniqueness is *enforced* rather than assumed —
+    # each page takes the first free slug from its stem, then its full name,
+    # then numbered variants. Assignment walks the already-sorted pages, so
+    # the result depends on the extension set alone, not on TOML order.
+    return _uniquify_slugs(pages)
+end
+
+# Give every page a slug no other page holds, preferring its stem, then its
+# full extension name, then a numbered variant. See `_package_extensions`.
+function _uniquify_slugs(pages::Vector{ExtensionPage})
+    taken = Set{String}()
+    out = ExtensionPage[]
     for p in pages
-        counts[p.slug] = get(counts, p.slug, 0) + 1
+        candidates = [p.slug, _extension_slug(p.name)]
+        slug = nothing
+        for c in candidates
+            c in taken && continue
+            slug = c
+            break
+        end
+        if slug === nothing
+            n = 2
+            base = _extension_slug(p.name)
+            while string(base, "-", n) in taken
+                n += 1
+            end
+            slug = string(base, "-", n)
+        end
+        push!(taken, slug)
+        push!(out, ExtensionPage(p.name, p.title, slug))
     end
-    return ExtensionPage[counts[p.slug] == 1 ? p :
-                         ExtensionPage(p.name, p.title,
-                             _extension_slug(p.name)) for p in pages]
+    return out
 end
 
 # The top-level "Extensions" nav group for `docs/pages.jl`. Empty (no group at
@@ -1808,14 +1834,25 @@ end
 # strip. Name it, with the entry to add, rather than leaving it to be noticed
 # on a published site (#319). Returns a `warnings` message, or `nothing` when
 # every page is reachable.
+#
+# Only pages that exist on disk count. `update` (`managed_only = true`) never
+# seeds them, so a package that declares an extension and then syncs has no
+# page and nothing to link: warning there would claim a file is "built but
+# unreachable" when it was never written, and the remedy — a nav entry — would
+# be inert, since `_strip_extensions_nav` drops entries whose page is missing.
+# That state breaks nothing, so it stays silent; it is the seeded-but-unlinked
+# page that misleads.
 function _extension_pages_unlinked(target_dir::AbstractString)
     pages = _package_extensions(target_dir)
     isempty(pages) && return nothing
     nav = _dest_path(target_dir, "docs/pages.jl")
     isfile(nav) || return nothing
     text = read(nav, String)
-    missing_pages = [p for p in pages
-                     if !occursin("extensions/" * p.slug * ".md", text)]
+    missing_pages = [p
+                     for p in pages
+                     if isfile(_dest_path(target_dir,
+        string("docs/src/extensions/", p.slug, ".md"))) &&
+        !occursin("extensions/" * p.slug * ".md", text)]
     isempty(missing_pages) && return nothing
     entries = join(
         (string("\"", p.title, "\" => \"extensions/", p.slug,

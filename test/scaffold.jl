@@ -4040,6 +4040,29 @@ end
             @test length(pages) == 2
             @test length(unique(p.slug for p in pages)) == 2
 
+            # Uniqueness is enforced, not assumed: a fallback slug can itself
+            # land on one that was free in the first pass, since
+            # `WombatPlotsExtExt` stems to the `PlotsExt` a bare `PlotsExt`
+            # slugs to.
+            three = joinpath(dir, "three")
+            mkpath(three)
+            write(joinpath(three, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n" *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+                "Random = \"9a3f8284-a2c9-5f02-9a11-845980a1fd5c\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n" *
+                "PlotsExt = \"DataFrames\"\n" *
+                "WombatPlotsExtExt = \"Random\"\n")
+            trio = _package_extensions(three)
+            @test length(trio) == 3
+            @test length(unique(p.slug for p in trio)) == 3
+            @test all(!isempty(p.slug) for p in trio)
+
             scaffold(dir)
             # Every nav entry resolves to a page of its own.
             pgs = read(_dest(dir, "docs/pages.jl"), String)
@@ -4103,6 +4126,35 @@ end
             # The authored page is preserved, and reported as such.
             @test length(res3.extension_pages.preserved) == 1
             @test isempty(res3.extension_pages.created)
+        end
+    end
+
+    @testset "update stays silent when there is no page to be unreachable" begin
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            scaffold(dir)
+            # A package that adopted the kit before it seeded extension pages,
+            # then declared an extension: `update` seeds no page, so there is
+            # no file to be unreachable. Warning here would claim a page is
+            # "built but unreachable" when none was ever written, and the nav
+            # entry it asks for would be stripped at build time anyway — on
+            # every routine sync of the packages this feature targets.
+            proj = joinpath(dir, "Project.toml")
+            write(proj,
+                read(proj, String) *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n")
+            res = EpiAwarePackageTools.update(dir)
+            @test !isfile(_dest(dir, "docs/src/extensions/plots.md"))
+            @test !any(w -> occursin("extensions/", w), res.warnings)
+            # `update` seeds no package-owned pages, and says so.
+            @test isempty(res.extension_pages.created)
+            @test isempty(res.extension_pages.preserved)
         end
     end
 end
