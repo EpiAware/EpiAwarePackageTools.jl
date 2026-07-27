@@ -273,12 +273,20 @@ end
 # syntax). Nested fences of a different backtick/tilde count (CommonMark lets
 # a longer outer fence "quote" a shorter one verbatim) are not distinguished,
 # but that is no less than the pre-existing ```julia handling already assumes.
-# Indented (4-space) code blocks and inline single-backtick code spans are
-# CommonMark code too but are NOT recognised here -- see `build_index`'s
-# docstring for what that means for a comment shown inside one (#301 review).
+# Indented (4-space) code blocks and inline single-backtick code spans are the
+# other two CommonMark code forms; they are handled separately below (#306)
+# since neither toggles multi-line state the way a fence does.
 function _is_fence_delimiter(line::AbstractString)
     startswith(line, "```") ||
         startswith(line, "~~~")
+end
+
+# Whether `line` is an indented (4-space) CommonMark code block line. Unlike a
+# fence this is a per-line property, not a toggled span: each line stands on
+# its own, so the caller need only skip comment-stripping for lines where this
+# holds (#306) rather than track an `in_indented_code` state across lines.
+function _is_indented_code_line(line::AbstractString)
+    startswith(line, "    ")
 end
 
 # Strip HTML comments from one README line, carrying `in_comment` (whether a
@@ -312,6 +320,31 @@ function _strip_line_comments(line::AbstractString, in_comment::Bool)
     end
 end
 
+# Inline single-backtick code spans (`` `...` ``) are CommonMark code and must
+# survive verbatim even where they show literal `<!--`/`-->` text (#306), but
+# -- unlike a fence -- they open and close within the same line, so no
+# multi-line state is needed for them: a line-level regex finds each span and
+# `_strip_line_comments` runs only on the text between spans, threading
+# `in_comment` across those gaps so a comment that opens before, or continues
+# after, a span is still tracked correctly. Text inside a span never toggles
+# `in_comment`, even if it looks like comment syntax, because it is code.
+const _INLINE_CODE_SPAN = r"`[^`]*`"
+
+function _strip_line_comments_outside_code_spans(line::AbstractString, in_comment::Bool)
+    out = IOBuffer()
+    pos = firstindex(line)
+    for m in eachmatch(_INLINE_CODE_SPAN, line)
+        before, in_comment = _strip_line_comments(line[pos:prevind(line, m.offset)],
+            in_comment)
+        print(out, before)
+        print(out, m.match)
+        pos = m.offset + ncodeunits(m.match)
+    end
+    tail, in_comment = _strip_line_comments(line[pos:end], in_comment)
+    print(out, tail)
+    return String(take!(out)), in_comment
+end
+
 """
     build_index(; readme, dest, repo, execute=true,
                 rewrites=Pair{String,String}[], strip_sections=String[])
@@ -329,12 +362,10 @@ README itself keeps every comment untouched — only the generated index has
 them removed. The strip recognises fenced code blocks (#301): a `<!-- -->`
 shown as literal example text inside a ```` ``` ```` or `~~~` fence (e.g. a
 README teaching a reader what the managed markers look like) survives
-verbatim. This covers the two CommonMark fence styles, not every way
-CommonMark can mark up code — an indented (4-space) code block or an inline
-single-backtick code span showing the same literal text is not recognised as
-code and gets stripped like ordinary prose (a documented limitation, not a
-silent one, tracked in #306; #300's disclosure precedent). ```julia fences
-become runnable
+verbatim. This also covers an indented (4-space) code block and an inline
+single-backtick code span showing the same literal text (#306): all four
+CommonMark ways to mark up code are recognised, and a comment shown inside
+any of them survives untouched. ```julia fences become runnable
 `@example readme` blocks when `execute` is `true`. Each `from => to` in
 `rewrites` is applied line by line
 (e.g. an absolute docs URL rewritten to an in-site `@ref`). Any heading whose
@@ -402,6 +433,10 @@ function build_index(; readme::AbstractString, dest::AbstractString,
         # everything up to and including the matching close are left alone.
         was_in_fence = in_fence
         _is_fence_delimiter(line) && (in_fence = !in_fence)
+        # An indented (4-space) code block line is code even outside a fence
+        # (#306); it has no delimiter to toggle a span, so it is checked and
+        # skipped per line, same as `was_in_fence` above.
+        in_indented_code = !was_in_fence && _is_indented_code_line(line)
         if execute && startswith(line, "```julia")
             println(buf, "```@example readme")
         elseif occursin("docs/src/assets/logo.svg", line)
@@ -411,8 +446,8 @@ function build_index(; readme::AbstractString, dest::AbstractString,
             for (from, to) in rewrites
                 line = replace(line, from => to)
             end
-            if !was_in_fence
-                line, in_comment = _strip_line_comments(line, false)
+            if !was_in_fence && !in_indented_code
+                line, in_comment = _strip_line_comments_outside_code_spans(line, false)
             end
             println(buf, line)
         end
@@ -1399,7 +1434,11 @@ function api_bindings(mod::Module)
     public = Symbol[]
     private = Symbol[]
     for v in candidates
-        v === nameof(mod) && continue  # skip the module's own docstring
+        # Skip the module's own docstring here: folded into this alphabetical
+        # split it would render mid-list, without introducing the package, so
+        # `build_api_pages` instead renders it separately, prepended to
+        # `public.md` (see `_has_own_docstring`, #313).
+        v === nameof(mod) && continue
         # A re-exported / `public` name that carries no docstring is dropped so
         # the emitted `@docs` block stays render-safe; `mod`'s own meta entries
         # are documented by construction.
@@ -1407,6 +1446,18 @@ function api_bindings(mod::Module)
         push!(_is_public(mod, v) ? public : private, v)
     end
     return public, private
+end
+
+# Whether `mod` itself carries a docstring (the `"""..."""` immediately above
+# its `module mod ... end` line). `api_bindings` deliberately excludes this
+# one binding from its public/private split (see the `continue` above), so
+# without a separate check nothing else in `build_api_pages` would ever
+# render it -- and a `checkdocs = :all` scan (the default for a package with
+# no re-exports) would then always flag it as "not included in the manual",
+# however tidy the rest of the docs are (#313). `build_api_pages` uses this to
+# decide whether to prepend a `@docs` block for `mod` to `public.md`.
+function _has_own_docstring(mod::Module)
+    haskey(Base.Docs.meta(mod), Base.Docs.Binding(mod, nameof(mod)))
 end
 
 # Whether `m` is `root` or nested inside it (a submodule at any depth). The
@@ -1543,7 +1594,7 @@ function _docs_entries(mod::Module, name::Symbol)
 end
 
 function _write_api_page(path, title, anchor, page, intro, api_heading,
-        mod, names)
+        mod, names; own_docstring_entry::Union{Nothing, AbstractString} = nothing)
     mkpath(dirname(path))
     open(path, "w") do io
         if anchor === nothing
@@ -1554,6 +1605,16 @@ function _write_api_page(path, title, anchor, page, intro, api_heading,
         println(io)
         println(io, intro)
         println(io)
+        # `mod`'s own module docstring, when present: rendered ahead of
+        # Contents/Index rather than folded into the alphabetical `@docs`
+        # block below, so it reads as the page's introduction -- the one
+        # place a new visitor actually gets to read it (#313).
+        if own_docstring_entry !== nothing
+            println(io, "```@docs")
+            println(io, own_docstring_entry)
+            println(io, "```")
+            println(io)
+        end
         println(io, "## Contents")
         println(io)
         println(io, "```@contents")
@@ -1584,15 +1645,20 @@ end
     build_api_pages(mod, lib_dir)
 
 Write `lib/public.md` and `lib/internals.md` under `lib_dir` from `mod`'s
-documented bindings (see [`api_bindings`](@ref)).
+documented bindings (see [`api_bindings`](@ref)). `mod`'s own module
+docstring -- deliberately excluded from that public/private split -- is
+prepended to `public.md` as its own `@docs` block when `mod` carries one, so
+it is both readable on the built site and counted towards a `:all`
+`checkdocs` completeness scan (#313).
 """
 function build_api_pages(mod::Module, lib_dir::AbstractString)
     public, private = api_bindings(mod)
+    own_docstring = _has_own_docstring(mod) ? string(mod, ".", nameof(mod)) : nothing
     _write_api_page(
         joinpath(lib_dir, "public.md"),
         "Public Documentation", "public-api", "public.md",
         "Documentation for `$mod`'s public interface.",
-        "Public API", mod, public)
+        "Public API", mod, public; own_docstring_entry = own_docstring)
     _write_api_page(
         joinpath(lib_dir, "internals.md"),
         "Internal Documentation", nothing, "internals.md",
@@ -1950,8 +2016,9 @@ completeness check off the same `modules` list — with no working way to scope
 that check while widening `@docs` resolution — the completeness check is
 disabled whenever the resolution set is widened, so a package is never held
 responsible for a dependency's own missing-docstring hygiene (`mod`'s own
-completeness is already guaranteed by construction: `api_bindings` emits every
-docstring `mod` owns).
+completeness is already guaranteed by construction: [`build_api_pages`](@ref)
+renders every docstring `mod` owns, including `mod`'s own module docstring,
+prepended to `public.md` (#313)).
 
 Each owning module also needs a source remote, which Documenter cannot derive
 for a dependency installed from a git URL (#190). [`api_remotes`](@ref) derives
@@ -2058,9 +2125,13 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     # whenever we widen for re-export resolution we disable the completeness
     # check (`:none`), keeping a package off the hook for its dependencies'
     # own missing-docstring hygiene; `mod`'s own completeness needs no check
-    # here because `api_bindings` emits every docstring `mod` owns by
-    # construction. With no re-exports the default `:all` check over `mod`
-    # alone is kept.
+    # here because `build_api_pages` renders every docstring `mod` owns --
+    # including `mod`'s own module docstring, which `api_bindings` excludes
+    # from its public/private split but `build_api_pages` prepends to
+    # `public.md` in its place (#313; leaving that one binding unrendered
+    # anywhere used to make a `:all` scan misfire on every package with no
+    # re-exports, however tidy its docs otherwise were). With no re-exports
+    # the default `:all` check over `mod` alone is kept.
     checkdocs = length(doc_modules) > 1 ? :none : :all
     # Documenter needs a source remote for every module it resolves docstrings
     # from, and cannot derive one for a dependency installed from a git URL —

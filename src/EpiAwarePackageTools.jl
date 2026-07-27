@@ -73,6 +73,7 @@ using Markdown: Markdown
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
                            TYPEDFIELDS, TYPEDSIGNATURES
 import Dates
+import Random
 import UUIDs
 # `Pkg.TOML` parses a target's Project.toml where a line scan will not do —
 # the `[extensions]` table's values are strings or arrays of strings (see
@@ -119,6 +120,7 @@ export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
 export on_surface_ambiguities, raw_ambiguity_count
+export test_option_validation
 export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
 
 # `update` is `public`, not `export`ed (#294): the kit sits in the same

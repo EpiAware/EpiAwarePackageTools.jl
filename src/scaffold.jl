@@ -485,6 +485,20 @@ const KIT_UUID = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
 const DEFAULT_LICENSE = "MIT"
 
+# Eager validation of a named option (kit#310): reject an unsupported
+# `license` immediately, naming the offending value and listing the valid
+# set, rather than letting it propagate into a template substitution that
+# fails later with no reference back to the bad input. This is the
+# reference implementation `test_option_validation` (`quality.jl`) fuzzes
+# against in `test/scaffold.jl` — extend a new option-accepting entry
+# point the same way rather than silently accepting an unrecognised value.
+function _validate_license(license::AbstractString)
+    license in SUPPORTED_LICENSES || error(
+        "unsupported license $(repr(license)); choose one of " *
+        join(repr.(SUPPORTED_LICENSES), ", "))
+    return nothing
+end
+
 # Absolute path to the bundled `templates/` directory.
 function _templates_dir()
     dir = pkgdir(EpiAwarePackageTools)
@@ -817,9 +831,7 @@ function scaffold_inputs(target_dir::AbstractString;
     # to the scaffold default.
     license = license === nothing ?
               something(_detect_license(target_dir), DEFAULT_LICENSE) : license
-    license in SUPPORTED_LICENSES || error(
-        "unsupported license $(repr(license)); choose one of " *
-        join(repr.(SUPPORTED_LICENSES), ", "))
+    _validate_license(license)
     proj = joinpath(target_dir, "Project.toml")
     pkg = package === nothing ? _project_string(proj, "name") : package
     auth_vec = _project_authors(proj)
@@ -2344,9 +2356,12 @@ end
 #
 # A Citation File Format (https://citation-file-format.github.io) seed so GitHub
 # renders a "Cite this repository" widget and the managed "How to cite" README
-# section has a file to point at. Package-owned and write-once like `LICENSE`:
-# scaffold seeds it, `update` never rewrites it, so a package's real author
-# list, DOI, and version are preserved (#67).
+# section has a file to point at. Package-owned and write-once: never rewrites
+# an existing file, so a package's real author list, DOI, and version are
+# preserved (#67). Unlike `LICENSE`, both `scaffold` and `update` seed it when
+# absent (#322) — the managed section that points at it is re-rendered by
+# `update` on every sync regardless, so leaving the file unseeded there just
+# hands a pre-CITATION adopter a permanently dangling link.
 
 # The CFF `authors:` list from the kit's author display names (comma- or
 # `and`-separated), one `- name:` entity entry each — a valid CFF starting point
@@ -2888,21 +2903,28 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # Reported separately (`standard_sections`) for the same reason as `readme`.
     sections_action = first(_apply_standard_sections(target_dir, inputs;
         org_branding = org_branding))
-    # CITATION.cff is package-owned and write-once (like LICENSE): only
-    # `scaffold`/`scaffold_generate` (`managed_only = false`) seed it, and only when
-    # absent. `update` (`managed_only = true`) never touches it, so a package's
-    # real citation metadata (authors, DOI, version) is preserved. Reported
+    # CITATION.cff is package-owned and write-once: `_apply_citation_cff` only
+    # ever creates it when absent, never overwrites an existing one, so a
+    # package's real citation metadata (authors, DOI, version) is preserved.
+    # Unlike LICENSE, `update` also seeds it (not gated on `managed_only`): the
+    # managed "How to cite" section (`_apply_standard_sections`, above) links to
+    # `CITATION.cff` unconditionally on every sync, and a package that adopted
+    # the template before citation seeding existed would otherwise carry that
+    # link forever with no `update` ever able to make it resolve — a 404 the
+    # moment the README reaches a linkchecked docs build (#322). Reported
     # separately (`citation`) so the template manifest stays template-driven.
-    citation_action = managed_only ? :skipped :
-                      _apply_citation_cff(target_dir, inputs)
+    citation_action = _apply_citation_cff(target_dir, inputs)
     # The per-extension docs pages are package-owned and write-once, like
     # CITATION.cff: only `scaffold`/`scaffold_generate` seed them, and only
-    # when absent, so authored scope prose survives every sync. Their nav
-    # group lives in the package-owned `docs/pages.jl` (`EXTENSIONS_NAV`), so
-    # a package that adds an extension after adopting the kit adds the page
-    # and its one nav line by hand — the same contract as flipping
-    # `benchmarks = true` on an already-scaffolded package. Reported
-    # separately (`extension_pages`) so the template manifest stays
+    # when absent, so authored scope prose survives every sync. Unlike
+    # CITATION.cff, `update` does not seed them: a page is only reachable
+    # through the nav group in the package-owned `docs/pages.jl`
+    # (`EXTENSIONS_NAV`), which `update` cannot write either, so seeding one
+    # on a sync would leave an unreferenced file rather than fix a dangling
+    # link (the #322 case). A package that adds an extension after adopting
+    # the kit adds the page and its one nav line by hand — the same contract
+    # as flipping `benchmarks = true` on an already-scaffolded package.
+    # Reported separately (`extension_pages`) so the template manifest stays
     # template-driven (#319).
     ext_created, ext_preserved = managed_only ? (String[], String[]) :
                                  _apply_extension_pages(
@@ -3259,8 +3281,9 @@ freshly seeded README and refreshed in place thereafter. A marker-less README
 that already carries a bespoke Contributing/citation/Code-of-conduct section is
 left untouched — migrating it to the managed block is a deliberate per-repo
 wording change (#67). `CITATION.cff` is package-owned and write-once, seeded
-from `{{PACKAGE}}`/`{{AUTHORS}}`/`{{REPO}}` (and the DOI when known); `update`
-never rewrites it, so the real author list and DOI stand.
+from `{{PACKAGE}}`/`{{AUTHORS}}`/`{{REPO}}` (and the DOI when known) by both
+`scaffold` and [`update`](@ref) whenever it is absent; neither ever rewrites an
+existing one, so the real author list and DOI stand (#322).
 
 `force = true` overwrites the package-owned skeletons too, and lays every
 managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
@@ -3320,10 +3343,14 @@ every managed standard file (root config, CI caller workflows, dependabot, and
 the test-infra drivers) from the bundled templates, leaving all package-owned
 files (unit tests, `qa_config.jl`, AD scenarios, `benchmarks.jl`, and `LICENSE`)
 untouched. In particular `LICENSE` is never rewritten, so a package that
-deliberately switches licence is not silently reverted. The workflow opens a PR
-when the result differs from what is committed. Placeholder inputs are resolved
-exactly as in [`scaffold`](@ref); pass the same overrides to keep substitution
-stable across a sync.
+deliberately switches licence is not silently reverted. `CITATION.cff` is the
+one exception to "package-owned files are untouched": it is seeded when absent
+(never overwritten when present), because the managed "How to cite" section
+below links to it unconditionally on every sync, and a package that predates
+citation seeding would otherwise carry a link `update` could never make
+resolve (#322). The workflow opens a PR when the result differs from what is
+committed. Placeholder inputs are resolved exactly as in [`scaffold`](@ref);
+pass the same overrides to keep substitution stable across a sync.
 
 `ad` must match the value the package was scaffolded with (default `true`): with
 `ad = false` the managed AD files (`ad.yaml`, `test/ad/setup.jl`,
@@ -3402,11 +3429,14 @@ Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, warnings)` named tuple: managed files newly added, managed
-files rewritten, preserved files, retired paths deleted, the README badge
-action, the `LICENSE` action (`:skipped` on update), the root
-`[workspace]` stanza action, the `.gitignore` managed-block action, the
-README logo-title action, and non-fatal warnings raised while applying (a
+gitignore, logo, standard_sections, citation, org_branding, warnings)` named
+tuple: managed files newly added, managed files rewritten, preserved files,
+retired paths deleted, the README badge action, the `LICENSE` action
+(`:skipped` on update), the root `[workspace]` stanza action, the `.gitignore`
+managed-block action, the README logo-title action, the managed
+standard-sections action, the `CITATION.cff` action (`:created` or
+`:preserved` — unlike `LICENSE`, `update` seeds this one when absent, #322),
+the org-branding asset action, and non-fatal warnings raised while applying (a
 `Vector{String}`).
 """
 function update(target_dir::AbstractString; ad::Bool = true,

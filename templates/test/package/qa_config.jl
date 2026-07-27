@@ -13,6 +13,12 @@ const QA_CONFIG = (
     # Path to the isolated JET environment (see test/jet/Project.toml).
     jet_env = joinpath(@__DIR__, "..", "jet"),
 
+    # Path to the isolated formatter environment (see
+    # test/formatter/Project.toml). Runs the formatting check in a subprocess
+    # pinned to the exact JuliaFormatter version, rather than whatever version
+    # the shared test environment resolves on the CI Julia in use (#321).
+    formatter_env = joinpath(@__DIR__, "..", "formatter"),
+
     # Per-check Aqua relaxations, e.g. (; ambiguities = false). Empty = all on.
     aqua = (;),
 
