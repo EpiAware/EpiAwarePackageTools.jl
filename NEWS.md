@@ -1,5 +1,13 @@
 ## Unreleased
 
+The managed `.github/dependabot.yml` now runs both ecosystems daily rather
+than weekly (#312).
+Both were already grouped by a wildcard pattern (#249), so each run refreshes
+the one open grouped PR per ecosystem instead of opening more: a shorter
+interval buys faster reusable-workflow and dependency updates at the same PR
+count.
+Adopters pick this up on their next `update`.
+
 **Breaking**: `scaffold_update` is renamed back to `update`, and is now
 `public`, not `export`ed (#294).
 A bare `using EpiAwarePackageTools` no longer brings it into scope — call

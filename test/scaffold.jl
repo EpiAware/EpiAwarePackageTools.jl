@@ -3768,3 +3768,24 @@ end
         @test !occursin("{{", dep)
     end
 end
+
+@testitem "dependabot runs daily on both ecosystems (#312)" begin
+    using Test
+    using EpiAwarePackageTools
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        scaffold(dir)
+        dep = read(_dest(dir, ".github/dependabot.yml"), String)
+        # Daily is safe only because both ecosystems are grouped (#249): a
+        # grouped PR is refreshed in place, so a shorter interval means faster
+        # updates, not more open PRs.
+        @test count("interval: \"daily\"", dep) == 2
+        @test !occursin("interval: \"weekly\"", dep)
+        @test count("groups:", dep) == 2
+    end
+end

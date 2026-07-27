@@ -7,7 +7,11 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      # Daily, so a fix in the shared workflows reaches this repository within a
+      # day rather than waiting up to a week. Grouping (below) is what keeps the
+      # cost of that flat: a daily run refreshes the one open grouped PR instead
+      # of opening more (#312).
+      interval: "daily"
     # Bundle every github-actions bump (third-party actions + the EpiAware
     # reusable-workflow SHAs) into a single grouped PR per run, so one
     # EpiAware/.github change no longer spawns a separate PR per workflow file
@@ -27,7 +31,10 @@ updates:
   - package-ecosystem: "julia"
     directory: "/"
     schedule:
-      interval: "weekly"
+      # Daily for the same reason as the github-actions ecosystem above: the
+      # grouped PR is refreshed in place, so a shorter interval buys faster
+      # dependency updates without more open PRs (#312).
+      interval: "daily"
     # One grouped PR per run for all Julia dependency bumps across the
     # workspace environments, rather than a separate PR per package (#249).
     groups:
