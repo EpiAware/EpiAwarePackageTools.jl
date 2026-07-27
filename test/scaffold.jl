@@ -3839,9 +3839,18 @@ end
         @test occursin("<!--", page)
 
         # The pages are package-owned: authored scope prose survives a sync.
-        write(plots_md, "# Plots extension\n\nAuthored prose.\n")
+        authored = "# Plots extension\n\nAuthored prose.\n"
+        write(plots_md, authored)
         EpiAwarePackageTools.update(dir)
-        @test read(plots_md, String) == "# Plots extension\n\nAuthored prose.\n"
+        @test read(plots_md, String) == authored
+        # ... and a re-scaffold, which does reach the package-owned seeds:
+        # write-once means the authored page is preserved, not re-seeded.
+        scaffold(dir)
+        @test read(plots_md, String) == authored
+        # `force` is the documented way back to the seeded page, as for every
+        # other package-owned file.
+        scaffold(dir; force = true)
+        @test occursin("(@id extension-plots)", read(plots_md, String))
     end
 end
 
