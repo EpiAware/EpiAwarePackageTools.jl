@@ -3846,7 +3846,6 @@ end
     end
 end
 
-
 @testitem "coverage task actually instruments the test run (#315)" begin
     using Test
     using EpiAwarePackageTools
