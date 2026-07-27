@@ -9,17 +9,25 @@ EpiAwareADTools#28 asked for the split.
 debugging sections, and now cross-links to `ad-comparison` for the numbers
 instead of carrying them.
 
-`docs/pages.jl` is package-owned and write-once, so `update` cannot add the
-new nav entry to an adopter's file automatically.
-An existing `ad = true` adopter needs to add one line to the end of the
-`pages` array in their `docs/pages.jl`, after their first sync on this kit
-version: `"Benchmarks" => "getting-started/tutorials/ad-comparison.md"` if
-they don't also have `benchmarks = true`, or the nested form
+`docs/pages.jl` and `docs/docs_config.jl` are both package-owned and
+write-once, so `update` cannot add the new nav entry or the new Literate
+registration to an adopter's files automatically.
+An existing `ad = true` adopter needs two edits after their first sync on
+this kit version.
+In `docs/docs_config.jl`, add `"ad-comparison.jl"` to `HEAVY_TUTORIALS`,
+and `"ad-comparison.md" => "# [AD backend comparison](@id ad-comparison)"`
+to `TUTORIAL_STUBS`, alongside the existing `ad-backends.jl` entries —
+without this the new page is never Literate-processed and never renders.
+In `docs/pages.jl`, add one line to the end of the `pages` array:
+`"Benchmarks" => "getting-started/tutorials/ad-comparison.md"` if they
+don't also have `benchmarks = true`, or the nested form
 (`"Benchmarks" => ["Performance history" => "benchmarks.md", "AD comparison"
 => "getting-started/tutorials/ad-comparison.md"]`) if they do.
-Until that edit lands, the new page still builds and is still cross-linked
-from `ad-backends` — `@ref` resolution doesn't depend on the nav listing —
-it just won't appear in the sidebar.
+Until that second edit lands, the page still builds and is still
+cross-linked from `ad-backends` — `@ref` resolution doesn't depend on the
+nav listing — it just won't appear in the sidebar.
+`update` now warns when either edit is still outstanding, so the gap
+surfaces at sync time rather than only in this note.
 
 **Breaking**: `scaffold_update` is renamed back to `update`, and is now
 `public`, not `export`ed (#294).

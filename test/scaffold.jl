@@ -1150,12 +1150,18 @@
                 # entry, no AD deps.
                 @test !isfile(_dest(dir,
                     "docs/src/getting-started/tutorials/ad-backends.jl"))
+                # Nor the AD-comparison benchmark page split out of it (#299).
+                @test !isfile(_dest(dir,
+                    "docs/src/getting-started/tutorials/ad-comparison.jl"))
                 cfg = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("const HEAVY_TUTORIALS = String[]", cfg)
                 @test !occursin("\"ad-backends.jl\"", cfg)
                 @test !occursin("\"ad-backends.md\"", cfg)
+                @test !occursin("\"ad-comparison.jl\"", cfg)
+                @test !occursin("\"ad-comparison.md\"", cfg)
                 pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test !occursin("ad-backends.md", pgs)
+                @test !occursin("ad-comparison", pgs)
                 @test !occursin("{{AD_TUTORIALS_NAV}}", pgs)
                 dp = read(_dest(dir, "docs/Project.toml"), String)
                 @test !occursin("ADFixtures = ", dp)
@@ -1314,7 +1320,9 @@
             end
         end
 
-        @testset "Benchmarks nav nests performance history + AD comparison when both are on (#299)" begin
+        # Nests the performance-history and AD-comparison pages under one
+        # "Benchmarks" entry when both suites are on (#299).
+        @testset "Benchmarks nav nests both suites when both are on" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
@@ -1328,7 +1336,7 @@
             end
         end
 
-        @testset "Benchmarks nav is a lone AD-comparison entry with no history suite" begin
+        @testset "Benchmarks nav is a lone AD-comparison entry" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = false)
@@ -1351,6 +1359,17 @@
                 pgs = read(_dest(dir, "docs/pages.jl"), String)
                 arr = pgs[findfirst("pages = [", pgs)[1]:end]
                 @test !occursin("\"Benchmarks\"", arr)
+            end
+        end
+
+        @testset "Benchmarks nav is a flat performance-history entry" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, benchmarks = true)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                arr = pgs[findfirst("pages = [", pgs)[1]:end]
+                @test occursin("\"Benchmarks\" => \"benchmarks.md\"", arr)
+                @test !occursin("ad-comparison", arr)
             end
         end
 
@@ -1425,6 +1444,97 @@
                 _fake_pkg(dir; name = "Numeric3")
                 scaffold(dir)
                 res = update(dir)
+                @test isempty(res.warnings)
+            end
+        end
+
+        @testset "update warns when docs_config.jl lacks ad-comparison.jl" begin
+            # An `ad = true` adopter who synced before the ad-comparison.jl
+            # split (#299) has only "ad-backends.jl" registered in their
+            # package-owned docs/docs_config.jl. `update` cannot add the
+            # missing registration itself (docs_config.jl is package-owned),
+            # so it should warn that the new managed page it just wrote is
+            # never rendered rather than leaving the gap undiscovered.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "PreSplit")
+                scaffold(dir)
+                cfg = _dest(dir, "docs/docs_config.jl")
+                txt = read(cfg, String)
+                txt = replace(txt,
+                    "\"ad-backends.jl\",\n    \"ad-comparison.jl\"" => "\"ad-backends.jl\"")
+                txt = replace(txt,
+                    "\"ad-backends.md\" => \"# [Automatic differentiation " *
+                    "backends](@id ad-backends)\",\n    \"ad-comparison.md\"" *
+                    " => \"# [AD backend comparison](@id ad-comparison)\"" =>
+                        "\"ad-backends.md\" => \"# [Automatic " *
+                        "differentiation backends](@id ad-backends)\"")
+                write(cfg, txt)
+                local res
+                @test_logs (:warn, r"ad-comparison\.jl"i) match_mode=:any begin
+                    res = update(dir)
+                end
+                @test !isempty(res.warnings)
+                @test any(w -> occursin("ad-comparison.jl", w), res.warnings)
+                # The managed ad-comparison.jl page is still written — the
+                # warning flags a docs-build gap, not a template omission.
+                @test isfile(_dest(dir,
+                    "docs/src/getting-started/tutorials/ad-comparison.jl"))
+            end
+            # A fresh scaffold registers both entries, so no warning fires.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "FreshSplit")
+                scaffold(dir)
+                res = update(dir)
+                @test isempty(res.warnings)
+            end
+            # `ad = false` never expects the registration, so no warning.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "NoAD")
+                scaffold(dir; ad = false)
+                res = update(dir; ad = false)
+                @test isempty(res.warnings)
+            end
+        end
+
+        @testset "update warns when pages.jl lacks an ad-comparison nav" begin
+            # `docs/pages.jl` is the same package-owned, write-once gap as
+            # `docs_config.jl` above: an `ad = true` adopter who synced
+            # before the ad-comparison.jl split (#299) has no nav entry
+            # pointing at the new page at all, so it never appears in the
+            # sidebar even once docs_config.jl is fixed.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "PreSplitNav")
+                scaffold(dir)
+                pages = _dest(dir, "docs/pages.jl")
+                txt = read(pages, String)
+                @test occursin(
+                    "\"Benchmarks\" => " *
+                    "\"getting-started/tutorials/ad-comparison.md\"", txt)
+                txt = replace(txt,
+                    ",\n    \"Benchmarks\" => " *
+                    "\"getting-started/tutorials/ad-comparison.md\"" => "")
+                write(pages, txt)
+                local res
+                @test_logs (:warn, r"pages\.jl"i) match_mode=:any begin
+                    res = update(dir)
+                end
+                @test !isempty(res.warnings)
+                @test any(res.warnings) do w
+                    occursin("pages.jl", w) && occursin("ad-comparison", w)
+                end
+            end
+            # A fresh scaffold already carries the nav entry, so no warning.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "FreshSplitNav")
+                scaffold(dir)
+                res = update(dir)
+                @test isempty(res.warnings)
+            end
+            # `ad = false` never expects the nav entry, so no warning.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "NoADNav")
+                scaffold(dir; ad = false)
+                res = update(dir; ad = false)
                 @test isempty(res.warnings)
             end
         end

@@ -1648,6 +1648,33 @@ function _ad_docs_compat(ad::Bool)
         "Statistics = \"1\"\n")
 end
 
+# `docs/docs_config.jl` is package-owned, so `update` cannot add the
+# `ad-comparison.jl` Literate registration to an existing `ad = true`
+# adopter's file: `AD_HEAVY_TUTORIALS`/`AD_TUTORIAL_STUBS` above only reach a
+# package-owned file on first scaffold (#299). An adopter who synced before
+# the split still only has `ad-backends.jl` registered, so the managed
+# `ad-comparison.jl` page this sync writes is never Literate-processed or
+# stubbed into a `.md` page, and `ad-backends.md`'s cross-references to it
+# dangle. Detected the same way as the diverged `test/ad/setup.jl` case:
+# scan the destination and warn rather than silently leaving the page
+# unbuilt.
+function _ad_comparison_config_gap(target_dir::AbstractString, ad::Bool)
+    ad || return nothing
+    cfg = joinpath(target_dir, "docs", "docs_config.jl")
+    isfile(cfg) || return nothing
+    txt = read(cfg, String)
+    occursin("\"ad-backends.jl\"", txt) || return nothing
+    occursin("\"ad-comparison.jl\"", txt) && return nothing
+    return string(
+        "docs/docs_config.jl registers \"ad-backends.jl\" but not ",
+        "\"ad-comparison.jl\": the managed ad-comparison.jl page (#299) is ",
+        "written but never rendered, and ad-backends.md's cross-references ",
+        "to it will not resolve. Add \"ad-comparison.jl\" to ",
+        "HEAVY_TUTORIALS and \"ad-comparison.md\" => \"# [AD backend ",
+        "comparison](@id ad-comparison)\" to TUTORIAL_STUBS in ",
+        "docs/docs_config.jl.")
+end
+
 # The docs-env `[deps]` fragment the benchmark page's combined trend plot
 # needs (`EpiAwarePackageTools.DocsBuild._write_overall_trend_plot`): `Plots`
 # (GR backend), lazily loaded kit-side so it is only required once a package
@@ -1689,6 +1716,40 @@ function _benchmarks_nav(benchmarks::Bool, ad::Bool)
     else
         return ""
     end
+end
+
+# `docs/pages.jl` is package-owned and write-once, the same as
+# `docs/docs_config.jl` (see `_ad_comparison_config_gap` above), so `update`
+# cannot add the `{{BENCHMARKS_NAV}}` entry a fresh scaffold seeds to an
+# existing adopter's file (#299). An `ad = true` adopter who synced before
+# the split has no nav entry pointing at `ad-comparison.md` at all -- the
+# AD-comparison benchmark used to live under Tutorials, on `ad-backends.md`
+# -- so the rendered `ad-comparison.md` page this sync writes is reachable
+# only by direct URL or `@ref`, never from the sidebar. NEWS.md documents
+# the one-line fix; warn at update time too, so it is not discoverable only
+# by reading NEWS.md.
+function _ad_comparison_nav_gap(
+        target_dir::AbstractString, benchmarks::Bool, ad::Bool)
+    ad || return nothing
+    pages = joinpath(target_dir, "docs", "pages.jl")
+    isfile(pages) || return nothing
+    txt = read(pages, String)
+    occursin("ad-comparison", txt) && return nothing
+    entry = if benchmarks
+        string("\"Benchmarks\" => [\n",
+            "    \"Performance history\" => \"benchmarks.md\",\n",
+            "    \"AD comparison\" =>\n",
+            "        \"getting-started/tutorials/ad-comparison.md\"\n",
+            "]")
+    else
+        "\"Benchmarks\" => \"getting-started/tutorials/ad-comparison.md\""
+    end
+    return string(
+        "docs/pages.jl has no nav entry for ad-comparison.md: the managed ",
+        "ad-comparison.md page (#299) still builds and is still ",
+        "cross-linked from ad-backends.md, but does not appear in the ",
+        "docs sidebar. Add ", entry, " to the pages array in ",
+        "docs/pages.jl.")
 end
 
 # The conventional custom-subdomain docs host for a package, e.g.
@@ -2856,6 +2917,22 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             "so the whole env fails to resolve on every platform with an ",
             "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
             " to test/Project.toml `[deps]` (#263)."))
+    # An existing `ad = true` adopter's package-owned `docs/docs_config.jl`
+    # may predate the `ad-comparison.jl` split (#299): `update` cannot add
+    # the missing registration itself, so surface the gap instead of
+    # leaving the new page silently unbuilt.
+    gap = _ad_comparison_config_gap(target_dir, ad)
+    if gap !== nothing
+        push!(warnings, gap)
+        @warn gap
+    end
+    # `docs/pages.jl` has the same package-owned, write-once gap for the
+    # `{{BENCHMARKS_NAV}}` entry — see `_ad_comparison_nav_gap`.
+    nav_gap = _ad_comparison_nav_gap(target_dir, benchmarks, ad)
+    if nav_gap !== nothing
+        push!(warnings, nav_gap)
+        @warn nav_gap
+    end
     # `.gitignore` is managed between markers so package-owned additions below
     # the block survive `update` (#65). Reported separately for the same
     # reason as `readme`/`license`/`workspace` above.

@@ -15,9 +15,10 @@ const LIGHT_TUTORIALS = String[]
 
 # Heavy tutorials (live MCMC fits, multi-backend AD, plotting) are each
 # executed once in a fresh subprocess so native/memory state cannot accumulate.
-# The `ad-backends.jl` entry is seeded when the package is scaffolded with
-# `ad = true`: the page itself is kit-managed (re-applied on every sync); only
-# this registration is package-owned.
+# The `ad-backends.jl` and `ad-comparison.jl` entries are seeded together
+# when the package is scaffolded with `ad = true`: the pages themselves are
+# kit-managed (re-applied on every sync); only this registration is
+# package-owned.
 const HEAVY_TUTORIALS = String[{{AD_HEAVY_TUTORIALS}}]
 
 # Where the tutorial `.jl` sources and rendered `.md` pages live, relative to
