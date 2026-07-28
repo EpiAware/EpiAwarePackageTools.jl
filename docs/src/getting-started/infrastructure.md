@@ -148,6 +148,31 @@ It runs two read-only checks.
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
 
+## Release nudges
+
+The managed `release-nudge.yaml` caller runs the shared `EpiAware/.github`
+release-nudge workflow weekly and on demand.
+It compares `Project.toml`'s version and the commits on `main` since the
+latest release/tag (and, best-effort, the version registered in the Julia
+General registry) and, whenever `main` has unreleased changes, opens or
+refreshes a single labelled issue that reports the released vs
+`Project.toml` version, how many commits are unreleased with a compare
+link and a short recent-commit list, and whether a version bump is still
+needed or only registration is outstanding.
+The issue spells out the next steps: comment `/version patch`, `/version
+minor`, or `/version major` on a pull request to bump, update `NEWS.md`,
+then either comment `/register` or run the Register workflow manually.
+When nothing is unreleased it closes any open nudge issue instead.
+
+An open nudge issue is never edited in place.
+A run that finds the state has changed, or finds the issue has simply sat
+open too long, closes it with a short comment and opens a fresh one, so
+the issue is always current rather than accumulating an edit history.
+The generated issue body can never contain a literal `@`: the workflow
+strips it from any repository-derived text (commit subject lines) before
+it can reach the body, and names the Register workflow and the
+`/register` slash command instead of ever writing out a handle.
+
 ## How the kit applies this to itself
 
 The kit manages its own repository the same way an adopter's is managed, with

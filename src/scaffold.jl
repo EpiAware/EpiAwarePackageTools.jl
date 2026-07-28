@@ -123,6 +123,13 @@ const SCAFFOLD_TEMPLATES = Template[
     # reverse-dep's compat is stranded by the version under test.
     Template(".github/workflows/registrability.yaml",
         ".github/workflows/registrability.yaml", true, true),
+    # Weekly + on-demand nudge (thin caller of the EpiAware/.github
+    # reusable): opens/refreshes a single issue when Project.toml/main
+    # has unreleased changes, telling a maintainer whether a version
+    # bump or only registration is outstanding, and closes it once
+    # everything is released.
+    Template(".github/workflows/release-nudge.yaml",
+        ".github/workflows/release-nudge.yaml", true, true),
     # Cancel a PR's in-flight runs on close/merge (thin caller of the
     # EpiAware/.github reusable), freeing runners that concurrency groups miss.
     Template(".github/workflows/cancel-on-close.yaml",
@@ -473,6 +480,21 @@ const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma
 # head, which resolves pre-merge but may be garbage-collected after a
 # squash-merge deletes the branch).
 const _REGISTRABILITY_SEED_REF = "0c1b4ec28e30933f3ea50513d0aca40592cf512f"  # pragma: allowlist secret
+
+# The seed reusable-workflow ref for the release-nudge caller
+# (`templates/.github/workflows/release-nudge.yaml`). Like
+# `_REGISTRABILITY_SEED_REF`, this pins a commit newer than the shared
+# `_DOWNGRADE_SEED_REF` because `release-nudge.yml` does not exist on
+# `_DOWNGRADE_SEED_REF` at all -- it is a workflow this PR is adding to
+# EpiAware/.github, so the caller cannot resolve against the older
+# shared seed. PLACEHOLDER: the value below is EpiAware/.github's
+# current `main` HEAD at the time this caller was written, which does
+# NOT yet contain `release-nudge.yml` and so will not actually resolve
+# until that repo's own release-nudge PR merges. UPDATE this to the
+# squash-merge SHA of that PR before this caller is scaffolded anywhere
+# for real; the two refs converge once Dependabot bumps the pins across
+# adopters afterwards.
+const _RELEASE_NUDGE_SEED_REF = "4ade02869137af2a1799c704df8a0256ef5b5de6"  # pragma: allowlist secret
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),

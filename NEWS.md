@@ -1,5 +1,21 @@
 ## Unreleased
 
+A new managed workflow, `.github/workflows/release-nudge.yaml`, is
+scaffolded into every adopting package (thin caller of a new
+EpiAware/.github reusable, `release-nudge.yml`).
+It runs weekly and on demand, compares `Project.toml`'s version and the
+commits on `main` against the latest release/tag (and, best-effort, the
+version registered in the Julia General registry), and opens or
+refreshes a single labelled issue telling a maintainer what to do — bump
+via `/version`, update `NEWS.md`, then `/register` — whenever there are
+unreleased changes, closing it once everything is released.
+The issue is never edited in place: a stale one (state changed, or
+simply sat open too long) is closed with a "superseded" comment and
+replaced.
+The generated issue body can never contain a literal `@`, so neither a
+contributor's handle nor the registry bot's own handle can ever render
+as an accidental mention or trigger.
+
 The managed `.github/dependabot.yml` now runs both ecosystems daily rather
 than weekly (#312).
 Both were already grouped by a wildcard pattern (#249), so each run refreshes
