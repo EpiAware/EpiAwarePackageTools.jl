@@ -3834,6 +3834,13 @@ end
         @test count("- \"*\"", dep) == 2
         @test occursin("      github-actions:\n", dep)
         @test occursin("      julia:\n", dep)
+        # Both run daily (#312). The grouping above is what makes that
+        # affordable: a grouped PR is refreshed in place, so the shorter
+        # interval buys faster updates rather than more open PRs. Asserted
+        # here, on the same scaffold, because the two settings only make
+        # sense together — daily and ungrouped is the storm #249 fixed.
+        @test count("interval: \"daily\"", dep) == 2
+        @test !occursin("interval: \"weekly\"", dep)
         # No placeholder survives into the emitted config.
         @test !occursin("{{", dep)
     end
