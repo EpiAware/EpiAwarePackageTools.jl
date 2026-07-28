@@ -474,12 +474,11 @@ const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma
 # EpiAware/.github commit than `_DOWNGRADE_SEED_REF` because
 # `registrability.yml` post-dates the shared seed (added in EpiAware/.github
 # #31), so the caller cannot pin the older seed and still resolve the
-# reusable. The two refs converge once that PR merges and Dependabot bumps the
-# pins across adopters. UPDATE this to the squash-merge SHA of
-# EpiAware/.github#31 once it lands (the current value is that PR's branch
-# head, which resolves pre-merge but may be garbage-collected after a
-# squash-merge deletes the branch).
-const _REGISTRABILITY_SEED_REF = "0c1b4ec28e30933f3ea50513d0aca40592cf512f"  # pragma: allowlist secret
+# reusable. The two refs converge once Dependabot bumps the pins across
+# adopters. This is the squash-merge SHA of EpiAware/.github#31 on that
+# repo's default branch (not a branch-head SHA, so it is not
+# garbage-collectable).
+const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # pragma: allowlist secret
 
 # The seed reusable-workflow ref for the release-nudge caller
 # (`templates/.github/workflows/release-nudge.yaml`). Like
