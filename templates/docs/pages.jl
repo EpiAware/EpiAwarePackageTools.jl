@@ -13,6 +13,13 @@
 # AD-backends page (which is which backends work and how to configure them;
 # what each costs is the AD-comparison page above, under Benchmarks -- #299).
 #
+# The Extensions group is written from whatever `[extensions]` the package
+# declared when it was scaffolded (the EXTENSIONS_NAV substitution), one entry
+# per extension pointing at a page under `docs/src/extensions/`. Because this
+# file is written once, adding or removing an extension later means editing
+# the group here (and adding the page); a build drops any entry whose page is
+# missing, so the nav never carries a dangling link.
+#
 # Every entry must resolve to a page the package writes or `make.jl` generates.
 # Docs about the kit itself (customising the generated site, how template sync
 # keeps a repo current) live on the kit's own site, not on a package's (#194).
@@ -28,5 +35,5 @@ pages = [
     "API reference" => [
         "Public API" => "lib/public.md",
         "Internal API" => "lib/internals.md"
-    ]{{BENCHMARKS_NAV}}
+    ]{{EXTENSIONS_NAV}}{{BENCHMARKS_NAV}}
 ]

@@ -145,6 +145,7 @@
                     ".github/workflows/docpreviewcleanup.yaml",
                     ".github/workflows/cancel-on-close.yaml",
                     ".github/workflows/registrability.yaml",
+                    ".github/workflows/release-nudge.yaml",
                     ".github/workflows/try-this-pr.yaml",
                     ".github/workflows/claude.yml",
                     ".github/workflows/claude-code-review.yml",
@@ -178,6 +179,19 @@
                 @test occursin("workflow_dispatch", reg)
                 @test occursin("'Project.toml'", reg)
                 @test !occursin("{{ORG}}", reg)
+                # The release-nudge caller invokes the org reusable, pins
+                # it by SHA (like the other callers), runs on a weekly
+                # schedule plus `workflow_dispatch`, and leaves no
+                # repo-specific placeholder unfilled.
+                rn = read(
+                    joinpath(dir, ".github/workflows/release-nudge.yaml"),
+                    String)
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/release-nudge.yml@",
+                    rn)
+                @test occursin("workflow_dispatch", rn)
+                @test occursin(r"cron: '\d+ \d+ \* \* \d+'", rn)
+                @test !occursin("{{ORG}}", rn)
                 # Coverage hard-fails on upload error (org policy: red on a
                 # missing CODECOV_TOKEN as a loud reminder to add it).
                 cov_caller = read(
@@ -513,6 +527,45 @@
                 # quality.jl defaults a missing QA_CONFIG.readme field.
                 ql = read(_dest(dir, "test/package/quality.jl"), String)
                 @test occursin("hasproperty(QA_CONFIG, :readme)", ql)
+            end
+        end
+
+        @testset "quality.jl runs formatting in the isolated formatter env (#321)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # The formatting testitem must pass the pinned formatter
+                # environment through, or JuliaFormatter resolves from the
+                # shared (unpinned) test environment and floats with the CI
+                # Julia in use rather than the exact pin (#321).
+                ql = read(_dest(dir, "test/package/quality.jl"), String)
+                @test occursin("test_formatting(QA_CONFIG.mod; env = env)", ql)
+                @test occursin("hasproperty(QA_CONFIG, :formatter_env)", ql)
+                cfg = read(_dest(dir, "test/package/qa_config.jl"), String)
+                @test occursin(
+                    "formatter_env = joinpath(@__DIR__, \"..\", \"formatter\")",
+                    cfg)
+
+                # An adopter's pre-existing qa_config.jl (package-owned, never
+                # re-applied by `update`) can predate the `formatter_env` key.
+                # The guard must resolve to `nothing` (today's in-process
+                # behaviour) rather than erroring on the missing field — but,
+                # unlike a bare `get(...)` default, it must also warn, so a
+                # typoed key does not quietly revert to the exact
+                # floating-JuliaFormatter-version failure #321 is about
+                # (#188).
+                lines = split(ql, "\n")
+                i = findfirst(l -> occursin("env = if hasproperty", l), lines)
+                j = findfirst(
+                    l -> occursin("test_formatting(QA_CONFIG.mod; env = env)",
+                        l), lines)
+                prelude = joinpath(dir, "test", "package", "_prelude321.jl")
+                write(prelude,
+                    "const QA_CONFIG = (; mod = Base)\n" *
+                    join(lines[i:(j - 1)], "\n") * "\n")
+                m = Module()
+                @test_logs (:warn,) match_mode=:any Base.include(m, prelude)
+                @test Base.invokelatest(getproperty, m, :env) === nothing
             end
         end
 
@@ -2099,16 +2152,47 @@
                     @test !occursin("XXXXXXX", ctxt)
                 end
 
-                # A hand-edited CITATION.cff survives update untouched.
+                # A hand-edited CITATION.cff survives update untouched. `update`
+                # seeds a missing file (#322, tested separately below) but still
+                # never rewrites one that already exists.
                 custom = txt * "\nversion: 1.2.3\n"
                 write(cff, custom)
                 ures = update(dir; ad = false)
-                @test ures.citation === :skipped
+                @test ures.citation === :preserved
                 @test read(cff, String) == custom
 
                 # A second scaffold preserves it too.
                 sres = scaffold(dir; ad = false)
                 @test sres.citation === :preserved
+                @test read(cff, String) == custom
+            end
+        end
+
+        @testset "update seeds a missing CITATION.cff (#322)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "PreCitation")
+                scaffold(dir; ad = false)
+                cff = joinpath(dir, "CITATION.cff")
+                @test isfile(cff)
+                # Simulate a package that adopted the template before CITATION
+                # seeding existed (#67): the managed "How to cite" section
+                # `update` re-renders on every sync links to CITATION.cff
+                # unconditionally, so without this, `update` could never make
+                # that link resolve -- a permanent 404 once the README reaches
+                # a linkchecked docs build.
+                rm(cff)
+                res = update(dir; ad = false)
+                @test res.citation === :created
+                @test isfile(cff)
+                txt = read(cff, String)
+                @test occursin("title: \"PreCitation.jl\"", txt)
+
+                # Write-once still holds: a second update never rewrites the
+                # file it just created.
+                custom = txt * "\nversion: 1.2.3\n"
+                write(cff, custom)
+                res2 = update(dir; ad = false)
+                @test res2.citation === :preserved
                 @test read(cff, String) == custom
             end
         end
@@ -2226,6 +2310,42 @@
                 @test occursin("julia_version: '1.12'", after)
                 # ... the rest of the caller is still managed and re-applied,
                 # and a second update is idempotent on the preserved inputs.
+                update(dir)
+                @test read(caller, String) == after
+            end
+        end
+
+        @testset "update preserves a with: input on release-nudge.yaml" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                caller = _dest(dir, ".github/workflows/release-nudge.yaml")
+                before = read(caller, String)
+                # Unlike test.yaml/ad.yaml, this caller renders with no
+                # `with:` block at all, so a package customising e.g.
+                # `stale_days` adds one from scratch, directly between
+                # `uses:` and `secrets:` (the exact shape #73 protects on
+                # the other callers). Guards against a caller job with no
+                # `secrets:` block ever again silently dropping this
+                # override by falling outside `_CALLER_JOB`'s match.
+                @test !occursin("with:", before)
+                overridden = replace(before,
+                    r"(uses: \S+/release-nudge\.yml@\S+\r?\n)" =>
+                        SubstitutionString(
+                            "\\1    with:\n      stale_days: 30\n"))
+                @test overridden != before
+                write(caller, overridden)
+                update(dir)
+                after = read(caller, String)
+                # The override survives the resync ...
+                @test occursin("stale_days: 30", after)
+                # ... and the rest of the caller (the SHA pin, the
+                # trailing `secrets: inherit`) is still managed.
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/release-nudge.yml@",
+                    after)
+                @test occursin("secrets: inherit", after)
+                # A second update is idempotent on the preserved input.
                 update(dir)
                 @test read(caller, String) == after
             end
@@ -2644,19 +2764,26 @@
 
         @testset "reusable-workflow seed refs are single-sourced (#186)" begin
             using EpiAwarePackageTools: _DOWNGRADE_SEED_REF,
-                                        _REGISTRABILITY_SEED_REF, _templates_dir
+                                        _REGISTRABILITY_SEED_REF,
+                                        _RELEASE_NUDGE_SEED_REF,
+                                        _templates_dir
             # Every template pins the org reusables at the same seed commit, so
             # a fresh scaffold never starts life behind on some workflows and
             # current on others (#186: the seed had drifted from `.github` head
-            # on some callers and not others). The registrability caller is the
-            # one documented exception: `registrability.yml` post-dates the
-            # shared seed, so it pins its own newer seed until that commit
-            # merges to `.github` main and Dependabot converges the pins.
+            # on some callers and not others). Two documented exceptions post-
+            # date the shared seed and pin their own newer commit until it
+            # merges to `.github` main and Dependabot converges the pins:
+            # `registrability.yml` and `release-nudge.yml`.
             wf = joinpath(_templates_dir(), ".github", "workflows")
             pins = String[]
             for f in readdir(wf; join = true)
-                expected = endswith(f, "registrability.yaml") ?
-                           _REGISTRABILITY_SEED_REF : _DOWNGRADE_SEED_REF
+                expected = if endswith(f, "registrability.yaml")
+                    _REGISTRABILITY_SEED_REF
+                elseif endswith(f, "release-nudge.yaml")
+                    _RELEASE_NUDGE_SEED_REF
+                else
+                    _DOWNGRADE_SEED_REF
+                end
                 for m in eachmatch(
                     r"/\.github/\.github/workflows/[^@\s]+@([0-9a-f]{40})",
                     read(f, String))
@@ -3963,7 +4090,334 @@ end
         @test count("- \"*\"", dep) == 2
         @test occursin("      github-actions:\n", dep)
         @test occursin("      julia:\n", dep)
+        # Both run daily (#312). The grouping above is what makes that
+        # affordable: a grouped PR is refreshed in place, so the shorter
+        # interval buys faster updates rather than more open PRs. Asserted
+        # here, on the same scaffold, because the two settings only make
+        # sense together — daily and ungrouped is the storm #249 fixed.
+        @test count("interval: \"daily\"", dep) == 2
+        @test !occursin("interval: \"weekly\"", dep)
         # No placeholder survives into the emitted config.
         @test !occursin("{{", dep)
+    end
+end
+
+@testitem "extensions get a docs nav group and seeded pages (#319)" begin
+    using Test
+    using Markdown
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions, _extensions_nav,
+                                _extension_stem, _extension_slug
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    # The stem drops the two affixes that carry no information, so the nav and
+    # the page name read as the feature rather than as a module name.
+    @test _extension_stem("WombatPlotsExt", "Wombat") == "Plots"
+    @test _extension_stem("WombatComposedDistributionsExt", "Wombat") ==
+          "ComposedDistributions"
+    # An extension named exactly `<Package>Ext` keeps its full name rather
+    # than stemming to nothing.
+    @test _extension_stem("WombatExt", "Wombat") == "WombatExt"
+    @test _extension_slug("ComposedDistributions") == "composed-distributions"
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n" *
+            "\n[weakdeps]\n" *
+            "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+            "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+            "\n[extensions]\n" *
+            "WombatPlotsExt = \"Plots\"\n" *
+            "WombatTablesExt = [\"DataFrames\", \"Plots\"]\n")
+
+        # Detected from Project.toml, with no opt-in kwarg: an extension is a
+        # fact about the package, not a CI choice.
+        pages = _package_extensions(dir)
+        @test length(pages) == 2
+        # Labelled by the weakdep(s) that trigger the extension, sorted so the
+        # nav order does not depend on TOML table order.
+        @test [p.title for p in pages] == ["DataFrames + Plots", "Plots"]
+        @test [p.slug for p in pages] == ["tables", "plots"]
+
+        nav = _extensions_nav(dir)
+        @test occursin("\"Extensions\" => [", nav)
+        @test occursin("\"Plots\" => \"extensions/plots.md\"", nav)
+        @test occursin("\"DataFrames + Plots\" => \"extensions/tables.md\"",
+            nav)
+
+        scaffold(dir)
+        pages_jl = read(_dest(dir, "docs/pages.jl"), String)
+        @test occursin("\"Extensions\" => [", pages_jl)
+        @test occursin("extensions/plots.md", pages_jl)
+        @test occursin("extensions/tables.md", pages_jl)
+        @test !occursin("{{", pages_jl)
+        # The nav tree still evaluates: a malformed substitution would take
+        # every adopter's docs build down at `include("pages.jl")`.
+        nav_pages = include(_dest(dir, "docs/pages.jl"))
+        @test any(e -> e isa Pair && e.first == "Extensions", nav_pages)
+
+        # Every entry resolves to a seeded page.
+        plots_md = _dest(dir, "docs/src/extensions/plots.md")
+        @test isfile(plots_md)
+        @test isfile(_dest(dir, "docs/src/extensions/tables.md"))
+        page = read(plots_md, String)
+        @test occursin("(@id extension-plots)", page)
+        @test occursin("WombatPlotsExt", page)
+        # The seeded page must contain no LIVE Documenter block. An extension
+        # module exists only once its weakdeps load, so a live `@autodocs`
+        # over `Base.get_extension` evaluates to `nothing` and kills the build
+        # with a `MethodError` that `warnonly = [:autodocs_block]` does not
+        # catch — for every freshly-scaffolded package. Asserted against the
+        # parsed page, not the source text: Documenter parses with the
+        # `Markdown` stdlib, which has no CommonMark HTML-block handling, so
+        # an `@autodocs` fence wrapped in `<!-- -->` is still live to it (the
+        # parser quirk behind #301/#304). The outer ````markdown fence is what
+        # makes it inert.
+        parsed = Markdown.parse(page)
+        blocks = [el for el in parsed.content if el isa Markdown.Code]
+        @test !isempty(blocks)
+        @test !any(b -> startswith(b.language, "@"), blocks)
+        @test any(b -> b.language == "markdown" &&
+                       occursin("```@autodocs", b.code), blocks)
+        # The public-API block ships commented out: an extension module only
+        # exists once its weakdeps load, so a live `@autodocs` over
+        # `Base.get_extension` would red every freshly-scaffolded docs build.
+        @test occursin("Modules = [Base.get_extension(Wombat, " *
+                       ":WombatPlotsExt)]", page)
+
+        # The pages are package-owned: authored scope prose survives a sync.
+        authored = "# Plots extension\n\nAuthored prose.\n"
+        write(plots_md, authored)
+        EpiAwarePackageTools.update(dir)
+        @test read(plots_md, String) == authored
+        # ... and a re-scaffold, which does reach the package-owned seeds:
+        # write-once means the authored page is preserved, not re-seeded.
+        scaffold(dir)
+        @test read(plots_md, String) == authored
+        # `force` is the documented way back to the seeded page, as for every
+        # other package-owned file.
+        scaffold(dir; force = true)
+        @test occursin("(@id extension-plots)", read(plots_md, String))
+    end
+end
+
+@testitem "a package with no extensions gets no Extensions nav (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions, _extensions_nav
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        @test isempty(_package_extensions(dir))
+        @test _extensions_nav(dir) == ""
+
+        scaffold(dir)
+        pages_jl = read(_dest(dir, "docs/pages.jl"), String)
+        @test !occursin("Extensions", pages_jl[
+            (something(findfirst("pages = [", pages_jl)).start):end])
+        @test !isdir(_dest(dir, "docs/src/extensions"))
+    end
+end
+
+@testitem "coverage task actually instruments the test run (#315)" begin
+    using Test
+    using EpiAwarePackageTools
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    function _fake_pkg(dir; name = "Wombat")
+        write(joinpath(dir, "Project.toml"),
+            "name = \"$name\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        return dir
+    end
+
+    # `Pkg.test()` spawns its own child process for the actual test run, so an
+    # outer `--code-coverage=user` on the driving `julia` process never reaches
+    # it; only `Pkg.test(coverage=true, ...)` controls the child's
+    # instrumentation. `coverage-ad` runs `runtests.jl` directly (no spawned
+    # child), so its own `--code-coverage=user` is legitimate and left alone —
+    # assertions below are scoped to the `coverage:` task's own recipe.
+    function _check_coverage_recipe(dir)
+        tf = read(_dest(dir, "Taskfile.yml"), String)
+        cov_recipe = split(tf, "coverage-ad:")[1]
+        @test occursin("Pkg.test(coverage=true, test_args=[\"skip_quality\"])",
+            cov_recipe)
+        @test !occursin("--code-coverage=user", cov_recipe)
+        # The post-processing step used to `Pkg.add("Coverage")` into
+        # `--project=test`, dirtying the adopter's tracked `test/Project.toml`
+        # (adds the dep, reorders entries) on every routine coverage run. A
+        # shared environment keeps that dependency out of the tracked project
+        # files.
+        @test occursin("julia --project=@coverage -e", cov_recipe)
+        @test !occursin("julia --project=test -e 'using Pkg; Pkg.add(\"Coverage\")",
+            cov_recipe)
+    end
+
+    @testset "ad = true (Taskfile.yml)" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true)
+            _check_coverage_recipe(dir)
+        end
+    end
+
+    @testset "ad = false (Taskfile.noad.yml)" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = false)
+            _check_coverage_recipe(dir)
+        end
+    end
+end
+
+@testitem "extension slugs and the manifest hold up at the edges (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    @testset "two extensions stemming alike keep separate pages" begin
+        mktempdir() do dir
+            # `WombatPlotsExt` loses the package prefix, `PlotsExt` never had
+            # one: both stem to `Plots`. Left unresolved, two nav entries would
+            # point at one page and one extension would be documented under the
+            # other's label.
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n" *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n" *
+                "PlotsExt = \"DataFrames\"\n")
+            pages = _package_extensions(dir)
+            @test length(pages) == 2
+            @test length(unique(p.slug for p in pages)) == 2
+
+            # Uniqueness is enforced, not assumed: a fallback slug can itself
+            # land on one that was free in the first pass, since
+            # `WombatPlotsExtExt` stems to the `PlotsExt` a bare `PlotsExt`
+            # slugs to.
+            three = joinpath(dir, "three")
+            mkpath(three)
+            write(joinpath(three, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n" *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+                "Random = \"9a3f8284-a2c9-5f02-9a11-845980a1fd5c\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n" *
+                "PlotsExt = \"DataFrames\"\n" *
+                "WombatPlotsExtExt = \"Random\"\n")
+            trio = _package_extensions(three)
+            @test length(trio) == 3
+            @test length(unique(p.slug for p in trio)) == 3
+            @test all(!isempty(p.slug) for p in trio)
+
+            scaffold(dir)
+            # Every nav entry resolves to a page of its own.
+            pgs = read(_dest(dir, "docs/pages.jl"), String)
+            for p in pages
+                @test occursin("extensions/" * p.slug * ".md", pgs)
+                @test isfile(_dest(dir,
+                    "docs/src/extensions/" * p.slug * ".md"))
+                # The page documents its own extension, not its twin's.
+                @test occursin(p.name,
+                    read(_dest(dir, "docs/src/extensions/" * p.slug * ".md"),
+                        String))
+            end
+        end
+    end
+
+    @testset "a page the write-once nav never learned about is named" begin
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            res = scaffold(dir)
+            # No extensions: nothing to seed, nothing to warn about, and the
+            # manifest still reports the pair.
+            @test isempty(res.extension_pages.created)
+            @test isempty(res.extension_pages.preserved)
+            @test !any(w -> occursin("extensions/", w), res.warnings)
+
+            # The package declares an extension after adopting the kit. An
+            # unforced re-scaffold seeds the page (absent, so write-once
+            # writes it) but cannot touch the package-owned pages.jl, so
+            # nothing links it — that has to be said, not discovered on a
+            # published site.
+            proj = joinpath(dir, "Project.toml")
+            write(proj,
+                read(proj, String) *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n")
+            res2 = scaffold(dir)
+            @test length(res2.extension_pages.created) == 1
+            @test isfile(_dest(dir, "docs/src/extensions/plots.md"))
+            unlinked = filter(w -> occursin("extensions/plots.md", w),
+                res2.warnings)
+            @test length(unlinked) == 1
+            # The warning carries the exact nav entry to paste.
+            @test occursin("\"Plots\" => \"extensions/plots.md\"",
+                only(unlinked))
+
+            # Once the entry is there by hand, the warning stops.
+            pgs = _dest(dir, "docs/pages.jl")
+            write(pgs,
+                replace(read(pgs, String),
+                    "    \"API reference\"" =>
+                        "    \"Extensions\" => [\n" *
+                        "        \"Plots\" => \"extensions/plots.md\"\n" *
+                        "    ],\n    \"API reference\""))
+            res3 = scaffold(dir)
+            @test !any(w -> occursin("extensions/plots.md", w), res3.warnings)
+            # The authored page is preserved, and reported as such.
+            @test length(res3.extension_pages.preserved) == 1
+            @test isempty(res3.extension_pages.created)
+        end
+    end
+
+    @testset "update stays silent when there is no page to be unreachable" begin
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            scaffold(dir)
+            # A package that adopted the kit before it seeded extension pages,
+            # then declared an extension: `update` seeds no page, so there is
+            # no file to be unreachable. Warning here would claim a page is
+            # "built but unreachable" when none was ever written, and the nav
+            # entry it asks for would be stripped at build time anyway — on
+            # every routine sync of the packages this feature targets.
+            proj = joinpath(dir, "Project.toml")
+            write(proj,
+                read(proj, String) *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n")
+            res = EpiAwarePackageTools.update(dir)
+            @test !isfile(_dest(dir, "docs/src/extensions/plots.md"))
+            @test !any(w -> occursin("extensions/", w), res.warnings)
+            # `update` seeds no package-owned pages, and says so.
+            @test isempty(res.extension_pages.created)
+            @test isempty(res.extension_pages.preserved)
+        end
     end
 end

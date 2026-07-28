@@ -120,6 +120,11 @@ Two workflows keep an adopting package aligned with the kit.
 - Dependabot (`.github/dependabot.yml`) keeps the pinned reusable-workflow and
   action references current, so fixes in the shared workflows reach the
   repository without manual edits.
+  It runs daily, and every bump within an ecosystem is grouped into one pull
+  request, so a run refreshes that pull request rather than opening more.
+  The refresh is a new commit, so it costs a check run; a package that would
+  rather wait longer than spend the runner time sets the `julia` ecosystem
+  back to `weekly` in its own copy.
 
 An improvement made once in the kit therefore propagates to every adopting
 package on the next sync.
@@ -142,6 +147,31 @@ It runs two read-only checks.
   A breaking release legitimately strands a downstream bound, so this is a
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
+
+## Release nudges
+
+The managed `release-nudge.yaml` caller runs the shared `EpiAware/.github`
+release-nudge workflow weekly and on demand.
+It compares `Project.toml`'s version and the commits on `main` since the
+latest release/tag (and, best-effort, the version registered in the Julia
+General registry) and, whenever `main` has unreleased changes, opens or
+refreshes a single labelled issue that reports the released vs
+`Project.toml` version, how many commits are unreleased with a compare
+link and a short recent-commit list, and whether a version bump is still
+needed or only registration is outstanding.
+The issue spells out the next steps: comment `/version patch`, `/version
+minor`, or `/version major` on a pull request to bump, update `NEWS.md`,
+then either comment `/register` or run the Register workflow manually.
+When nothing is unreleased it closes any open nudge issue instead.
+
+An open nudge issue is never edited in place.
+A run that finds the state has changed, or finds the issue has simply sat
+open too long, closes it with a short comment and opens a fresh one, so
+the issue is always current rather than accumulating an edit history.
+The generated issue body can never contain a literal `@`: the workflow
+strips it from any repository-derived text (commit subject lines) before
+it can reach the body, and names the Register workflow and the
+`/register` slash command instead of ever writing out a handle.
 
 ## How the kit applies this to itself
 
