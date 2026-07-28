@@ -7,8 +7,9 @@
 #src there, never here. If this page cannot execute for this package, park it
 #src via `FORCE_STUB_TUTORIALS` in `docs/docs_config.jl` instead of editing it.
 #src The backend-comparison benchmark used to live on this page; it is now
-#src `ad-comparison.jl`, under the Benchmarks nav rather than Tutorials (#299)
-#src — this page keeps the how-to-choose narrative and links there for numbers.
+#src `docs/src/benchmarks/ad-comparison.jl`, under its own top-level
+#src "Benchmarks" nav group rather than Tutorials (#299/#305) — this page
+#src keeps the how-to-choose narrative and links there for numbers.
 
 md"""
 # [Automatic differentiation backends](@id ad-backends)

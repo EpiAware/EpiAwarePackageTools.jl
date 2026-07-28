@@ -5,13 +5,16 @@
 #
 # The Benchmarks entry below is written when the package is scaffolded with
 # `benchmarks = true`, `ad = true`, or both (the BENCHMARKS_NAV substitution):
-# a flat entry to the performance-history page for the benchmark suite alone,
-# a flat entry to the kit-managed AD-comparison page alone, or both nested
-# under one "Benchmarks" section when the package has both. A package with
-# neither gets no entry and no page. The Tutorials entry is written only with
-# `ad = true` (the AD_TUTORIALS_NAV substitution): it carries the kit-managed
-# AD-backends page (which is which backends work and how to configure them;
-# what each costs is the AD-comparison page above, under Benchmarks -- #299).
+# its own top-level nav group under docs/src/benchmarks/, sibling to Getting
+# started/API reference, not nested inside Tutorials (#299/#305, the shape
+# EpiAwareADTools#28 asked for). The performance-over-time page appears with
+# `benchmarks = true`, the AD-comparison benchmark report with `ad = true`;
+# a package with both gets one Benchmarks dropdown nesting both pages, a
+# package with neither gets no entry and no group. The Tutorials entry is
+# written only with `ad = true` (the AD_TUTORIALS_NAV substitution): it
+# carries the kit-managed AD-backends page (which backends work and how to
+# configure them; what each costs is the AD-comparison report above, under
+# its own Benchmarks group).
 #
 # The Extensions group is written from whatever `[extensions]` the package
 # declared when it was scaffolded (the EXTENSIONS_NAV substitution), one entry

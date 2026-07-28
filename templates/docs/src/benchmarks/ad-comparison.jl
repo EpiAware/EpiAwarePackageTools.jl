@@ -1,13 +1,16 @@
 #src MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #src Split out of `ad-backends.jl` (#299): the backend-support/how-to-choose
-#src narrative lives there, under Tutorials; this page is the cost report,
-#src under the Benchmarks nav, alongside the performance-history page (when
-#src the package has one). The page body is re-applied on every update so it
-#src stays kit-current; everything package-specific it reports (scenarios,
-#src backends, broken/skip declarations) is read at docs-build time from the
-#src package-owned `test/ADFixtures` registry, so declare a broken scenario
-#src there, never here. If this page cannot execute for this package, park it
-#src via `FORCE_STUB_TUTORIALS` in `docs/docs_config.jl` instead of editing it.
+#src narrative lives there, under Getting started/Tutorials; this page is the
+#src cost report, and lives under `docs/src/benchmarks/` with its own
+#src top-level "Benchmarks" nav group, alongside the performance-over-time
+#src page (when the package has one) — not nested inside Tutorials (#305,
+#src the shape EpiAwareADTools#28 asked for). The page body is re-applied on
+#src every update so it stays kit-current; everything package-specific it
+#src reports (scenarios, backends, broken/skip declarations) is read at
+#src docs-build time from the package-owned `test/ADFixtures` registry, so
+#src declare a broken scenario there, never here. If this page cannot
+#src execute for this package, park it via `FORCE_STUB_TUTORIALS` in
+#src `docs/docs_config.jl` instead of editing it.
 
 md"""
 # [AD backend comparison](@id ad-comparison)

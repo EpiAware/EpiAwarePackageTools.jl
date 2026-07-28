@@ -15,10 +15,11 @@ const LIGHT_TUTORIALS = String[]
 
 # Heavy tutorials (live MCMC fits, multi-backend AD, plotting) are each
 # executed once in a fresh subprocess so native/memory state cannot accumulate.
-# The `ad-backends.jl` and `ad-comparison.jl` entries are seeded together
-# when the package is scaffolded with `ad = true`: the pages themselves are
-# kit-managed (re-applied on every sync); only this registration is
-# package-owned.
+# The `ad-backends.jl` entry is seeded when the package is scaffolded with
+# `ad = true`: the page itself is kit-managed (re-applied on every sync);
+# only this registration is package-owned. Its `ad-comparison.jl` sibling
+# lives under `docs/src/benchmarks/` and is registered in `HEAVY_BENCHMARKS`
+# below, not here (#305).
 const HEAVY_TUTORIALS = String[{{AD_HEAVY_TUTORIALS}}]
 
 # Where the tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -36,8 +37,23 @@ const TUTORIAL_STUBS = Pair{String, String}[{{AD_TUTORIAL_STUBS}}]
 # heavy tutorial with a problem of its own (e.g. a model that does not
 # terminate in reasonable time), so it need not block its siblings from
 # running for real. Leave empty; every heavy tutorial with no such problem
-# should execute.
+# should execute. Shared with the `docs/src/benchmarks/` pipeline below —
+# `ad-comparison.jl` is parked the same way, by naming it here.
 const FORCE_STUB_TUTORIALS = String[]
+
+# The `docs/src/benchmarks/` Literate pipeline: its own heavy-tutorial list
+# and fast-build stubs, exactly mirroring `HEAVY_TUTORIALS`/`TUTORIAL_STUBS`
+# above but rooted at `docs/src/benchmarks` instead of `TUTORIALS_SUBDIR`, so
+# a benchmark report gets its own top-level "Benchmarks" nav group rather
+# than reading as a how-to guide under Tutorials (#299/#305, the shape
+# EpiAwareADTools#28 asked for). The `ad-comparison.jl` entry is seeded when
+# the package is scaffolded with `ad = true`: the page itself is kit-managed
+# (re-applied on every sync); only this registration is package-owned.
+const HEAVY_BENCHMARKS = String[{{AD_HEAVY_BENCHMARKS}}]
+
+# Fast-build stubs for `HEAVY_BENCHMARKS`, same convention as
+# `TUTORIAL_STUBS`.
+const BENCHMARK_STUBS = Pair{String, String}[{{AD_BENCHMARK_STUBS}}]
 
 # Whether this package advertises itself as part of the EpiAware ecosystem: a
 # "Part of the EpiAware ecosystem" section in the managed README block, and the
@@ -70,12 +86,13 @@ const README_EXECUTE = true
 # keep the whole README — content tables and all.
 const INDEX_STRIP_SECTIONS = String[]
 
-# Whether the build generates the benchmark page (`src/benchmarks.md`): the
-# package-owned `docs/benchmarks.md` prose hook plus an overall summary
-# table + combined trend plot and the per-suite detail, both rendered from
-# the timeline published to the repo's `benchmarks` branch. Defaults to the
-# `benchmarks` flag the package was scaffolded with; `false` drops the page
-# and `make.jl` also omits its `pages.jl` nav entry. The trend plot needs
+# Whether the build generates the benchmark page
+# (`src/benchmarks/over-time.md`): the package-owned `docs/benchmarks.md`
+# prose hook plus an overall summary table + combined trend plot and the
+# per-suite detail, both rendered from the timeline published to the repo's
+# `benchmarks` branch. Defaults to the `benchmarks` flag the package was
+# scaffolded with; `false` drops the page and `make.jl` also omits its
+# `pages.jl` "Benchmarks" nav entry. The trend plot needs
 # `Plots` in `docs/Project.toml` (lazily loaded, so it degrades to a
 # table-only page with an `@info` note when absent rather than failing the
 # build).

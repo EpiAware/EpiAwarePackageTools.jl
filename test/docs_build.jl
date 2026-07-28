@@ -2036,7 +2036,7 @@ end
                 "Plots" => "extensions/plots.md",
                 "Tables" => "extensions/tables.md"
             ],
-            "Benchmarks" => "benchmarks.md"]
+            "Benchmarks" => "benchmarks/over-time.md"]
         out = DB._strip_extensions_nav(pages, src_dir)
         # The page that exists is kept; the one that does not is dropped, so
         # the built nav carries no dangling link.
@@ -2045,7 +2045,7 @@ end
         @test exts == ["Plots" => "extensions/plots.md"]
         # Nothing outside the extensions pages is touched.
         @test out[1] == ("Home" => "index.md")
-        @test out[end] == ("Benchmarks" => "benchmarks.md")
+        @test out[end] == ("Benchmarks" => "benchmarks/over-time.md")
 
         # With no pages at all the group itself goes: an empty dropdown is
         # worse than none. This is the package-scaffolded-before-#319 case.

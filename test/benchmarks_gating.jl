@@ -39,9 +39,13 @@
             # No performance-history nav entry; the docs opt out via
             # BENCHMARK_PAGE. A "Benchmarks" entry may still exist pointing at
             # the AD-comparison page instead (`ad = true` is the scaffold
-            # default, #299) -- that is not this test's concern.
+            # default, #299/#305) -- that is not this test's concern. Scope
+            # to the substituted `pages` array itself, not the header
+            # comment above it (which mentions both labels in prose).
             pages = read(joinpath(dir, "docs/pages.jl"), String)
-            @test !occursin("benchmarks.md", pages)
+            arr = pages[findfirst("pages = [", pages)[1]:end]
+            @test !occursin("benchmarks/over-time.md", arr)
+            @test !occursin("\"Performance over time\"", arr)
             cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
             @test occursin("const BENCHMARK_PAGE = false", cfg)
         end
@@ -54,12 +58,13 @@
             for f in BENCH_FILES
                 @test isfile(joinpath(dir, f))
             end
-            # `ad = true` is the scaffold default, so the Benchmarks entry
-            # nests the performance-history page alongside AD comparison
-            # (#299) rather than pointing at "benchmarks.md" alone.
+            # `ad = true` is the scaffold default, so the Benchmarks group
+            # nests the performance-over-time page alongside AD comparison
+            # (#299/#305) rather than pointing at "benchmarks.md" alone.
             pages = read(joinpath(dir, "docs/pages.jl"), String)
             @test occursin(
-                "\"Performance history\" => \"benchmarks.md\"", pages)
+                "\"Performance over time\" => \"benchmarks/over-time.md\"",
+                pages)
             cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
             @test occursin("const BENCHMARK_PAGE = true", cfg)
         end
@@ -134,11 +139,38 @@
                 "Public API" => "lib/public.md",
                 "Internal API" => "lib/internals.md"
             ],
-            "Benchmarks" => "benchmarks.md"]
+            "Benchmarks" => "benchmarks/over-time.md"]
         out = strip(pages)
         @test length(out) == 2
-        @test !any(e -> e isa Pair && e.second == "benchmarks.md", out)
+        @test !any(
+            e -> e isa Pair && e.second == "benchmarks/over-time.md", out)
         # A non-benchmark tree is returned unchanged in shape.
+        @test out[1] == ("Home" => "index.md")
+    end
+
+    @testset "_strip_benchmark_nav keeps a sibling AD-comparison entry (#305)" begin
+        strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
+        pages = [
+            "Home" => "index.md",
+            "Benchmarks" => [
+                "Performance over time" => "benchmarks/over-time.md",
+                "AD comparison" => "benchmarks/ad-comparison.md"
+            ]]
+        out = strip(pages)
+        @test length(out) == 2
+        @test out[2] == ("Benchmarks" =>
+            ["AD comparison" => "benchmarks/ad-comparison.md"])
+    end
+
+    @testset "_strip_benchmark_nav drops an emptied group (#305)" begin
+        strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
+        pages = [
+            "Home" => "index.md",
+            "Benchmarks" => [
+                "Performance over time" => "benchmarks/over-time.md"
+            ]]
+        out = strip(pages)
+        @test length(out) == 1
         @test out[1] == ("Home" => "index.md")
     end
 

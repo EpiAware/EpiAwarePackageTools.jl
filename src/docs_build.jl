@@ -12,14 +12,18 @@
 #     heavy tutorials each executed in a fresh subprocess); on `skip_notebooks`
 #     the light tutorials still render in-process (they are cheap) and only
 #     the heavy tutorials fall back to fast-build heading stubs,
+#   - the same pipeline again over `src/benchmarks/` (heavy-only, e.g. the
+#     AD-comparison report), so a benchmark page gets its own top-level nav
+#     group instead of sitting under Tutorials (#299/#305),
 #   - `src/index.md` generated from the package README (badge block stripped,
 #     optional package-named sections stripped, ```julia blocks turned into
 #     `@example readme`, link rewrites applied),
 #   - `src/release-notes.md` generated from a project-root `NEWS.md` + the
 #     package-owned header,
-#   - `src/benchmarks.md`: a tight managed skeleton (page heading + the
-#     package-owned prose hook + a data-driven performance-history section that
-#     renders the published timeline) — no package-specific free text,
+#   - `src/benchmarks/over-time.md`: a tight managed skeleton (page heading +
+#     the package-owned prose hook + a data-driven performance-history
+#     section that renders the published timeline) — no package-specific
+#     free text,
 #   - the API reference pages (`lib/public.md`, `lib/internals.md`) from the
 #     module's documented bindings (one `@docs` entry per binding), and
 #   - the render + deploy with `DocumenterVitepress` (adding DocumenterCitations
@@ -1893,10 +1897,13 @@ end
 
 # ---- orchestrator ---------------------------------------------------------
 
-# Remove any `... => "benchmarks.md"` leaf from a Documenter `pages` nav tree
-# (at any nesting depth). Used when the benchmark page is disabled but a
-# package-owned `pages.jl` still lists the entry, so the built nav carries no
-# dangling link. Every non-benchmark entry is kept unchanged.
+# Remove any `... => "benchmarks/over-time.md"` leaf from a Documenter
+# `pages` nav tree (at any nesting depth). Used when the benchmark page is
+# disabled but a package-owned `pages.jl` still lists the entry, so the
+# built nav carries no dangling link. Every non-benchmark entry is kept
+# unchanged. A "Benchmarks" group left empty by that removal (`benchmarks =
+# true`, `ad = false`, page disabled) is dropped too, exactly like
+# `_strip_extensions_nav` -- an empty dropdown is worse than none.
 # Remove any `... => "extensions/<page>.md"` leaf whose source page is not
 # present under `src_dir`, and any nav group left empty by that removal. The
 # extension nav group is written once into the package-owned `pages.jl` from
@@ -1933,10 +1940,15 @@ function _strip_benchmark_nav(pages)
     kept = Any[]
     for entry in pages
         if entry isa Pair && entry.second isa AbstractString
-            endswith(entry.second, "benchmarks.md") && continue
+            endswith(entry.second, "benchmarks/over-time.md") && continue
             push!(kept, entry)
         elseif entry isa Pair && entry.second isa AbstractVector
-            push!(kept, entry.first => _strip_benchmark_nav(entry.second))
+            inner = _strip_benchmark_nav(entry.second)
+            # A group that held only the (now-stripped) benchmark-history
+            # entry -- "Benchmarks" with `ad = false`, so nothing else was
+            # ever nested alongside it -- is itself dropped.
+            isempty(inner) && !isempty(entry.second) && continue
+            push!(kept, entry.first => inner)
         else
             push!(kept, entry)
         end
@@ -1981,6 +1993,7 @@ end
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
+               heavy_benchmarks=[], benchmark_stubs=[],
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
                index_strip_sections=[], benchmark_page=true,
                history_suites=[], history_commits=5,
@@ -1999,7 +2012,11 @@ exists to skip the slow ones, not the cheap ones. Independent of
 never executes and always renders from its `tutorial_stubs` heading — for a
 heavy tutorial with an unresolved problem of its own (e.g. a model that does
 not terminate in reasonable time), so it need not block its siblings from
-running for real. `deploy=false` builds without deploying, and
+running for real. `heavy_benchmarks`/`benchmark_stubs` drive the same
+pipeline again over `src/benchmarks/` (also gated by `force_stub_tutorials`),
+so a benchmark report (e.g. the AD-comparison page) renders under its own
+top-level "Benchmarks" nav group rather than under Tutorials (#299/#305).
+`deploy=false` builds without deploying, and
 `build_vitepress=false` runs Documenter without the final VitePress (npm)
 pass — both used by tests and fast local content builds. On the benchmark page,
 `history_suites` (when non-empty) restricts the overall summary and detail to
@@ -2034,6 +2051,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         light_tutorials = String[], heavy_tutorials = String[],
         tutorial_stubs = Pair{String, String}[],
         force_stub_tutorials = String[],
+        heavy_benchmarks = String[],
+        benchmark_stubs = Pair{String, String}[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
         readme_execute::Bool = true, index_strip_sections = String[],
         benchmark_page::Bool = true, history_suites = String[],
@@ -2050,10 +2069,22 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     docs_dir = joinpath(project_root, "docs")
     src_dir = joinpath(docs_dir, "src")
     tutorials_dir = joinpath(src_dir, tutorials_subdir)
+    benchmarks_dir = joinpath(src_dir, "benchmarks")
 
-    # --- tutorials ---------------------------------------------------------
+    # --- tutorials -----------------------------------------------------
     _render_tutorials(docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
         heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials)
+
+    # --- docs/src/benchmarks/ (e.g. the AD-comparison report) --------------
+    # Same pipeline, its own directory, so a benchmark report renders under
+    # its own top-level "Benchmarks" nav group rather than under Tutorials
+    # (#299/#305). Heavy-only: nothing currently needs a light benchmark
+    # page, but `_render_tutorials` costs nothing extra to call generically.
+    # Shares `force_stub_tutorials` with the tutorials pipeline above -- it
+    # is matched against whichever `heavy` list is passed at each call site,
+    # so one config list parks a heavy page in either directory by name.
+    _render_tutorials(docs_dir, benchmarks_dir, skip_notebooks, String[],
+        heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials)
 
     # --- generated pages ---------------------------------------------------
     build_index(; readme = joinpath(project_root, "README.md"),
@@ -2066,9 +2097,10 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     benchmark_linkcheck = Regex[]
     if benchmark_page
         benchmark_linkcheck = build_benchmark_page(;
-            dest = joinpath(src_dir, "benchmarks.md"), repo = repo,
+            dest = joinpath(benchmarks_dir, "over-time.md"), repo = repo,
             package = string(mod),
             prose_file = joinpath(docs_dir, "benchmarks.md"),
+            notes_file = joinpath(docs_dir, "benchmarks_notes.md"),
             project_root = project_root, history_suites = history_suites,
             history_commits = history_commits,
             history_regression_threshold = history_regression_threshold)
@@ -2076,7 +2108,7 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         println("BENCHMARK_PAGE = false; skipping benchmark history page")
         # Drop any stale Benchmarks nav entry so a package that disabled the page
         # without regenerating its (package-owned) `pages.jl` still gets a nav
-        # tree with no dangling "benchmarks.md" link.
+        # tree with no dangling "benchmarks/over-time.md" link.
         pages = _strip_benchmark_nav(pages)
     end
     # Unconditional, unlike the benchmark strip: there is no extensions flag to

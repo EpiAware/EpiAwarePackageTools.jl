@@ -13,11 +13,16 @@
 #     fall back to fast-build heading stubs; independent of that flag, any
 #     `FORCE_STUB_TUTORIALS` entry always renders from its heading stub
 #     without running, while its heavy siblings still execute normally,
+#   - runs the same pipeline again over `docs/src/benchmarks/`, driven by
+#     `HEAVY_BENCHMARKS`/`BENCHMARK_STUBS` (e.g. `ad-comparison.jl`), so a
+#     benchmark report gets its own nav group rather than sitting under
+#     Tutorials (#299/#305),
 #   - generates `src/index.md` from the README (badges stripped, any
 #     `INDEX_STRIP_SECTIONS` removed, link rewrites applied),
 #   - generates `src/release-notes.md` from a project-root `NEWS.md`,
-#   - generates `src/benchmarks.md` (a tight skeleton + the package-owned
-#     `docs/benchmarks.md` prose hook + the rendered performance history),
+#   - generates `src/benchmarks/over-time.md` (a tight skeleton + the
+#     package-owned `docs/benchmarks.md` prose hook + the rendered
+#     performance history),
 #   - generates the API pages from the module's documented bindings, and
 #   - renders + deploys with DocumenterVitepress.
 #
@@ -68,6 +73,13 @@ build_docs(
     heavy_tutorials = _cfg(:HEAVY_TUTORIALS, String[]),
     tutorial_stubs = _cfg(:TUTORIAL_STUBS, Pair{String, String}[]),
     force_stub_tutorials = _cfg(:FORCE_STUB_TUTORIALS, String[]),
+    # The `docs/src/benchmarks/` pipeline (e.g. `ad-comparison.jl`), same
+    # convention as the tutorials pipeline above but its own nav group
+    # (#299/#305). `_cfg` defaults both to empty for a `docs_config.jl` that
+    # predates this pipeline, so a package that has not yet added the two
+    # consts still builds -- just without that page rendered.
+    heavy_benchmarks = _cfg(:HEAVY_BENCHMARKS, String[]),
+    benchmark_stubs = _cfg(:BENCHMARK_STUBS, Pair{String, String}[]),
     linkcheck_ignore = _cfg(:LINKCHECK_IGNORE, Regex[]),
     index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
     readme_execute = _cfg(:README_EXECUTE, true),

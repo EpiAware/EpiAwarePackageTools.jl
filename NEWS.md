@@ -1,32 +1,49 @@
 ## Unreleased
 
-**New**: the AD backend-comparison benchmark moves off the `ad-backends`
-tutorial page onto its own `ad-comparison` page, filed under the Benchmarks
-nav rather than Tutorials (#299).
+**New**: every benchmark page now lives under its own `docs/src/benchmarks/`
+folder with a top-level "Benchmarks" nav group — a sibling of "Getting
+started"/"API reference"/"Extensions", never nested inside Tutorials
+(#299/#305, the shape EpiAwareADTools#28 asked for: "Benchmarks:
+Performance over time, AD comparison").
+
+The AD backend-comparison benchmark moves off the `ad-backends` tutorial
+page onto its own `ad-comparison` page under `docs/src/benchmarks/`
+(`ad = true`).
 The benchmark table and plots read as a cost report, not a how-to guide, so
-EpiAwareADTools#28 asked for the split.
-`ad-backends` keeps the backend-support table, Enzyme configuration, and
-debugging sections, and now cross-links to `ad-comparison` for the numbers
-instead of carrying them.
+EpiAwareADTools#28 asked for the split; `ad-backends` stays under Tutorials,
+keeps the backend-support table, Enzyme configuration, and debugging
+sections, and now cross-links to `ad-comparison` for the numbers instead of
+carrying them.
+The performance-history page (`benchmarks = true`) moves from
+`docs/src/benchmarks.md` to `docs/src/benchmarks/over-time.md`, labelled
+"Performance over time" in the nav.
+`docs/src/benchmarks/` has its own Literate pipeline
+(`HEAVY_BENCHMARKS`/`BENCHMARK_STUBS` in `docs_config.jl`, mirroring
+`HEAVY_TUTORIALS`/`TUTORIAL_STUBS`), so the AD-comparison report renders
+independently of the Tutorials directory.
 
 `docs/pages.jl` and `docs/docs_config.jl` are both package-owned and
-write-once, so `update` cannot add the new nav entry or the new Literate
-registration to an adopter's files automatically.
-An existing `ad = true` adopter needs two edits after their first sync on
-this kit version.
-In `docs/docs_config.jl`, add `"ad-comparison.jl"` to `HEAVY_TUTORIALS`,
-and `"ad-comparison.md" => "# [AD backend comparison](@id ad-comparison)"`
-to `TUTORIAL_STUBS`, alongside the existing `ad-backends.jl` entries —
-without this the new page is never Literate-processed and never renders.
-In `docs/pages.jl`, add one line to the end of the `pages` array:
-`"Benchmarks" => "getting-started/tutorials/ad-comparison.md"` if they
-don't also have `benchmarks = true`, or the nested form
-(`"Benchmarks" => ["Performance history" => "benchmarks.md", "AD comparison"
-=> "getting-started/tutorials/ad-comparison.md"]`) if they do.
-Until that second edit lands, the page still builds and is still
-cross-linked from `ad-backends` — `@ref` resolution doesn't depend on the
-nav listing — it just won't appear in the sidebar.
-`update` now warns when either edit is still outstanding, so the gap
+write-once, so `update` cannot make either change to an adopter's files
+automatically.
+An existing adopter needs edits after their first sync on this kit version.
+An `ad = true` adopter's `docs/docs_config.jl`: add `"ad-comparison.jl"` to
+a new `HEAVY_BENCHMARKS` const, and `"ad-comparison.md" => "# [AD backend
+comparison](@id ad-comparison)"` to a new `BENCHMARK_STUBS` const (both
+default to empty when absent, so a build does not error — it just never
+renders that page).
+Any adopter with `benchmarks = true` or `ad = true` (i.e. anyone with a
+"Benchmarks" nav entry at all): in `docs/pages.jl`, replace the existing
+`"Benchmarks"` entry with
+`"Benchmarks" => ["Performance over time" => "benchmarks/over-time.md",
+"AD comparison" => "benchmarks/ad-comparison.md"]`, dropping whichever line
+does not apply — the old flat `"Benchmarks" => "benchmarks.md"` entry now
+points at a path the build no longer writes.
+Until these edits land, the pages still build (and, for AD comparison, are
+still cross-linked from `ad-backends`) — `@ref` resolution and the Literate
+pipeline don't depend on the nav listing — they just won't appear in the
+sidebar, or (AD comparison specifically, pre-`HEAVY_BENCHMARKS`) won't
+render at all.
+`update` now warns when any of these edits is still outstanding, so the gap
 surfaces at sync time rather than only in this note.
 
 A package that declares `[extensions]` now gets an "Extensions" group in its

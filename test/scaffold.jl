@@ -438,7 +438,7 @@
             # to pages the package writes or `make.jl` generates, for both the
             # AD and no-AD navs.
             generated = ["index.md", "lib/public.md", "lib/internals.md",
-                "benchmarks.md"]
+                "benchmarks/over-time.md"]
             for ad in (true, false)
                 mktempdir() do dir
                     _fake_pkg(dir; name = "Wombat")
@@ -1203,11 +1203,13 @@
                 # entry, no AD deps.
                 @test !isfile(_dest(dir,
                     "docs/src/getting-started/tutorials/ad-backends.jl"))
-                # Nor the AD-comparison benchmark page split out of it (#299).
+                # Nor the AD-comparison benchmark page split out of it
+                # (#299/#305, now under docs/src/benchmarks/).
                 @test !isfile(_dest(dir,
-                    "docs/src/getting-started/tutorials/ad-comparison.jl"))
+                    "docs/src/benchmarks/ad-comparison.jl"))
                 cfg = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("const HEAVY_TUTORIALS = String[]", cfg)
+                @test occursin("const HEAVY_BENCHMARKS = String[]", cfg)
                 @test !occursin("\"ad-backends.jl\"", cfg)
                 @test !occursin("\"ad-backends.md\"", cfg)
                 @test !occursin("\"ad-comparison.jl\"", cfg)
@@ -1326,12 +1328,11 @@
             end
         end
 
-        @testset "ad = true ships the AD-comparison benchmark page (#299)" begin
+        @testset "ad = true ships the AD-comparison benchmark page (#299/#305)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                tut = _dest(dir,
-                    "docs/src/getting-started/tutorials/ad-comparison.jl")
+                tut = _dest(dir, "docs/src/benchmarks/ad-comparison.jl")
                 @test isfile(tut)
                 txt = read(tut, String)
                 # Managed, substituted, and anchored for cross-references.
@@ -1357,39 +1358,44 @@
                     ex -> ex isa Expr && ex.head in (:error, :incomplete),
                     parsed.args)
 
-                # Registered in the package-owned docs seeds: the Literate
-                # pipeline (heavy tutorial + fast-build stub) and the Benchmarks
-                # nav (not Tutorials -- the whole point of the split).
+                # Registered in the package-owned docs seeds: its own
+                # `docs/src/benchmarks/` Literate pipeline (heavy + stub,
+                # not HEAVY_TUTORIALS/TUTORIAL_STUBS) and the top-level
+                # Benchmarks nav (not Tutorials -- the whole point of the
+                # split, #305).
                 cfg = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("\"ad-comparison.jl\"", cfg)
                 @test occursin(
                     "\"ad-comparison.md\" => \"# [AD backend " *
                     "comparison](@id ad-comparison)\"", cfg)
-                pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test occursin(
-                    "getting-started/tutorials/ad-comparison.md", pgs)
+                    "HEAVY_BENCHMARKS = String[\n    " *
+                    "\"ad-comparison.jl\"", cfg)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                @test occursin("benchmarks/ad-comparison.md", pgs)
                 @test occursin("\"Benchmarks\"", pgs)
                 @test !occursin("{{", pgs)
             end
         end
 
-        # Nests the performance-history and AD-comparison pages under one
-        # "Benchmarks" entry when both suites are on (#299).
+        # Nests the performance-over-time and AD-comparison pages under one
+        # "Benchmarks" entry when both suites are on (#299/#305).
         @testset "Benchmarks nav nests both suites when both are on" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
                 pgs = read(_dest(dir, "docs/pages.jl"), String)
-                @test occursin("\"Performance history\" => \"benchmarks.md\"",
+                @test occursin(
+                    "\"Performance over time\" => \"benchmarks/over-time.md\"",
                     pgs)
                 @test occursin(
                     "\"AD comparison\" =>\n            " *
-                    "\"getting-started/tutorials/ad-comparison.md\"", pgs)
+                    "\"benchmarks/ad-comparison.md\"", pgs)
                 @test !occursin("{{", pgs)
             end
         end
 
-        @testset "Benchmarks nav is a lone AD-comparison entry" begin
+        @testset "Benchmarks nav is a lone AD-comparison dropdown (#305)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = false)
@@ -1398,10 +1404,14 @@
                 # header comment above it (which mentions "benchmarks.md" as
                 # prose describing the benchmarks=true case).
                 arr = pgs[findfirst("pages = [", pgs)[1]:end]
+                # Always a dropdown group, even with a single page (#305):
+                # "its own header drop down", not a bare flat link.
                 @test occursin(
-                    "\"Benchmarks\" => " *
-                    "\"getting-started/tutorials/ad-comparison.md\"", arr)
-                @test !occursin("benchmarks.md", arr)
+                    "\"Benchmarks\" => [\n        \"AD comparison\" =>\n" *
+                    "            \"benchmarks/ad-comparison.md\"\n    ]",
+                    arr)
+                @test !occursin("benchmarks/over-time.md", arr)
+                @test !occursin("Performance over time", arr)
             end
         end
 
@@ -1415,13 +1425,15 @@
             end
         end
 
-        @testset "Benchmarks nav is a flat performance-history entry" begin
+        @testset "Benchmarks nav is a lone performance-over-time dropdown (#305)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false, benchmarks = true)
                 pgs = read(_dest(dir, "docs/pages.jl"), String)
                 arr = pgs[findfirst("pages = [", pgs)[1]:end]
-                @test occursin("\"Benchmarks\" => \"benchmarks.md\"", arr)
+                @test occursin(
+                    "\"Benchmarks\" => [\n        \"Performance over time\"" *
+                    " => \"benchmarks/over-time.md\"\n    ]", arr)
                 @test !occursin("ad-comparison", arr)
             end
         end
@@ -1501,26 +1513,27 @@
             end
         end
 
-        @testset "update warns when docs_config.jl lacks ad-comparison.jl" begin
+        @testset "update warns when docs_config.jl lacks HEAVY_BENCHMARKS (#305)" begin
             # An `ad = true` adopter who synced before the ad-comparison.jl
-            # split (#299) has only "ad-backends.jl" registered in their
-            # package-owned docs/docs_config.jl. `update` cannot add the
-            # missing registration itself (docs_config.jl is package-owned),
-            # so it should warn that the new managed page it just wrote is
-            # never rendered rather than leaving the gap undiscovered.
+            # split (#299/#305) has "ad-backends.jl" registered under
+            # HEAVY_TUTORIALS in their package-owned docs/docs_config.jl, but
+            # no HEAVY_BENCHMARKS/BENCHMARK_STUBS consts at all (they did not
+            # exist yet). `update` cannot add the missing registration itself
+            # (docs_config.jl is package-owned), so it should warn that the
+            # new managed page it just wrote is never rendered rather than
+            # leaving the gap undiscovered.
             mktempdir() do dir
                 _fake_pkg(dir; name = "PreSplit")
                 scaffold(dir)
                 cfg = _dest(dir, "docs/docs_config.jl")
                 txt = read(cfg, String)
                 txt = replace(txt,
-                    "\"ad-backends.jl\",\n    \"ad-comparison.jl\"" => "\"ad-backends.jl\"")
+                    "const HEAVY_BENCHMARKS = String[\n" *
+                    "    \"ad-comparison.jl\"\n]" => "const HEAVY_BENCHMARKS = String[]")
                 txt = replace(txt,
-                    "\"ad-backends.md\" => \"# [Automatic differentiation " *
-                    "backends](@id ad-backends)\",\n    \"ad-comparison.md\"" *
-                    " => \"# [AD backend comparison](@id ad-comparison)\"" =>
-                        "\"ad-backends.md\" => \"# [Automatic " *
-                        "differentiation backends](@id ad-backends)\"")
+                    "const BENCHMARK_STUBS = Pair{String, String}[\n" *
+                    "    \"ad-comparison.md\" => \"# [AD backend " *
+                    "comparison](@id ad-comparison)\"\n]" => "const BENCHMARK_STUBS = Pair{String, String}[]")
                 write(cfg, txt)
                 local res
                 @test_logs (:warn, r"ad-comparison\.jl"i) match_mode=:any begin
@@ -1528,10 +1541,11 @@
                 end
                 @test !isempty(res.warnings)
                 @test any(w -> occursin("ad-comparison.jl", w), res.warnings)
+                @test any(w -> occursin("HEAVY_BENCHMARKS", w), res.warnings)
                 # The managed ad-comparison.jl page is still written — the
                 # warning flags a docs-build gap, not a template omission.
                 @test isfile(_dest(dir,
-                    "docs/src/getting-started/tutorials/ad-comparison.jl"))
+                    "docs/src/benchmarks/ad-comparison.jl"))
             end
             # A fresh scaffold registers both entries, so no warning fires.
             mktempdir() do dir
@@ -1549,23 +1563,26 @@
             end
         end
 
-        @testset "update warns when pages.jl lacks an ad-comparison nav" begin
+        @testset "update warns when pages.jl lacks Benchmarks nav entries (#305)" begin
             # `docs/pages.jl` is the same package-owned, write-once gap as
-            # `docs_config.jl` above: an `ad = true` adopter who synced
-            # before the ad-comparison.jl split (#299) has no nav entry
-            # pointing at the new page at all, so it never appears in the
-            # sidebar even once docs_config.jl is fixed.
+            # `docs_config.jl` above. Two adopters can be stale: an
+            # `ad = true` adopter who synced before the ad-comparison.jl
+            # split has no nav entry pointing at the new page at all, and a
+            # `benchmarks = true` adopter who synced before #305 still has
+            # the pre-#305 nav pointing at a path the build no longer
+            # writes.
             mktempdir() do dir
                 _fake_pkg(dir; name = "PreSplitNav")
                 scaffold(dir)
                 pages = _dest(dir, "docs/pages.jl")
                 txt = read(pages, String)
                 @test occursin(
-                    "\"Benchmarks\" => " *
-                    "\"getting-started/tutorials/ad-comparison.md\"", txt)
+                    "\"Benchmarks\" => [\n        \"AD comparison\" =>\n" *
+                    "            \"benchmarks/ad-comparison.md\"\n    ]",
+                    txt)
                 txt = replace(txt,
-                    ",\n    \"Benchmarks\" => " *
-                    "\"getting-started/tutorials/ad-comparison.md\"" => "")
+                    ",\n    \"Benchmarks\" => [\n        \"AD comparison\" " *
+                    "=>\n            \"benchmarks/ad-comparison.md\"\n    ]" => "")
                 write(pages, txt)
                 local res
                 @test_logs (:warn, r"pages\.jl"i) match_mode=:any begin
@@ -1576,19 +1593,42 @@
                     occursin("pages.jl", w) && occursin("ad-comparison", w)
                 end
             end
-            # A fresh scaffold already carries the nav entry, so no warning.
+            # A `benchmarks = true` adopter's stale pre-#305 flat entry
+            # (pointing at the path the build no longer writes) also warns,
+            # even with `ad = false` so no AD entry is expected at all.
             mktempdir() do dir
-                _fake_pkg(dir; name = "FreshSplitNav")
-                scaffold(dir)
-                res = update(dir)
-                @test isempty(res.warnings)
+                _fake_pkg(dir; name = "PreSplitHistoryNav")
+                scaffold(dir; ad = false, benchmarks = true)
+                pages = _dest(dir, "docs/pages.jl")
+                txt = read(pages, String)
+                txt = replace(txt,
+                    "\"Benchmarks\" => [\n        \"Performance over time\"" *
+                    " => \"benchmarks/over-time.md\"\n    ]" => "\"Benchmarks\" => \"benchmarks.md\"")
+                write(pages, txt)
+                local res
+                @test_logs (:warn, r"pages\.jl"i) match_mode=:any begin
+                    res = update(dir; ad = false, benchmarks = true)
+                end
+                @test !isempty(res.warnings)
+                @test any(res.warnings) do w
+                    occursin("pages.jl", w) &&
+                        occursin("over-time.md", w)
+                end
             end
-            # `ad = false` never expects the nav entry, so no warning.
-            mktempdir() do dir
-                _fake_pkg(dir; name = "NoADNav")
-                scaffold(dir; ad = false)
-                res = update(dir; ad = false)
-                @test isempty(res.warnings)
+            # A fresh scaffold already carries the nav entry, so no warning.
+            # Covered for all four (ad, benchmarks) combinations -- this is
+            # exactly the class of gap (#305 built on top of #299) that has
+            # already bitten this branch once when only one combination was
+            # exercised.
+            for (ad, benchmarks) in ((true, false), (false, true), (true, true), (
+                false, false))
+                mktempdir() do dir
+                    _fake_pkg(dir;
+                        name = "Fresh$(ad)$(benchmarks)Nav")
+                    scaffold(dir; ad = ad, benchmarks = benchmarks)
+                    res = update(dir; ad = ad, benchmarks = benchmarks)
+                    @test isempty(res.warnings)
+                end
             end
         end
 
@@ -3097,7 +3137,7 @@
                 bh = read(_dest(dir, "docs/benchmarks.md"), String)
                 @test occursin("Wombat", bh)
                 @test !occursin("{{", bh)
-                @test occursin("benchmarks.md", read(
+                @test occursin("benchmarks/over-time.md", read(
                     _dest(dir, "docs/pages.jl"), String))
                 # The "Skipped & broken benchmarks" notes: a second
                 # package-owned hook, seeded with a placeholder (#202).
