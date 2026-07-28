@@ -131,47 +131,95 @@
         end
     end
 
-    @testset "_strip_benchmark_nav drops only the benchmark leaf" begin
+    @testset "_strip_benchmark_nav drops a leaf whose page is missing" begin
         strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
-        pages = [
-            "Home" => "index.md",
-            "API reference" => [
-                "Public API" => "lib/public.md",
-                "Internal API" => "lib/internals.md"
-            ],
-            "Benchmarks" => "benchmarks/over-time.md"]
-        out = strip(pages)
-        @test length(out) == 2
-        @test !any(
-            e -> e isa Pair && e.second == "benchmarks/over-time.md", out)
-        # A non-benchmark tree is returned unchanged in shape.
-        @test out[1] == ("Home" => "index.md")
+        mktempdir() do dir
+            src = mkpath(joinpath(dir, "src"))
+            mkpath(joinpath(src, "lib"))
+            write(joinpath(src, "lib", "public.md"), "x")
+            write(joinpath(src, "lib", "internals.md"), "x")
+            # No `benchmarks/over-time.md` on disk -- the leaf is dangling.
+            pages = [
+                "Home" => "index.md",
+                "API reference" => [
+                    "Public API" => "lib/public.md",
+                    "Internal API" => "lib/internals.md"
+                ],
+                "Benchmarks" => "benchmarks/over-time.md"]
+            out = strip(pages, src)
+            @test length(out) == 2
+            @test !any(
+                e -> e isa Pair && e.second == "benchmarks/over-time.md", out)
+            # A non-benchmark tree is returned unchanged in shape.
+            @test out[1] == ("Home" => "index.md")
+        end
     end
 
-    @testset "_strip_benchmark_nav keeps a sibling AD-comparison entry (#305)" begin
+    @testset "_strip_benchmark_nav keeps entries whose pages exist (#305)" begin
         strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
-        pages = [
-            "Home" => "index.md",
-            "Benchmarks" => [
+        mktempdir() do dir
+            src = mkpath(joinpath(dir, "src"))
+            bdir = mkpath(joinpath(src, "benchmarks"))
+            write(joinpath(bdir, "over-time.md"), "x")
+            write(joinpath(bdir, "ad-comparison.md"), "x")
+            pages = [
+                "Home" => "index.md",
+                "Benchmarks" => [
+                    "Performance over time" => "benchmarks/over-time.md",
+                    "AD comparison" => "benchmarks/ad-comparison.md"
+                ]]
+            out = strip(pages, src)
+            @test length(out) == 2
+            @test out[2] == ("Benchmarks" => [
                 "Performance over time" => "benchmarks/over-time.md",
                 "AD comparison" => "benchmarks/ad-comparison.md"
-            ]]
-        out = strip(pages)
-        @test length(out) == 2
-        @test out[2] == ("Benchmarks" =>
-            ["AD comparison" => "benchmarks/ad-comparison.md"])
+            ])
+        end
     end
 
     @testset "_strip_benchmark_nav drops an emptied group (#305)" begin
         strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
-        pages = [
-            "Home" => "index.md",
-            "Benchmarks" => [
-                "Performance over time" => "benchmarks/over-time.md"
-            ]]
-        out = strip(pages)
-        @test length(out) == 1
-        @test out[1] == ("Home" => "index.md")
+        mktempdir() do dir
+            src = mkpath(joinpath(dir, "src"))
+            # `over-time.md` never written under this src_dir.
+            pages = [
+                "Home" => "index.md",
+                "Benchmarks" => [
+                    "Performance over time" => "benchmarks/over-time.md"
+                ]]
+            out = strip(pages, src)
+            @test length(out) == 1
+            @test out[1] == ("Home" => "index.md")
+        end
+    end
+
+    @testset "_strip_benchmark_nav self-heals a mixed remediation (#305)" begin
+        # Mixed remediation: an `ad = true` adopter added the "AD
+        # comparison" nav entry per `_benchmarks_nav_gap`'s warning, but
+        # never added `ad-comparison.jl` to `HEAVY_BENCHMARKS` in
+        # `docs/docs_config.jl`, so the page itself is never rendered. The
+        # nav must not carry a dangling entry regardless of which of the
+        # two independent `update` warnings was acted on.
+        strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
+        mktempdir() do dir
+            src = mkpath(joinpath(dir, "src"))
+            bdir = mkpath(joinpath(src, "benchmarks"))
+            write(joinpath(bdir, "over-time.md"), "x")
+            # ad-comparison.md deliberately absent.
+            pages = [
+                "Home" => "index.md",
+                "Benchmarks" => [
+                    "Performance over time" => "benchmarks/over-time.md",
+                    "AD comparison" => "benchmarks/ad-comparison.md"
+                ]]
+            out = strip(pages, src)
+            @test out[2] == ("Benchmarks" =>
+                ["Performance over time" => "benchmarks/over-time.md"])
+        end
+        # And the reverse: `docs_config.jl` was fixed (the page renders)
+        # but `pages.jl` was never given the nav entry at all -- nothing to
+        # strip, the entry simply never existed in `pages`, which is
+        # already exercised by the "keeps a sibling" case above.
     end
 
     @testset "benchmark-history parked triggers survive sync (#153)" begin

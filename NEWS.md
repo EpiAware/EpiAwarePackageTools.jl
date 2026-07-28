@@ -38,12 +38,15 @@ Any adopter with `benchmarks = true` or `ad = true` (i.e. anyone with a
 "AD comparison" => "benchmarks/ad-comparison.md"]`, dropping whichever line
 does not apply — the old flat `"Benchmarks" => "benchmarks.md"` entry now
 points at a path the build no longer writes.
-Until these edits land, the pages still build (and, for AD comparison, are
-still cross-linked from `ad-backends`) — `@ref` resolution and the Literate
-pipeline don't depend on the nav listing — they just won't appear in the
-sidebar, or (AD comparison specifically, pre-`HEAVY_BENCHMARKS`) won't
-render at all.
-`update` now warns when any of these edits is still outstanding, so the gap
+Until the `pages.jl` edit lands, a rendered page (built once
+`HEAVY_BENCHMARKS`/`BENCHMARK_PAGE` is in place) is still reachable by
+direct URL or `@ref` — `ad-backends` still cross-links to it — it just
+won't appear in the sidebar. Until the `docs_config.jl` edit lands, the
+build now drops any `pages.jl` entry whose page it did not actually
+render, so an adopter who only fixes `pages.jl` never ships a dangling nav
+link either — the entry is simply absent until both edits land, not
+present-but-broken.
+`update` now warns when either edit is still outstanding, so the gap
 surfaces at sync time rather than only in this note.
 
 A package that declares `[extensions]` now gets an "Extensions" group in its

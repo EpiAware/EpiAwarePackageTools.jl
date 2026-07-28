@@ -355,6 +355,27 @@
         @test any(r -> occursin(r, "raw.githubusercontent.com/Org/Pkg.jl/benchmarks"), lc)
     end
 
+    @testset "build_benchmark_page: project_root/notes_file defaults " begin
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        mkpath(joinpath(dir, "docs"))
+        prose = joinpath(dir, "docs", "benchmarks.md")
+        write(prose, "Narrative here.\n")
+        notes = joinpath(dir, "docs", "benchmarks_notes.md")
+        write(notes, "Some skipped-benchmark note.\n")
+        dest = joinpath(dir, "docs", "src", "benchmarks", "over-time.md")
+        # Neither `project_root` nor `notes_file` is passed: the defaults
+        # must resolve `dir` (project_root) and
+        # `dir/docs/benchmarks_notes.md` (notes_file) from `dest` alone, one
+        # directory deeper than the pre-#305 `docs/src/benchmarks.md` shape.
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose)
+        out = read(dest, String)
+        @test occursin("# [Benchmarks](@id benchmarks)", out)
+        @test occursin("Narrative here.", out)
+        @test occursin("Some skipped-benchmark note.", out)
+    end
+
     @testset "build_benchmark_page: strips the seed's leading comment" begin
         dir = mktempdir()
         run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))

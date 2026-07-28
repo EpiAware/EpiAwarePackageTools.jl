@@ -1320,8 +1320,8 @@ end
 
 """
     build_benchmark_page(; dest, repo, package, prose_file, embed_history=true,
-                         project_root=dirname(dirname(dest)),
-                         notes_file=joinpath(dirname(dirname(dest)),
+                         project_root=dirname(dirname(dirname(dirname(dest)))),
+                         notes_file=joinpath(dirname(dirname(dirname(dest))),
                                               "benchmarks_notes.md"),
                          history_suites=String[], history_commits=5,
                          history_regression_threshold=1.1)
@@ -1347,19 +1347,20 @@ regexes for the history URLs (the branch may not be live yet).
 function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         package::AbstractString, prose_file::AbstractString,
         embed_history::Bool = true,
-        project_root::AbstractString = dirname(dirname(dest)),
+        project_root::AbstractString = dirname(
+            dirname(dirname(dirname(dest)))),
         notes_file::AbstractString = joinpath(
-            dirname(dirname(dest)), "benchmarks_notes.md"),
+            dirname(dirname(dirname(dest))), "benchmarks_notes.md"),
         history_suites = String[], history_commits::Integer = 5,
         history_regression_threshold::Real = 1.1)
     prose = _read_seed(prose_file, "Performance benchmarks for `$package`.")
     notes = _read_seed(notes_file, "")
     mkpath(dirname(dest))
     # The overall trend plot is a build artefact regenerated from `table.md`
-    # on every docs build (like `index.md`/the API pages), so it lives beside
-    # `benchmarks.md` in the built `src/` tree rather than on the
-    # `benchmarks` branch alongside the externally pre-rendered per-benchmark
-    # plots.
+    # on every docs build (like `index.md`/the API pages), so it lives
+    # beside `dest` (`docs/src/benchmarks/over-time.md`) in the built
+    # `src/` tree rather than on the `benchmarks` branch alongside the
+    # externally pre-rendered per-benchmark plots.
     plot_dest = joinpath(dirname(dest), "overall_trend.png")
     open(dest, "w") do io
         println(io, "# [Benchmarks](@id benchmarks)")
@@ -1379,7 +1380,7 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
                 "A performance timeline is published on each release.")
         end
     end
-    println("Generated benchmarks.md (benchmark history page)")
+    println("Generated $(basename(dest)) (benchmark history page)")
     esc = replace(repo, "." => "\\.", "/" => "/")
     return Regex[
         Regex("raw\\.githubusercontent\\.com/$esc/benchmarks"),
@@ -1897,13 +1898,22 @@ end
 
 # ---- orchestrator ---------------------------------------------------------
 
-# Remove any `... => "benchmarks/over-time.md"` leaf from a Documenter
-# `pages` nav tree (at any nesting depth). Used when the benchmark page is
-# disabled but a package-owned `pages.jl` still lists the entry, so the
-# built nav carries no dangling link. Every non-benchmark entry is kept
-# unchanged. A "Benchmarks" group left empty by that removal (`benchmarks =
-# true`, `ad = false`, page disabled) is dropped too, exactly like
-# `_strip_extensions_nav` -- an empty dropdown is worse than none.
+# Remove any `... => "benchmarks/<page>.md"` leaf from a Documenter `pages`
+# nav tree (at any nesting depth) whose target page is not present under
+# `src_dir` -- mirroring `_strip_extensions_nav` below, not gated on
+# `benchmark_page` alone. Two independent, package-owned files can each
+# leave a dangling entry here: `docs/pages.jl` (the nav leaf itself) and
+# `docs/docs_config.jl` (whether `over-time.md`/`ad-comparison.md` actually
+# get written, via `BENCHMARK_PAGE`/`HEAVY_BENCHMARKS`). `update` warns
+# separately when either file is stale (`_benchmarks_nav_gap`,
+# `_ad_benchmarks_config_gap`), but nothing stops an adopter fixing only
+# one -- e.g. adding the "AD comparison" nav entry per the nav-gap warning
+# while never adding `ad-comparison.jl` to `HEAVY_BENCHMARKS`, so the page
+# is never rendered. Judging on the built page existing, exactly like
+# extensions, self-heals that combination regardless of which of the two
+# warnings the adopter acted on. A "Benchmarks" group left with no entries
+# by this removal (e.g. `benchmarks = true`, `ad = false`, page disabled)
+# is dropped too, exactly like `_strip_extensions_nav`.
 # Remove any `... => "extensions/<page>.md"` leaf whose source page is not
 # present under `src_dir`, and any nav group left empty by that removal. The
 # extension nav group is written once into the package-owned `pages.jl` from
@@ -1936,17 +1946,21 @@ function _strip_extensions_nav(pages, src_dir::AbstractString)
     return kept
 end
 
-function _strip_benchmark_nav(pages)
+function _strip_benchmark_nav(pages, src_dir::AbstractString)
     kept = Any[]
     for entry in pages
         if entry isa Pair && entry.second isa AbstractString
-            endswith(entry.second, "benchmarks/over-time.md") && continue
+            target = entry.second
+            if startswith(target, "benchmarks/") && endswith(target, ".md") &&
+               !isfile(joinpath(src_dir, split(target, '/')...))
+                continue
+            end
             push!(kept, entry)
         elseif entry isa Pair && entry.second isa AbstractVector
-            inner = _strip_benchmark_nav(entry.second)
-            # A group that held only the (now-stripped) benchmark-history
-            # entry -- "Benchmarks" with `ad = false`, so nothing else was
-            # ever nested alongside it -- is itself dropped.
+            inner = _strip_benchmark_nav(entry.second, src_dir)
+            # A group left with no entries by that removal -- "Benchmarks"
+            # with only one of over-time.md/ad-comparison.md ever built --
+            # is itself dropped.
             isempty(inner) && !isempty(entry.second) && continue
             push!(kept, entry.first => inner)
         else
@@ -2106,13 +2120,15 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
             history_regression_threshold = history_regression_threshold)
     else
         println("BENCHMARK_PAGE = false; skipping benchmark history page")
-        # Drop any stale Benchmarks nav entry so a package that disabled the page
-        # without regenerating its (package-owned) `pages.jl` still gets a nav
-        # tree with no dangling "benchmarks/over-time.md" link.
-        pages = _strip_benchmark_nav(pages)
     end
-    # Unconditional, unlike the benchmark strip: there is no extensions flag to
-    # gate on — the nav is honest when every entry it lists has a page (#319).
+    # Unconditional, like the extensions strip below: judged on the built
+    # page existing, not on `benchmark_page` alone, so a Benchmarks nav leaf
+    # left dangling by either package-owned file (`pages.jl` naming a page
+    # `docs_config.jl` never registers for rendering, or vice versa) is
+    # dropped regardless of which of the two `update` warnings the adopter
+    # acted on (see `_strip_benchmark_nav`) -- the nav is honest when every
+    # entry it lists has a page (#305/#319).
+    pages = _strip_benchmark_nav(pages, src_dir)
     pages = _strip_extensions_nav(pages, src_dir)
     build_api_pages(mod, joinpath(src_dir, "lib"))
 
