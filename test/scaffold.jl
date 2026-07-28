@@ -3903,6 +3903,129 @@ end
     end
 end
 
+@testitem "extensions get a docs nav group and seeded pages (#319)" begin
+    using Test
+    using Markdown
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions, _extensions_nav,
+                                _extension_stem, _extension_slug
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    # The stem drops the two affixes that carry no information, so the nav and
+    # the page name read as the feature rather than as a module name.
+    @test _extension_stem("WombatPlotsExt", "Wombat") == "Plots"
+    @test _extension_stem("WombatComposedDistributionsExt", "Wombat") ==
+          "ComposedDistributions"
+    # An extension named exactly `<Package>Ext` keeps its full name rather
+    # than stemming to nothing.
+    @test _extension_stem("WombatExt", "Wombat") == "WombatExt"
+    @test _extension_slug("ComposedDistributions") == "composed-distributions"
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n" *
+            "\n[weakdeps]\n" *
+            "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+            "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+            "\n[extensions]\n" *
+            "WombatPlotsExt = \"Plots\"\n" *
+            "WombatTablesExt = [\"DataFrames\", \"Plots\"]\n")
+
+        # Detected from Project.toml, with no opt-in kwarg: an extension is a
+        # fact about the package, not a CI choice.
+        pages = _package_extensions(dir)
+        @test length(pages) == 2
+        # Labelled by the weakdep(s) that trigger the extension, sorted so the
+        # nav order does not depend on TOML table order.
+        @test [p.title for p in pages] == ["DataFrames + Plots", "Plots"]
+        @test [p.slug for p in pages] == ["tables", "plots"]
+
+        nav = _extensions_nav(dir)
+        @test occursin("\"Extensions\" => [", nav)
+        @test occursin("\"Plots\" => \"extensions/plots.md\"", nav)
+        @test occursin("\"DataFrames + Plots\" => \"extensions/tables.md\"",
+            nav)
+
+        scaffold(dir)
+        pages_jl = read(_dest(dir, "docs/pages.jl"), String)
+        @test occursin("\"Extensions\" => [", pages_jl)
+        @test occursin("extensions/plots.md", pages_jl)
+        @test occursin("extensions/tables.md", pages_jl)
+        @test !occursin("{{", pages_jl)
+        # The nav tree still evaluates: a malformed substitution would take
+        # every adopter's docs build down at `include("pages.jl")`.
+        nav_pages = include(_dest(dir, "docs/pages.jl"))
+        @test any(e -> e isa Pair && e.first == "Extensions", nav_pages)
+
+        # Every entry resolves to a seeded page.
+        plots_md = _dest(dir, "docs/src/extensions/plots.md")
+        @test isfile(plots_md)
+        @test isfile(_dest(dir, "docs/src/extensions/tables.md"))
+        page = read(plots_md, String)
+        @test occursin("(@id extension-plots)", page)
+        @test occursin("WombatPlotsExt", page)
+        # The seeded page must contain no LIVE Documenter block. An extension
+        # module exists only once its weakdeps load, so a live `@autodocs`
+        # over `Base.get_extension` evaluates to `nothing` and kills the build
+        # with a `MethodError` that `warnonly = [:autodocs_block]` does not
+        # catch — for every freshly-scaffolded package. Asserted against the
+        # parsed page, not the source text: Documenter parses with the
+        # `Markdown` stdlib, which has no CommonMark HTML-block handling, so
+        # an `@autodocs` fence wrapped in `<!-- -->` is still live to it (the
+        # parser quirk behind #301/#304). The outer ````markdown fence is what
+        # makes it inert.
+        parsed = Markdown.parse(page)
+        blocks = [el for el in parsed.content if el isa Markdown.Code]
+        @test !isempty(blocks)
+        @test !any(b -> startswith(b.language, "@"), blocks)
+        @test any(b -> b.language == "markdown" &&
+                       occursin("```@autodocs", b.code), blocks)
+        # The public-API block ships commented out: an extension module only
+        # exists once its weakdeps load, so a live `@autodocs` over
+        # `Base.get_extension` would red every freshly-scaffolded docs build.
+        @test occursin("Modules = [Base.get_extension(Wombat, " *
+                       ":WombatPlotsExt)]", page)
+
+        # The pages are package-owned: authored scope prose survives a sync.
+        authored = "# Plots extension\n\nAuthored prose.\n"
+        write(plots_md, authored)
+        EpiAwarePackageTools.update(dir)
+        @test read(plots_md, String) == authored
+        # ... and a re-scaffold, which does reach the package-owned seeds:
+        # write-once means the authored page is preserved, not re-seeded.
+        scaffold(dir)
+        @test read(plots_md, String) == authored
+        # `force` is the documented way back to the seeded page, as for every
+        # other package-owned file.
+        scaffold(dir; force = true)
+        @test occursin("(@id extension-plots)", read(plots_md, String))
+    end
+end
+
+@testitem "a package with no extensions gets no Extensions nav (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions, _extensions_nav
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    mktempdir() do dir
+        write(joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+            "authors = [\"Ada Lovelace\"]\n")
+        @test isempty(_package_extensions(dir))
+        @test _extensions_nav(dir) == ""
+
+        scaffold(dir)
+        pages_jl = read(_dest(dir, "docs/pages.jl"), String)
+        @test !occursin("Extensions", pages_jl[
+            (something(findfirst("pages = [", pages_jl)).start):end])
+        @test !isdir(_dest(dir, "docs/src/extensions"))
+    end
+end
+
 @testitem "coverage task actually instruments the test run (#315)" begin
     using Test
     using EpiAwarePackageTools
@@ -3951,6 +4074,151 @@ end
             _fake_pkg(dir)
             scaffold(dir; ad = false)
             _check_coverage_recipe(dir)
+        end
+    end
+end
+
+@testitem "extension slugs and the manifest hold up at the edges (#319)" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _package_extensions
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    @testset "two extensions stemming alike keep separate pages" begin
+        mktempdir() do dir
+            # `WombatPlotsExt` loses the package prefix, `PlotsExt` never had
+            # one: both stem to `Plots`. Left unresolved, two nav entries would
+            # point at one page and one extension would be documented under the
+            # other's label.
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n" *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n" *
+                "PlotsExt = \"DataFrames\"\n")
+            pages = _package_extensions(dir)
+            @test length(pages) == 2
+            @test length(unique(p.slug for p in pages)) == 2
+
+            # Uniqueness is enforced, not assumed: a fallback slug can itself
+            # land on one that was free in the first pass, since
+            # `WombatPlotsExtExt` stems to the `PlotsExt` a bare `PlotsExt`
+            # slugs to.
+            three = joinpath(dir, "three")
+            mkpath(three)
+            write(joinpath(three, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n" *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "DataFrames = \"a93c6f00-e57d-5684-b7b6-d8193f3e46c0\"\n" *
+                "Random = \"9a3f8284-a2c9-5f02-9a11-845980a1fd5c\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n" *
+                "PlotsExt = \"DataFrames\"\n" *
+                "WombatPlotsExtExt = \"Random\"\n")
+            trio = _package_extensions(three)
+            @test length(trio) == 3
+            @test length(unique(p.slug for p in trio)) == 3
+            @test all(!isempty(p.slug) for p in trio)
+
+            scaffold(dir)
+            # Every nav entry resolves to a page of its own.
+            pgs = read(_dest(dir, "docs/pages.jl"), String)
+            for p in pages
+                @test occursin("extensions/" * p.slug * ".md", pgs)
+                @test isfile(_dest(dir,
+                    "docs/src/extensions/" * p.slug * ".md"))
+                # The page documents its own extension, not its twin's.
+                @test occursin(p.name,
+                    read(_dest(dir, "docs/src/extensions/" * p.slug * ".md"),
+                        String))
+            end
+        end
+    end
+
+    @testset "a page the write-once nav never learned about is named" begin
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            res = scaffold(dir)
+            # No extensions: nothing to seed, nothing to warn about, and the
+            # manifest still reports the pair.
+            @test isempty(res.extension_pages.created)
+            @test isempty(res.extension_pages.preserved)
+            @test !any(w -> occursin("extensions/", w), res.warnings)
+
+            # The package declares an extension after adopting the kit. An
+            # unforced re-scaffold seeds the page (absent, so write-once
+            # writes it) but cannot touch the package-owned pages.jl, so
+            # nothing links it — that has to be said, not discovered on a
+            # published site.
+            proj = joinpath(dir, "Project.toml")
+            write(proj,
+                read(proj, String) *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n")
+            res2 = scaffold(dir)
+            @test length(res2.extension_pages.created) == 1
+            @test isfile(_dest(dir, "docs/src/extensions/plots.md"))
+            unlinked = filter(w -> occursin("extensions/plots.md", w),
+                res2.warnings)
+            @test length(unlinked) == 1
+            # The warning carries the exact nav entry to paste.
+            @test occursin("\"Plots\" => \"extensions/plots.md\"",
+                only(unlinked))
+
+            # Once the entry is there by hand, the warning stops.
+            pgs = _dest(dir, "docs/pages.jl")
+            write(pgs,
+                replace(read(pgs, String),
+                    "    \"API reference\"" =>
+                        "    \"Extensions\" => [\n" *
+                        "        \"Plots\" => \"extensions/plots.md\"\n" *
+                        "    ],\n    \"API reference\""))
+            res3 = scaffold(dir)
+            @test !any(w -> occursin("extensions/plots.md", w), res3.warnings)
+            # The authored page is preserved, and reported as such.
+            @test length(res3.extension_pages.preserved) == 1
+            @test isempty(res3.extension_pages.created)
+        end
+    end
+
+    @testset "update stays silent when there is no page to be unreachable" begin
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            scaffold(dir)
+            # A package that adopted the kit before it seeded extension pages,
+            # then declared an extension: `update` seeds no page, so there is
+            # no file to be unreachable. Warning here would claim a page is
+            # "built but unreachable" when none was ever written, and the nav
+            # entry it asks for would be stripped at build time anyway — on
+            # every routine sync of the packages this feature targets.
+            proj = joinpath(dir, "Project.toml")
+            write(proj,
+                read(proj, String) *
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "\n[extensions]\n" *
+                "WombatPlotsExt = \"Plots\"\n")
+            res = EpiAwarePackageTools.update(dir)
+            @test !isfile(_dest(dir, "docs/src/extensions/plots.md"))
+            @test !any(w -> occursin("extensions/", w), res.warnings)
+            # `update` seeds no package-owned pages, and says so.
+            @test isempty(res.extension_pages.created)
+            @test isempty(res.extension_pages.preserved)
         end
     end
 end

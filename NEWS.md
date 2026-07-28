@@ -1,5 +1,27 @@
 ## Unreleased
 
+A package that declares `[extensions]` now gets an "Extensions" group in its
+docs nav, one entry per extension, each pointing at a seeded page under
+`docs/src/extensions/` (#319).
+The extensions are read from the package's own `Project.toml` rather than
+gated by a kwarg: an extension is a fact about the package, unlike the
+benchmark and AD opt-ins.
+The pages are package-owned and write-once, so authored scope prose survives
+every sync, and each ships its public-API `@autodocs` block inert, as a code
+sample inside an outer fence — an extension module exists only once its
+weakdeps load, so a live block would red the docs build of a package whose
+docs environment does not carry them yet.
+An HTML comment would not do: Documenter parses with the `Markdown` stdlib,
+which has no CommonMark HTML-block handling, so a fence inside `<!-- -->` is
+still live to it (the quirk behind #301/#304).
+A page that the write-once nav in `docs/pages.jl` does not list is reported as
+a warning naming the entry to add, rather than left unreachable.
+A build drops any Extensions entry whose page is missing, so a package that
+was scaffolded before this, or that removed an extension, never publishes a
+dangling link.
+`docs/pages.jl` is package-owned and written once, so an already-scaffolded
+package adds the group by hand, as it does today when it flips
+`benchmarks = true`.
 A new managed workflow, `.github/workflows/release-nudge.yaml`, is
 scaffolded into every adopting package (thin caller of a new
 EpiAware/.github reusable, `release-nudge.yml`).
