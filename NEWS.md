@@ -22,6 +22,34 @@ dangling link.
 `docs/pages.jl` is package-owned and written once, so an already-scaffolded
 package adds the group by hand, as it does today when it flips
 `benchmarks = true`.
+A new managed workflow, `.github/workflows/release-nudge.yaml`, is
+scaffolded into every adopting package (thin caller of a new
+EpiAware/.github reusable, `release-nudge.yml`).
+It runs weekly and on demand, compares `Project.toml`'s version and the
+commits on `main` against the latest release/tag (and, best-effort, the
+version registered in the Julia General registry), and opens or
+refreshes a single labelled issue telling a maintainer what to do — bump
+via `/version`, update `NEWS.md`, then `/register` — whenever there are
+unreleased changes, closing it once everything is released.
+The issue is never edited in place: a stale one (state changed, or
+simply sat open too long) is closed with a "superseded" comment and
+replaced.
+The generated issue body can never contain a literal `@`, so neither a
+contributor's handle nor the registry bot's own handle can ever render
+as an accidental mention or trigger.
+
+The managed `.github/dependabot.yml` now runs both ecosystems daily rather
+than weekly (#312).
+Both were already grouped by a wildcard pattern (#249), so each run refreshes
+the one open grouped PR per ecosystem instead of opening more: a shorter
+interval buys faster reusable-workflow and dependency updates at the same open
+PR count.
+The cost is CI, not review load: each refresh is a new commit and so a new
+check run, where a weekly interval let a week's bumps share one.
+A package that would rather trade update latency for runner time can set the
+`julia` ecosystem — the expensive half, since a refresh reruns the full test
+matrix — back to `weekly` in its own copy; the grouping is what matters.
+Adopters pick this up on their next `update`.
 
 **Breaking**: `scaffold_update` is renamed back to `update`, and is now
 `public`, not `export`ed (#294).

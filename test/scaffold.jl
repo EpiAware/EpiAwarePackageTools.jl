@@ -145,6 +145,7 @@
                     ".github/workflows/docpreviewcleanup.yaml",
                     ".github/workflows/cancel-on-close.yaml",
                     ".github/workflows/registrability.yaml",
+                    ".github/workflows/release-nudge.yaml",
                     ".github/workflows/try-this-pr.yaml",
                     ".github/workflows/claude.yml",
                     ".github/workflows/claude-code-review.yml",
@@ -178,6 +179,19 @@
                 @test occursin("workflow_dispatch", reg)
                 @test occursin("'Project.toml'", reg)
                 @test !occursin("{{ORG}}", reg)
+                # The release-nudge caller invokes the org reusable, pins
+                # it by SHA (like the other callers), runs on a weekly
+                # schedule plus `workflow_dispatch`, and leaves no
+                # repo-specific placeholder unfilled.
+                rn = read(
+                    joinpath(dir, ".github/workflows/release-nudge.yaml"),
+                    String)
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/release-nudge.yml@",
+                    rn)
+                @test occursin("workflow_dispatch", rn)
+                @test occursin(r"cron: '\d+ \d+ \* \* \d+'", rn)
+                @test !occursin("{{ORG}}", rn)
                 # Coverage hard-fails on upload error (org policy: red on a
                 # missing CODECOV_TOKEN as a loud reminder to add it).
                 cov_caller = read(
@@ -2102,6 +2116,42 @@
             end
         end
 
+        @testset "update preserves a with: input on release-nudge.yaml" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                caller = _dest(dir, ".github/workflows/release-nudge.yaml")
+                before = read(caller, String)
+                # Unlike test.yaml/ad.yaml, this caller renders with no
+                # `with:` block at all, so a package customising e.g.
+                # `stale_days` adds one from scratch, directly between
+                # `uses:` and `secrets:` (the exact shape #73 protects on
+                # the other callers). Guards against a caller job with no
+                # `secrets:` block ever again silently dropping this
+                # override by falling outside `_CALLER_JOB`'s match.
+                @test !occursin("with:", before)
+                overridden = replace(before,
+                    r"(uses: \S+/release-nudge\.yml@\S+\r?\n)" =>
+                        SubstitutionString(
+                            "\\1    with:\n      stale_days: 30\n"))
+                @test overridden != before
+                write(caller, overridden)
+                update(dir)
+                after = read(caller, String)
+                # The override survives the resync ...
+                @test occursin("stale_days: 30", after)
+                # ... and the rest of the caller (the SHA pin, the
+                # trailing `secrets: inherit`) is still managed.
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/release-nudge.yml@",
+                    after)
+                @test occursin("secrets: inherit", after)
+                # A second update is idempotent on the preserved input.
+                update(dir)
+                @test read(caller, String) == after
+            end
+        end
+
         @testset "update preserves a Dependabot-bumped action pin (#215)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
@@ -2515,19 +2565,26 @@
 
         @testset "reusable-workflow seed refs are single-sourced (#186)" begin
             using EpiAwarePackageTools: _DOWNGRADE_SEED_REF,
-                                        _REGISTRABILITY_SEED_REF, _templates_dir
+                                        _REGISTRABILITY_SEED_REF,
+                                        _RELEASE_NUDGE_SEED_REF,
+                                        _templates_dir
             # Every template pins the org reusables at the same seed commit, so
             # a fresh scaffold never starts life behind on some workflows and
             # current on others (#186: the seed had drifted from `.github` head
-            # on some callers and not others). The registrability caller is the
-            # one documented exception: `registrability.yml` post-dates the
-            # shared seed, so it pins its own newer seed until that commit
-            # merges to `.github` main and Dependabot converges the pins.
+            # on some callers and not others). Two documented exceptions post-
+            # date the shared seed and pin their own newer commit until it
+            # merges to `.github` main and Dependabot converges the pins:
+            # `registrability.yml` and `release-nudge.yml`.
             wf = joinpath(_templates_dir(), ".github", "workflows")
             pins = String[]
             for f in readdir(wf; join = true)
-                expected = endswith(f, "registrability.yaml") ?
-                           _REGISTRABILITY_SEED_REF : _DOWNGRADE_SEED_REF
+                expected = if endswith(f, "registrability.yaml")
+                    _REGISTRABILITY_SEED_REF
+                elseif endswith(f, "release-nudge.yaml")
+                    _RELEASE_NUDGE_SEED_REF
+                else
+                    _DOWNGRADE_SEED_REF
+                end
                 for m in eachmatch(
                     r"/\.github/\.github/workflows/[^@\s]+@([0-9a-f]{40})",
                     read(f, String))
@@ -3834,6 +3891,13 @@ end
         @test count("- \"*\"", dep) == 2
         @test occursin("      github-actions:\n", dep)
         @test occursin("      julia:\n", dep)
+        # Both run daily (#312). The grouping above is what makes that
+        # affordable: a grouped PR is refreshed in place, so the shorter
+        # interval buys faster updates rather than more open PRs. Asserted
+        # here, on the same scaffold, because the two settings only make
+        # sense together — daily and ungrouped is the storm #249 fixed.
+        @test count("interval: \"daily\"", dep) == 2
+        @test !occursin("interval: \"weekly\"", dep)
         # No placeholder survives into the emitted config.
         @test !occursin("{{", dep)
     end
