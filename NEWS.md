@@ -1,5 +1,24 @@
 ## Unreleased
 
+The managed formatter style moves from `sciml` to `blue` (#200).
+sciml and YAS force a package to choose between stability (pin a JuliaFormatter
+version and never move) and correctness (track the latest, and take the
+formatting churn each time one of their bugs is fixed);
+blue and the JuliaFormatter default are the styles upstream keeps stable, so
+the pin can be bumped without a repo-wide rewrite.
+The managed config also sets `margin = 80`, since blue's own margin is 92 and it
+reflows rather than keeping the author's line breaks, so an unset margin would
+rewrap every file in the org to 92 against the 80-column convention.
+The style lives in the managed `.JuliaFormatter.toml`, so the pre-commit hook,
+`task format`, the isolated `test/formatter/` runner, and the CI pre-commit job
+all pick it up from one place with no per-caller edit.
+`test_formatting`'s `style` default moves to `"blue"` as well, and the scaffolded
+README's code-style badge and Contributing line now name Blue;
+`_formatter_style` still maps `"sciml"`, `"yas"` and `"default"`, so a package
+that has not resynced, or a third-party adopter, can still ask for its own style.
+An adopting package takes the change on its next sync and then needs one
+formatting pass, since blue and sciml disagree on real files.
+
 A package that declares `[extensions]` now gets an "Extensions" group in its
 docs nav, one entry per extension, each pointing at a seeded page under
 `docs/src/extensions/` (#319).

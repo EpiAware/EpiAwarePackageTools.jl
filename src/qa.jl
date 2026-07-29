@@ -36,7 +36,7 @@ function test_doctest(mod::Module)
 end
 
 """
-    test_formatting(dirs; style = "sciml", verbose = true)
+    test_formatting(dirs; style = "blue", verbose = true)
     test_formatting(mod; ...)
 
 Check that the given source trees are JuliaFormatter-clean.
@@ -45,7 +45,7 @@ Check that the given source trees are JuliaFormatter-clean.
 each existing directory is checked without modification. Passing a `Module`
 defaults to checking the `src`, `test`, `docs`, and `benchmark` directories of
 the package that owns `mod`. `style` selects the JuliaFormatter style (the
-EpiAware standard is `"sciml"`); the `.JuliaFormatter.toml` at the package root
+EpiAware standard is `"blue"`); the `.JuliaFormatter.toml` at the package root
 still takes precedence when present.
 
 The test passes when every directory is already formatted. JuliaFormatter must
@@ -61,7 +61,7 @@ the calling environment — the recommended layout when the test items share an
 environment with JET. `style`/`verbose`/`dirs` are ignored in `env` mode (the
 isolated `runtests.jl` owns that configuration).
 """
-function test_formatting(dirs; style::AbstractString = "sciml",
+function test_formatting(dirs; style::AbstractString = "blue",
         verbose::Bool = true,
         env::Union{Nothing, AbstractString} = nothing)
     env === nothing || return _test_formatting_env(env)
@@ -95,13 +95,15 @@ function _test_formatting_env(env::AbstractString)
 end
 
 # Map a style name to a JuliaFormatter style instance. A `.JuliaFormatter.toml`
-# at the package root still overrides this per directory.
+# at the package root still overrides this per directory. `"blue"` is the org
+# standard; the other names stay mapped so a package that has not resynced yet,
+# or a third-party adopter, can still ask for the style it uses.
 function _formatter_style(JF, style::AbstractString)
     s = lowercase(style)
     # `JF` is loaded at call time via `Base.require`, so its style constructors
     # live in a newer world age; build through `invokelatest` (cf. `test_aqua`).
-    s == "sciml" && return Base.invokelatest(JF.SciMLStyle)
     s == "blue" && return Base.invokelatest(JF.BlueStyle)
+    s == "sciml" && return Base.invokelatest(JF.SciMLStyle)
     s == "yas" && return Base.invokelatest(JF.YASStyle)
     s in ("default", "") && return Base.invokelatest(JF.DefaultStyle)
     error("unknown JuliaFormatter style $style")

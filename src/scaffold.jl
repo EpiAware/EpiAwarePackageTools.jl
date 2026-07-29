@@ -2070,9 +2070,11 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         ci *= " [![AD](" * gh * "/actions/workflows/ad.yaml/badge.svg" *
               "?branch=main)](" * gh * "/actions/workflows/ad.yaml)"
     end
-    quality = "[![SciML Code Style](https://img.shields.io/static/v1?" *
-              "label=code%20style&message=SciML&color=9558b2&" *
-              "labelColor=389826)](https://github.com/SciML/SciMLStyle) " *
+    # Blue, matching the `.JuliaFormatter.toml` the kit ships. The badge is a
+    # claim about the style CI enforces, so it moves with the formatter config.
+    quality = "[![Code Style: Blue](https://img.shields.io/badge/" *
+              "code%20style-blue-4495d1.svg)]" *
+              "(https://github.com/JuliaDiff/BlueStyle) " *
               "[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/" *
               "Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/" *
               "Aqua.jl) " *
@@ -2399,7 +2401,7 @@ function _render_standard_sections(pkg::AbstractString, org::AbstractString,
         "We welcome contributions and new contributors! Please open an issue ",
         "or pull request on [GitHub](https://github.com/", repo, "). This ",
         "package follows [ColPrac](https://github.com/SciML/ColPrac) and the ",
-        "[SciML style](https://github.com/SciML/SciMLStyle).\n\n",
+        "[Blue style](https://github.com/JuliaDiff/BlueStyle).\n\n",
         "## How to cite\n\n",
         "If you use ", pkg, " in your work, please cite it. Citation metadata ",
         "lives in [`CITATION.cff`](https://github.com/", repo,
