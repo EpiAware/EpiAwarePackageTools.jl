@@ -1,5 +1,13 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
+# The line breaks in the `build_docs` call below are blue's output for the
+# substituted text, not for the template text, so they read as over-wrapped
+# while this is still a template. Blue reflows to the margin rather than
+# keeping the author's breaks, so where the breaks fall depends on how long the
+# package name is; these are right for a name of the kit's own length and
+# approximate for a much shorter or longer one. #344 tracks formatting managed
+# files after substitution instead.
+#
 # Thin entry point for the standard EpiAware documentation build. All build
 # logic lives in `EpiAwarePackageTools.DocsBuild.build_docs` (versioned +
 # tested in the kit); this file only wires the package-owned `pages.jl` +

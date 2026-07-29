@@ -1,6 +1,12 @@
 #!/usr/bin/env julia
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
+# The `report_package`/`test_package` calls below are wrapped as blue formats
+# them once the package name is substituted, not as it formats the template
+# text, so they read as over-wrapped while this is still a template. #344
+# tracks formatting managed files after substitution instead of hand-wrapping
+# them for one name length.
+#
 # JET static-analysis runner, run in this isolated environment so JET's
 # JuliaSyntax pin does not clash with the main test deps.
 #
