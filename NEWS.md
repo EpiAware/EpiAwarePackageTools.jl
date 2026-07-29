@@ -1,5 +1,15 @@
 ## Unreleased
 
+The managed `.github/workflows/TagBot.yaml` now also runs on a daily cron
+(03:17 UTC) and admits a scheduled run in its job guard alongside
+`workflow_dispatch` and the `JuliaTagBot` actor.
+Tagging no longer depends on the `JuliaTagBot` comment arriving on the
+registration issue: where the TagBot app has no access to a repo, that comment
+never appears and a version is registered in General with no git tag and no
+GitHub release, which is what happened to ComposedDistributions.jl 0.1.0.
+A scheduled run asks the registry which versions are registered and tags
+whatever is missing, so the release is recovered within a day either way.
+
 A package that declares `[extensions]` now gets an "Extensions" group in its
 docs nav, one entry per extension, each pointing at a seeded page under
 `docs/src/extensions/` (#319).
