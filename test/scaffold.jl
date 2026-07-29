@@ -3115,6 +3115,46 @@
             end
         end
 
+        @testset "TagBot.yaml tags on a schedule, not only on a comment" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                tb = _dest(dir, ".github/workflows/TagBot.yaml")
+                @test isfile(tb)
+                txt = read(tb, String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                # The upstream comment path plus a manual escape hatch.
+                @test occursin("issue_comment", txt)
+                @test occursin("workflow_dispatch", txt)
+                # A cron trigger so a version registered in General is still
+                # tagged when the `JuliaTagBot` comment never arrives (that is
+                # how ComposedDistributions.jl 0.1.0 was registered with no git
+                # tag and no GitHub release).
+                cron = match(r"(?m)^\s*-\s*cron:\s*\"([^\"]+)\"\s*$", txt)
+                @test cron !== nothing
+                # Not on :00 or :30, where GitHub's cron queue is busiest and
+                # scheduled runs are delayed or dropped most often.
+                @test split(cron[1])[1] ∉ ("0", "00", "30")
+                # The guard must name `schedule` explicitly: a cron run's actor
+                # is not `JuliaTagBot`, so otherwise the trigger fires and every
+                # job is skipped, exactly as the comment path does today.
+                @test occursin("github.event_name == 'schedule'", txt)
+                @test occursin("github.event_name == 'workflow_dispatch'", txt)
+                @test occursin("github.actor == 'JuliaTagBot'", txt)
+                # `github.event.inputs` is null on a scheduled run, so the
+                # `lookback` expression needs its own fallback or the reusable
+                # is called with an empty window.
+                @test occursin("github.event.inputs.lookback || '3'", txt)
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/tagbot.yml@", txt)
+                @test !occursin(r"\{\{[A-Z_]+\}\}", txt)
+                # Managed: `update` re-applies it (not merely preserved).
+                res = update(dir)
+                @test _dest(dir, ".github/workflows/TagBot.yaml") in
+                      res.updated
+            end
+        end
+
         @testset "NEWS.md is package-owned (write-once)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
