@@ -563,6 +563,332 @@
             end
         end
 
+        @testset "test_readme_placeholders" begin
+            badges = EpiAwarePackageTools.BADGES_START * "\n" *
+                     EpiAwarePackageTools.BADGES_END
+
+            # The patterns are derived from the seeded skeleton, not listed in
+            # the check, so the seeded body must be non-trivially matched by
+            # them: a placeholder added to the scaffold is picked up for free,
+            # and one removed stops being checked for.
+            patterns = EpiAwarePackageTools._seed_readme_placeholders()
+            seeded = EpiAwarePackageTools._seed_readme_body(
+                "EpiAware/MyPkg.jl", "MyPkg", nothing)
+            @test !isempty(patterns)
+            for pattern in patterns
+                @test occursin(pattern, seeded)
+            end
+
+            # A freshly scaffolded README (H1 + badges + the seeded skeleton) is
+            # flagged; the same README with the placeholders written out passes.
+            fresh = "# MyPkg\n\n" * badges * "\n\n" * seeded
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), fresh)
+                @test check_flags(() -> test_readme_placeholders(dir))
+            end
+
+            filled = replace(fresh,
+                r"_[^_\n]+_" => "real package-specific wording")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), filled)
+                test_readme_placeholders(dir)
+                # A direct file path works too.
+                test_readme_placeholders(joinpath(dir, "README.md"))
+            end
+
+            # The two placeholders DistributionsInference.jl shipped on a
+            # branch are the live case this check is for; each is caught on its
+            # own, so filling one and forgetting the other still fails.
+            for stray in ("_One-line description of MyPkg._",
+                "- _List the package's key features here._")
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"),
+                        filled * "\n" * stray * "\n")
+                    @test check_flags(() -> test_readme_placeholders(dir))
+                end
+            end
+
+            # A missing README skips rather than erroring.
+            mktempdir() do dir
+                @test test_readme_placeholders(
+                    joinpath(dir, "no-such-readme.md")) === nothing
+            end
+        end
+
+        @testset "test_readme_prose" begin
+            # A legitimate README: every banned word here sits somewhere the
+            # check must not read — a fenced code block, a badge table's link
+            # URLs, an inline code span, and a link target — while the prose
+            # itself is clean and its sentences short. This is the false
+            # positive the check has to avoid, so it is asserted directly
+            # rather than only through the failing shapes below.
+            legitimate = """
+            # MyPkg
+
+            | **Docs** | **Build** |
+            |:---:|:---:|
+            | [![R](https://e.org/novel.svg)](https://e.org/robust-framework) | ok |
+
+            A small package for one job.
+
+            ## Why MyPkg?
+
+            - It does the one thing a reader came for, without a detour.
+
+            The `robust_fit` entry point and the
+            [setup guide](https://e.org/docs/harness/framework) are the two
+            places to start.
+
+            ```julia
+            # a comprehensive, robust framework that leverages a novel landscape
+            robust = leverage_framework(; novel = true)
+            ```
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), legitimate)
+                test_readme_prose(dir)
+            end
+
+            # A banned word in a sentence is flagged, and only that word: the
+            # same README with plain wording passes.
+            padded = replace(legitimate,
+                "A small package for one job." => "A comprehensive package that leverages a novel landscape.")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), padded)
+                @test check_flags(() -> test_readme_prose(dir))
+                # A package whose domain term is on the list drops that entry
+                # rather than the check.
+                test_readme_prose(dir;
+                    banned = filter(
+                        w -> w ∉ ("comprehensive", "leverage", "novel",
+                            "landscape"), BANNED_README_WORDS))
+            end
+
+            # Link text is prose (a reader reads it), so a banned word there is
+            # flagged even though the URL beside it is not read.
+            linked = replace(legitimate, "[setup guide]" => "[robust guide]")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), linked)
+                @test check_flags(() -> test_readme_prose(dir))
+            end
+
+            # A plural or inflected form of a listed word is flagged too.
+            for word in ("practitioners", "leveraging", "utilises")
+                inflected = replace(legitimate,
+                    "A small package for one job." => "A package for $word everywhere.")
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), inflected)
+                    @test check_flags(() -> test_readme_prose(dir))
+                end
+            end
+
+            # A sentence over the limit is flagged, and the limit is
+            # configurable. The long sentence is wrapped over three source
+            # lines, so this also asserts the length is measured over the whole
+            # sentence rather than per line.
+            long = replace(legitimate,
+                "A small package for one job." =>
+                    "This sentence is deliberately written to run on well " *
+                    "past any\nreasonable length so that the word count it " *
+                    "reports is comfortably\nover the default limit of forty " *
+                    "words, which by the time it reaches\nits final clause " *
+                    "it now is by a margin of several words or so.")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), long)
+                @test check_flags(() -> test_readme_prose(dir))
+                test_readme_prose(dir; max_sentence_words = 60)
+                # The short-sentence README fails against a punitive limit, so
+                # the keyword is doing the work in both directions.
+                @test check_flags(() -> test_readme_prose(dir;
+                    max_sentence_words = 3))
+            end
+
+            # `e.g.` does not read as the end of a sentence, so a short
+            # sentence carrying one is not measured as two fragments (nor a
+            # long one let through as several short ones).
+            abbreviated = replace(legitimate,
+                "A small package for one job." => "It handles the awkward cases (e.g. an empty input).")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), abbreviated)
+                test_readme_prose(dir)
+                @test length(EpiAwarePackageTools._sentences(
+                    "It handles cases, e.g. an empty input. Then it stops.")) ==
+                      2
+                # `e.g.` before a capitalised term, and `etc.` mid-sentence,
+                # are both inside one sentence.
+                @test length(EpiAwarePackageTools._sentences(
+                    "It wraps e.g. Gamma or LogNormal.")) == 1
+                @test length(EpiAwarePackageTools._sentences(
+                    "It wraps Gamma, LogNormal, etc. without extra work.")) == 1
+                # A dot inside a name or a version is not a break.
+                @test length(EpiAwarePackageTools._sentences(
+                    "It reuses Distributions.jl 1.2 and stops there.")) == 1
+            end
+
+            # A missing README skips rather than erroring.
+            mktempdir() do dir
+                @test test_readme_prose(
+                    joinpath(dir, "no-such-readme.md")) === nothing
+            end
+        end
+
+        @testset "test_readme_bullets" begin
+            # A conforming Why section: four motivation sentences, one sentence
+            # each, one of them wrapped over two source lines (so the fold is
+            # exercised on a passing README as well as a failing one).
+            motivation = """
+            # MyPkg
+
+            ## Why MyPkg?
+
+            - Doing this by hand means re-deriving the same maths in every
+              project, and this package gives it a name instead.
+            - A reader can see what a model assumes without reading its code.
+            - Changing one assumption no longer means rewriting the model.
+            - The result stays differentiable, so it can be fitted directly.
+
+            ## Getting started
+
+            Read the docs.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), motivation)
+                test_readme_bullets(dir)
+                test_readme_bullets(joinpath(dir, "README.md"))
+                # The wrapped bullet counts once, not twice.
+                @test length(EpiAwarePackageTools._section_bullets(
+                    EpiAwarePackageTools._readme_section_lines(
+                    motivation, ("Why",)))) == 4
+            end
+
+            # The feature-inventory form #292 rules out, in both colon
+            # placements.
+            for label in ("- **Primary event censoring**: Model delays where " *
+                          "the initial event is uncertain.",
+                "- **Primary event censoring:** Model delays where the " *
+                "initial event is uncertain.")
+                inventory = replace(motivation,
+                    "- A reader can see what a model assumes without " *
+                    "reading its code.\n" => label * "\n")
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), inventory)
+                    @test check_flags(() -> test_readme_bullets(dir))
+                end
+            end
+
+            # A bold word that is not a label followed by a colon is prose, not
+            # an inventory entry, so it passes.
+            emphasised = replace(motivation,
+                "- A reader can see what a model assumes without " => "- A reader can see what a model **assumes** without ")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), emphasised)
+                test_readme_bullets(dir)
+            end
+
+            # Too few bullets, and too many, are both flagged; the range is
+            # configurable.
+            few = """
+            # MyPkg
+
+            ## Why MyPkg?
+
+            - Doing this by hand means re-deriving the same maths every time.
+            - A reader can see what a model assumes without reading its code.
+
+            ## Getting started
+
+            Read the docs.
+            """
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), few)
+                @test check_flags(() -> test_readme_bullets(dir))
+                test_readme_bullets(dir; min_bullets = 2)
+            end
+
+            many = replace(motivation,
+                "## Getting started" => "- Five.\n- Six.\n- Seven.\n\n## Getting started")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), many)
+                @test check_flags(() -> test_readme_bullets(dir))
+                test_readme_bullets(dir; max_bullets = 7)
+            end
+
+            # A bullet running to a second sentence is flagged.
+            two_sentences = replace(motivation,
+                "- A reader can see what a model assumes without reading " *
+                "its code.\n" =>
+                    "- A reader can see what a model assumes. It is all in " *
+                    "one place.\n")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), two_sentences)
+                @test check_flags(() -> test_readme_bullets(dir))
+            end
+
+            # A package name carrying a dot is not a sentence break.
+            dotted = replace(motivation,
+                "- Changing one assumption no longer means rewriting the " *
+                "model.\n" =>
+                    "- It reuses Distributions.jl's own interface, version " *
+                    "1.2 onwards.\n")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), dotted)
+                test_readme_bullets(dir)
+            end
+
+            # A bullet inside a fenced example in the Why section is code, not
+            # a section bullet, so it neither counts nor is checked.
+            fenced_example = replace(motivation,
+                "## Getting started" =>
+                    "```julia\n# - **Not**: a bullet at all\n```\n\n" *
+                    "## Getting started")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), fenced_example)
+                test_readme_bullets(dir)
+            end
+
+            # Prose framing the list is not folded into the last bullet, so a
+            # trailing paragraph does not turn it into several sentences.
+            framed = replace(motivation,
+                "## Getting started" =>
+                    "Package-specific content stays in the package. It is not a " *
+                    "bullet.\n\n## Getting started")
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), framed)
+                test_readme_bullets(dir)
+            end
+
+            # A README with no Why section skips: its absence is
+            # `test_readme_sections`' report to make, not this check's.
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"),
+                    "# MyPkg\n\n## Getting started\n\nRead the docs.\n")
+                @test !check_flags(() -> test_readme_bullets(dir))
+            end
+
+            # A missing README skips rather than erroring.
+            mktempdir() do dir
+                @test test_readme_bullets(
+                    joinpath(dir, "no-such-readme.md")) === nothing
+            end
+        end
+
+        @testset "the new README checks are not in the managed testset" begin
+            # Turning these on for every adopting package is a separate rollout
+            # decision (#292): most READMEs do not meet the standard yet, so
+            # wiring them into the scaffolded quality testset would red the
+            # ecosystem at once. A package opts in from its own tests until
+            # that is decided, so the managed template must not call them.
+            root = dirname(dirname(pathof(EpiAwarePackageTools)))
+            managed = read(
+                joinpath(root, "templates", "test", "package", "quality.jl"),
+                String)
+            @test occursin("test_readme_sections", managed)
+            for check in ("test_readme_placeholders", "test_readme_prose",
+                "test_readme_bullets")
+                @test !occursin(check, managed)
+            end
+        end
+
         @testset "test_formatting over self" begin
             # Check the package src tree is JuliaFormatter-clean.
             root = dirname(dirname(pathof(EpiAwarePackageTools)))
