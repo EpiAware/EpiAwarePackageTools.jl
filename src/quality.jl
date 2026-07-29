@@ -378,6 +378,13 @@ alternatives. Extend or relax it per package via the `required` keyword of
 const STANDARD_README_SECTIONS = [
     ("Why", "Overview", "Features", "About"),
     ("Getting started", "Usage", "Quickstart", "Quick start"),
+    # One bullet per sibling package, one sentence each (#292). The slot is
+    # after Getting started and before Documentation: each of the six packages
+    # that adopted the design landed it there independently, so a reader meets
+    # the siblings once the package itself makes sense and before the links out.
+    # It replaces the older "What packages work well with X?" heading, which
+    # `STALE_README_HEADINGS` reports as drift.
+    ("Related packages",),
     ("Documentation", "Where to learn more", "Learn more"),
     ("Contributing",),
     # "Cite" accepts the managed standard-sections heading `## How to cite`
@@ -401,6 +408,23 @@ checks when the markers are present (#236).
 """
 const MANAGED_README_SECTIONS = [
     ("Contributing",), ("How to cite",), ("Code of conduct",)]
+
+"""
+    STALE_README_HEADINGS
+
+Retired README headings, each paired with the heading that replaced it, reported
+as drift by [`test_readme_sections`](@ref).
+
+A renamed section would otherwise be caught only as a missing section, which
+says what is absent but not what to rename. Each entry is a
+`Regex => replacement` pair; the regex is matched against every `##`-level (and
+deeper) heading text, so a heading that carries the package name still matches.
+
+The one entry today is the pre-#292 `What packages work well with X?`, replaced
+by `## Related packages`.
+"""
+const STALE_README_HEADINGS = [
+    r"what packages work well with"i => "Related packages"]
 
 # Render one section group as a human-readable label for failure messages.
 _section_label(group::Tuple) = join(group, " / ")
@@ -457,6 +481,18 @@ function _managed_block_headings(body::AbstractString)
     return _readme_headings(body[(last(si) + 1):(first(ei) - 1)])
 end
 
+# The README file a caller's `path` names: `path` itself when it is a file,
+# otherwise the `README.md` inside it. Shared by every README check so they all
+# accept a package root or a direct file path.
+function _readme_file(path::AbstractString)
+    return isdir(path) ? joinpath(path, "README.md") : path
+end
+
+# The name a README check labels its testset with: the directory holding the
+# README (i.e. the package root), which is what a caller recognises in the
+# test output.
+_readme_label(file::AbstractString) = basename(dirname(abspath(file)))
+
 # Extract the ordered `##`-level (or deeper) Markdown heading texts from a
 # README body, ignoring the H1 title and fenced code blocks (so a `#` inside a
 # ```code``` block is not mistaken for a heading).
@@ -482,7 +518,8 @@ function _readme_headings(body::AbstractString)
 end
 
 """
-    test_readme_sections(path; required = STANDARD_README_SECTIONS, order = true)
+    test_readme_sections(path; required = STANDARD_README_SECTIONS,
+        order = true, stale = STALE_README_HEADINGS)
 
 Assert the README at `path` carries the standard EpiAware section structure.
 
@@ -506,9 +543,14 @@ whose own sections it does not move.
 heading texts matched case-insensitively as a substring, so a package may title
 the section to taste (e.g. `("Getting started", "Usage")`). The default is the
 standard structure ([`STANDARD_README_SECTIONS`](@ref)): a Why/Overview section,
-a Getting started / Usage section, a Documentation section, a Contributing
-section, and a Citing / License section. A package overrides or extends the list
-via its `qa_config.jl` (pass its own `required`).
+a Getting started / Usage section, a Related packages section, a Documentation
+section, a Contributing section, and a Citing / License section. A package
+overrides or extends the list via its `qa_config.jl` (pass its own `required`).
+
+A heading retired by a design change is reported as drift, naming the heading
+that replaced it, rather than only as a missing section
+([`STALE_README_HEADINGS`](@ref)) — today the pre-#292
+`What packages work well with X?` against `## Related packages`.
 
 The H1 title and the managed badge block are checked here too: the README must
 open with a single `#` title and contain the badge markers the scaffolder
@@ -517,6 +559,8 @@ manages (see [`scaffold`](@ref)).
 # Keyword Arguments
   - `required`: the ordered heading groups to require; default the standard set.
   - `order`: when `true`, also assert the present sections are in order.
+  - `stale`: `Regex => replacement` pairs for retired headings; default
+    [`STALE_README_HEADINGS`](@ref). Pass `[]` to skip the drift report.
 
 ```julia
 test_readme_sections(pkgdir(MyPackage))
@@ -527,9 +571,10 @@ test_readme_sections(pkgdir(MyPackage);
 ```
 """
 function test_readme_sections(path::AbstractString;
-        required = STANDARD_README_SECTIONS, order::Bool = true)
-    file = isdir(path) ? joinpath(path, "README.md") : path
-    return @testset "README sections: $(basename(dirname(abspath(file))))" begin
+        required = STANDARD_README_SECTIONS, order::Bool = true,
+        stale = STALE_README_HEADINGS)
+    file = _readme_file(path)
+    return @testset "README sections: $(_readme_label(file))" begin
         if !isfile(file)
             @test_skip "no README at $file"
             return nothing
@@ -546,6 +591,18 @@ function test_readme_sections(path::AbstractString;
         for group in required
             @testset "$(_section_label(group))" begin
                 @test _has_section(headings, group)
+            end
+        end
+        # Drift against a renamed section: report the retired heading and what
+        # replaced it, so the fix is a rename rather than a hunt for what is
+        # missing (#292).
+        @testset "stale headings" begin
+            for (pattern, replacement) in stale
+                found = filter(h -> occursin(pattern, h), headings)
+                for h in found
+                    @error "Retired README heading (#292)" heading=h replacement
+                end
+                @test isempty(found)
             end
         end
         if order

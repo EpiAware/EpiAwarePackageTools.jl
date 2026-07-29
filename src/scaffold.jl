@@ -2113,13 +2113,21 @@ end
 # where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
 # the file content changed.
 # A starter README body for a package that has none yet, following the standard
-# EpiAware section structure (Why / Getting started / Where to learn more). The
-# managed standard-sections block (`_apply_standard_sections`) then appends
-# Contributing / How to cite / Code of conduct in the order
-# `STANDARD_README_SECTIONS` in `quality.jl` requires. Parameterised from the
-# repo slug, package name, and docs host. Only seeded when no README exists;
-# thereafter this body is package-owned and only the badge block and the managed
-# standard sections are refreshed on update.
+# EpiAware section structure (Why / Getting started / Related packages / Where
+# to learn more). The managed standard-sections block
+# (`_apply_standard_sections`) then appends Contributing / How to cite / Code of
+# conduct in the order `STANDARD_README_SECTIONS` in `quality.jl` requires.
+# Parameterised from the repo slug, package name, and docs host. Only seeded
+# when no README exists; thereafter this body is package-owned and only the
+# badge block and the managed standard sections are refreshed on update.
+#
+# The Related packages bullets are inherently package-specific — one sentence
+# per sibling with a real, verifiable relationship, linked to that sibling's
+# live docs (#292) — so only the heading and a placeholder are seeded.
+# Every italic `_..._` span here is a placeholder
+# `test_readme_placeholders` derives its patterns from, so an unfilled skeleton
+# is reported rather than published; adding a placeholder means writing it in
+# that form.
 function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         docs_url::Union{Nothing, AbstractString})
     host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
@@ -2133,6 +2141,9 @@ function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         "## Getting started\n\n",
         "See $docs_link for a full walkthrough.\n\n",
         "```julia\nusing $pkg\n```\n\n",
+        "## Related packages\n\n",
+        "- _One bullet per sibling package with a real relationship to " *
+        "$pkg, one sentence each, linked to that package's docs._\n\n",
         "## Where to learn more\n\n",
         "- [GitHub Discussions](https://github.com/$repo/discussions)\n",
         "- [GitHub Repository](https://github.com/$repo)\n")

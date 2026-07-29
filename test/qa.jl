@@ -247,6 +247,9 @@
             ## Usage
             how.
 
+            ## Related packages
+            siblings.
+
             ## Documentation
             links.
 
@@ -284,6 +287,9 @@
             ## Overview
             why.
 
+            ## Related packages
+            siblings.
+
             ## Documentation
             d.
 
@@ -312,6 +318,9 @@
 
             ## Usage
             u.
+
+            ## Related packages
+            siblings.
 
             ## Documentation
             d.
@@ -364,6 +373,9 @@
             ## Usage
             how.
 
+            ## Related packages
+            siblings.
+
             ## Documentation
             links.
 
@@ -378,7 +390,10 @@
             end
 
             # Package-owned sections interleaved before, around, and after the
-            # managed block are ignored by the order check (#236).
+            # managed block are ignored by the order check (#236). The trailing
+            # duplicate `## Related packages` also exercises earliest-match: the
+            # in-slot heading supplies the match, so the Documentation section
+            # below it is still found in order.
             interleaved = """
             # MyPkg
 
@@ -392,6 +407,9 @@
 
             ## Installation
             add it.
+
+            ## Related packages
+            siblings.
 
             ## Documentation
             links.
@@ -424,6 +442,9 @@
 
             ## Usage
             how.
+
+            ## Related packages
+            siblings.
 
             ## Documentation
             links.
@@ -481,6 +502,64 @@
             mktempdir() do dir
                 @test test_readme_sections(
                     joinpath(dir, "no-such-readme.md")) === nothing
+            end
+
+            # A Related packages section is required, in the slot after Getting
+            # started and before Documentation (#292).
+            @testset "Related packages is required in its slot" begin
+                S = STANDARD_README_SECTIONS
+                @test findfirst(g -> "Getting started" in g, S) <
+                      findfirst(g -> "Related packages" in g, S) <
+                      findfirst(g -> "Documentation" in g, S)
+
+                # Absent entirely: flagged.
+                without = replace(conforming,
+                    "## Related packages\nsiblings.\n\n" => "")
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), without)
+                    @test check_flags(() -> test_readme_sections(dir))
+                end
+
+                # Present but below the Documentation section: flagged by the
+                # order check, accepted with `order = false`.
+                late = replace(without,
+                    "## Contributing\nhelp.\n" =>
+                        "## Related packages\nsiblings.\n\n" *
+                        "## Contributing\nhelp.\n")
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), late)
+                    @test check_flags(() -> test_readme_sections(dir))
+                    test_readme_sections(dir; order = false)
+                end
+            end
+
+            # The retired `What packages work well with X?` heading is reported
+            # as drift against `## Related packages` (#292), and is reported
+            # even when the README also carries a conforming section, so a
+            # package that added the new heading without removing the old one
+            # does not pass quietly.
+            @testset "stale headings" begin
+                renamed = "## What packages work well with MyPkg?"
+                stale = replace(conforming, "## Related packages" => renamed)
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), stale)
+                    @test check_flags(() -> test_readme_sections(dir))
+                    # Opting out of the drift report leaves only the missing
+                    # section to fail on, so passing an empty list plus the
+                    # pre-#292 required set accepts the old README.
+                    test_readme_sections(dir; stale = [],
+                        required = filter(g -> !("Related packages" in g),
+                            STANDARD_README_SECTIONS))
+                end
+
+                both = replace(conforming,
+                    "## Related packages\nsiblings.\n" =>
+                        "## Related packages\nsiblings.\n\n" *
+                        renamed * "\nold.\n")
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), both)
+                    @test check_flags(() -> test_readme_sections(dir))
+                end
             end
         end
 
