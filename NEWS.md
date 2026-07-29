@@ -1,6 +1,7 @@
 ## Unreleased
 
-The managed formatter style moves from `sciml` to `blue` (#200).
+The managed formatter style moves from `sciml` to `blue`
+(EpiAware/ComposableTuringIDModels.jl#200, #343).
 sciml and YAS force a package to choose between stability (pin a JuliaFormatter
 version and never move) and correctness (track the latest, and take the
 formatting churn each time one of their bugs is fixed);
@@ -17,7 +18,11 @@ README's code-style badge and Contributing line now name Blue;
 `_formatter_style` still maps `"sciml"`, `"yas"` and `"default"`, so a package
 that has not resynced, or a third-party adopter, can still ask for its own style.
 An adopting package takes the change on its next sync and then needs one
-formatting pass, since blue and sciml disagree on real files.
+formatting pass, since blue and sciml disagree on real files;
+the sync itself does not reformat, so a sync-only PR is red until that pass is
+committed.
+Template `.jl` files carrying `{{PLACEHOLDER}}` tokens cannot be pre-formatted
+here, so four managed files are not blue-clean once substituted (#344).
 
 A package that declares `[extensions]` now gets an "Extensions" group in its
 docs nav, one entry per extension, each pointing at a seeded page under
