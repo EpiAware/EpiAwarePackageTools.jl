@@ -17,6 +17,5 @@ if isempty(ARGS)
     TestItemRunner.run_tests(@__DIR__)
 else
     selected = Symbol.(ARGS)
-    TestItemRunner.run_tests(
-        @__DIR__; filter = ti -> any(in(ti.tags), selected))
+    TestItemRunner.run_tests(@__DIR__; filter=ti -> any(in(ti.tags), selected))
 end

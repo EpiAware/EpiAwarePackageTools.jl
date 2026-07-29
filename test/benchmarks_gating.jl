@@ -10,12 +10,17 @@
     using EpiAwarePackageTools: _detect_benchmarks, update
 
     # A minimal package root so placeholder substitution has values to resolve.
-    function _fake_pkg(dir; name = "FakePkg",
-            authors = "[\"Ada Lovelace\", \"FakeOrg contributors\"]")
-        write(joinpath(dir, "Project.toml"),
+    function _fake_pkg(
+        dir;
+        name="FakePkg",
+        authors="[\"Ada Lovelace\", \"FakeOrg contributors\"]",
+    )
+        write(
+            joinpath(dir, "Project.toml"),
             "name = \"$name\"\n" *
             "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
-            "authors = $authors\n")
+            "authors = $authors\n",
+        )
         return dir
     end
 
@@ -27,12 +32,13 @@
         "benchmark/compare.jl",
         "benchmark/Project.toml",
         "benchmark/benchmarks.jl",
-        "docs/benchmarks.md"]
+        "docs/benchmarks.md",
+    ]
 
     @testset "benchmarks = false writes no benchmark files or page" begin
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = false)
+            scaffold(dir; benchmarks=false)
             for f in BENCH_FILES
                 @test !isfile(joinpath(dir, f))
             end
@@ -47,7 +53,7 @@
     @testset "benchmarks = true writes the full benchmark surface" begin
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = true)
+            scaffold(dir; benchmarks=true)
             for f in BENCH_FILES
                 @test isfile(joinpath(dir, f))
             end
@@ -71,7 +77,7 @@
         mktempdir() do dir
             @test _detect_benchmarks(dir) == false
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = true)
+            scaffold(dir; benchmarks=true)
             @test _detect_benchmarks(dir) == true
         end
     end
@@ -79,15 +85,16 @@
     @testset "update preserves an enabled adopter (no kwarg)" begin
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = true)
+            scaffold(dir; benchmarks=true)
             # A plain resync (as the scheduled sync's first run would do before
             # its template-sync.yaml carries the baked value) must not strip the
             # benchmark infra: detection recovers the enabled state.
             update(dir)
             update(dir)
             @test isfile(joinpath(dir, ".github/workflows/benchmark.yaml"))
-            @test isfile(joinpath(dir,
-                ".github/workflows/benchmark-history.yaml"))
+            @test isfile(
+                joinpath(dir, ".github/workflows/benchmark-history.yaml")
+            )
             @test isfile(joinpath(dir, "benchmark/benchmarks.jl"))
         end
     end
@@ -95,7 +102,7 @@
     @testset "update keeps a disabled adopter disabled (no kwarg)" begin
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = false)
+            scaffold(dir; benchmarks=false)
             update(dir)
             @test !isfile(joinpath(dir, ".github/workflows/benchmark.yaml"))
             @test !isfile(joinpath(dir, "benchmark/run.jl"))
@@ -105,16 +112,18 @@
     @testset "template-sync bakes the benchmarks value" begin
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = true)
-            sync = read(joinpath(dir,
-                    ".github/workflows/template-sync.yaml"), String)
+            scaffold(dir; benchmarks=true)
+            sync = read(
+                joinpath(dir, ".github/workflows/template-sync.yaml"), String
+            )
             @test occursin("benchmarks = true", sync)
         end
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = false)
-            sync = read(joinpath(dir,
-                    ".github/workflows/template-sync.yaml"), String)
+            scaffold(dir; benchmarks=false)
+            sync = read(
+                joinpath(dir, ".github/workflows/template-sync.yaml"), String
+            )
             @test occursin("benchmarks = false", sync)
         end
     end
@@ -125,9 +134,10 @@
             "Home" => "index.md",
             "API reference" => [
                 "Public API" => "lib/public.md",
-                "Internal API" => "lib/internals.md"
+                "Internal API" => "lib/internals.md",
             ],
-            "Benchmarks" => "benchmarks.md"]
+            "Benchmarks" => "benchmarks.md",
+        ]
         out = strip(pages)
         @test length(out) == 2
         @test !any(e -> e isa Pair && e.second == "benchmarks.md", out)
@@ -140,7 +150,7 @@
         hist = ".github/workflows/benchmark-history.yaml"
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; benchmarks = true)
+            scaffold(dir; benchmarks=true)
             wf = joinpath(dir, hist)
             # A fresh scaffold ships the full push/tags/dispatch triggers.
             @test !_detect_benchmark_history_parked(dir)
@@ -150,8 +160,10 @@
 
             # Park the workflow (as an unregistered adopter does): drop the
             # push/tags triggers, keeping only workflow_dispatch.
-            parked = replace(txt,
-                r"on:\n.*?\n  workflow_dispatch:"s => "on:\n  workflow_dispatch:")
+            parked = replace(
+                txt,
+                r"on:\n.*?\n  workflow_dispatch:"s => "on:\n  workflow_dispatch:",
+            )
             write(wf, parked)
             @test _detect_benchmark_history_parked(dir)
 

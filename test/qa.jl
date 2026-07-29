@@ -90,7 +90,7 @@
     build(2; scale = 3)
     ```
     """
-    build(n; scale = 1) = n * scale
+    build(n; scale=1) = n * scale
 
     end # module _Conforming
 
@@ -106,7 +106,7 @@
     end
 
     "Run it, with no Arguments or Keyword Arguments section and no example."
-    run_it(a, b; opt = 1) = a + b + opt
+    run_it(a, b; opt=1) = a + b + opt
 
     end # module _NonConforming
 
@@ -135,8 +135,7 @@
 
     A documented public submodule with a meaningful description of its purpose.
     """
-    module SubUtils
-    end
+    module SubUtils end
 
     end # module _WithSubmodule
 
@@ -165,8 +164,7 @@
     # An ad-hoc module (not loaded via `include`/`Base.require` with a
     # registered `Base.PkgId`) has `pathof(mod) === nothing` — used to
     # exercise `test_import_centralisation`'s no-source-file skip branch.
-    module _NoPathModule
-    end
+    module _NoPathModule end
 
     @testset "QA helpers" begin
         @testset "test_docstring_format passes a conforming module" begin
@@ -187,12 +185,17 @@
             # for a `Template` directive.
             ds = Base.Docs.DocStr(
                 Core.svec(
-                    _TemplateDirective(), "the real prose here",
-                    _TemplateDirective()),
-                nothing, Dict{Symbol, Any}())
+                    _TemplateDirective(),
+                    "the real prose here",
+                    _TemplateDirective(),
+                ),
+                nothing,
+                Dict{Symbol,Any}(),
+            )
             @test EpiAwarePackageTools._docstr_text(ds) == "the real prose here"
-            @test !occursin("_TemplateDirective",
-                EpiAwarePackageTools._docstr_text(ds))
+            @test !occursin(
+                "_TemplateDirective", EpiAwarePackageTools._docstr_text(ds)
+            )
         end
 
         @testset "_docstring_content reads a submodule's own meta (#124)" begin
@@ -201,7 +204,8 @@
             # the fix this returned "" and the submodule got a permanent
             # `@test_skip` in `test_docstring_format`.
             doc = EpiAwarePackageTools._docstring_content(
-                _WithSubmodule, :SubUtils)
+                _WithSubmodule, :SubUtils
+            )
             @test !isempty(doc)
             @test occursin("documented public submodule", doc)
             @test EpiAwarePackageTools._meaningful(doc, :SubUtils)
@@ -213,7 +217,9 @@
             # before the first interpolation).
             ds = Base.Docs.DocStr(
                 Core.svec("before ", "INTERP", " after"),
-                nothing, Dict{Symbol, Any}())
+                nothing,
+                Dict{Symbol,Any}(),
+            )
             joined = EpiAwarePackageTools._docstr_text(ds)
             @test occursin("before", joined)
             @test occursin("after", joined)
@@ -227,12 +233,14 @@
             # fail every fresh scaffold's `order = true` check (#289).
             S = EpiAwarePackageTools.STANDARD_README_SECTIONS
             @test findfirst(g -> "Contributing" in g, S) <
-                  findfirst(g -> "License" in g, S)
+                findfirst(g -> "License" in g, S)
         end
 
         @testset "test_readme_sections" begin
-            badges = EpiAwarePackageTools.BADGES_START * "\n" *
-                     EpiAwarePackageTools.BADGES_END
+            badges =
+                EpiAwarePackageTools.BADGES_START *
+                "\n" *
+                EpiAwarePackageTools.BADGES_END
             # A README with the standard sections in standard order passes.
             conforming = """
             # MyPkg
@@ -264,8 +272,9 @@
             end
 
             # Missing a required section (no Documentation) is flagged.
-            missing_section = replace(conforming,
-                "## Documentation\nlinks.\n\n" => "")
+            missing_section = replace(
+                conforming, "## Documentation\nlinks.\n\n" => ""
+            )
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), missing_section)
                 @test check_flags(() -> test_readme_sections(dir))
@@ -296,7 +305,7 @@
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), disordered)
                 @test check_flags(() -> test_readme_sections(dir))
-                test_readme_sections(dir; order = false)
+                test_readme_sections(dir; order=false)
             end
 
             # A heading inside a fenced code block is not counted as a section.
@@ -331,7 +340,9 @@
             # satisfies the citation group, so a scaffolded package that carries
             # only the managed sections (no hand-authored License/Supporting)
             # passes the check out of the box (#201).
-            how_to_cite = replace(conforming, "## License\nMIT.\n" => "## How to cite\ncite it.\n")
+            how_to_cite = replace(
+                conforming, "## License\nMIT.\n" => "## How to cite\ncite it.\n"
+            )
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), how_to_cite)
                 test_readme_sections(dir)
@@ -341,11 +352,20 @@
             # appends it to a README that carries none of these sections yet
             # (#236). `sections` renders the managed headings in the order the
             # kit writes them, between the markers.
-            managed_block(sections = ["## Contributing\nc.",
-                "## How to cite\ncite it.", "## Code of conduct\nbe kind."]) = string(
-                EpiAwarePackageTools.STANDARD_SECTIONS_START, "\n\n",
-                join(sections, "\n\n"), "\n\n",
-                EpiAwarePackageTools.STANDARD_SECTIONS_END, "\n")
+            managed_block(
+                sections=[
+                    "## Contributing\nc.",
+                    "## How to cite\ncite it.",
+                    "## Code of conduct\nbe kind.",
+                ],
+            ) = string(
+                EpiAwarePackageTools.STANDARD_SECTIONS_START,
+                "\n\n",
+                join(sections, "\n\n"),
+                "\n\n",
+                EpiAwarePackageTools.STANDARD_SECTIONS_END,
+                "\n",
+            )
 
             # A package-owned `## License` sitting above the appended managed
             # block passes: the block is appended at the end of the README, so a
@@ -439,10 +459,13 @@
             end
 
             # A managed section missing from the block is still flagged.
-            missing_managed = replace(license_below,
-                managed_block() =>
-                    managed_block(["## How to cite\ncite it.",
-                        "## Code of conduct\nbe kind."]))
+            missing_managed = replace(
+                license_below,
+                managed_block() => managed_block([
+                    "## How to cite\ncite it.",
+                    "## Code of conduct\nbe kind.",
+                ]),
+            )
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), missing_managed)
                 @test check_flags(() -> test_readme_sections(dir))
@@ -453,10 +476,14 @@
             # package-owned License below the block would otherwise supply an
             # in-order citation match.
             for base in (license_above, license_below)
-                managed_disordered = replace(base,
-                    managed_block() =>
-                        managed_block(["## How to cite\ncite it.",
-                            "## Contributing\nc.", "## Code of conduct\nbe kind."]))
+                managed_disordered = replace(
+                    base,
+                    managed_block() => managed_block([
+                        "## How to cite\ncite it.",
+                        "## Contributing\nc.",
+                        "## Code of conduct\nbe kind.",
+                    ]),
+                )
                 mktempdir() do dir
                     write(joinpath(dir, "README.md"), managed_disordered)
                     @test check_flags(() -> test_readme_sections(dir))
@@ -466,9 +493,14 @@
             # A custom required list can extend the standard set.
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), conforming)
-                @test check_flags(() -> test_readme_sections(dir;
-                    required = vcat(STANDARD_README_SECTIONS,
-                        [("Benchmarks",)])))
+                @test check_flags(
+                    () -> test_readme_sections(
+                        dir;
+                        required=vcat(
+                            STANDARD_README_SECTIONS, [("Benchmarks",)]
+                        ),
+                    ),
+                )
             end
 
             # The kit's own README conforms to the standard structure.
@@ -480,7 +512,8 @@
             # returns early with `nothing` rather than a testset.
             mktempdir() do dir
                 @test test_readme_sections(
-                    joinpath(dir, "no-such-readme.md")) === nothing
+                    joinpath(dir, "no-such-readme.md")
+                ) === nothing
             end
         end
 
@@ -499,11 +532,11 @@
             # An isolated formatter env whose runner exits zero passes; a missing
             # Project.toml / runtests.jl errors (cf. `test_jet`'s env path).
             dir = mktempdir()
-            @test_throws ErrorException test_formatting([]; env = dir)
+            @test_throws ErrorException test_formatting([]; env=dir)
             write(joinpath(dir, "Project.toml"), "")
-            @test_throws ErrorException test_formatting([]; env = dir)
+            @test_throws ErrorException test_formatting([]; env=dir)
             write(joinpath(dir, "runtests.jl"), "exit(0)")
-            ts = test_formatting([]; env = dir)
+            ts = test_formatting([]; env=dir)
             @test ts isa Test.AbstractTestSet
         end
 
@@ -525,16 +558,24 @@
             write(joinpath(dir, "runtests.jl"), "exit(0)")
             root = pkgdir(EpiAwarePackageTools)
             kit_src = joinpath(root, "src", "EpiAwarePackageTools.jl")
-            code = "include(" * repr(kit_src) * "); " *
-                   "ok = Main.EpiAwarePackageTools._run_isolated_env(" *
-                   repr(dir) * ", " * repr(joinpath(dir, "runtests.jl")) *
-                   "); exit(ok ? 0 : 1)"
+            code =
+                "include(" *
+                repr(kit_src) *
+                "); " *
+                "ok = Main.EpiAwarePackageTools._run_isolated_env(" *
+                repr(dir) *
+                ", " *
+                repr(joinpath(dir, "runtests.jl")) *
+                "); exit(ok ? 0 : 1)"
             result = run(
                 pipeline(
                     `$(Base.julia_cmd()) --startup-file=no --project=$root
                      -e $code`;
-                    stdout = devnull, stderr = devnull);
-                wait = true)
+                    stdout=devnull,
+                    stderr=devnull,
+                );
+                wait=true,
+            )
             @test result.exitcode == 0
         end
 
@@ -549,7 +590,7 @@
             # just assert the alias forwards to it (same method), without paying for
             # a second full JET pass.
             @test test_linting === test_jet ||
-                  first(methods(test_linting)).name === :test_linting
+                first(methods(test_linting)).name === :test_linting
         end
 
         @testset "test_explicit_imports forwards implicit_ignore" begin
@@ -557,8 +598,9 @@
             # reexporting package can allow its bare module name in
             # `check_no_implicit_imports`. The kit has no implicit imports, so the
             # check passes; assert the kwarg is accepted and the testset returns.
-            ts = test_explicit_imports(EpiAwarePackageTools;
-                implicit_ignore = (:Nonexistent,))
+            ts = test_explicit_imports(
+                EpiAwarePackageTools; implicit_ignore=(:Nonexistent,)
+            )
             @test ts isa Test.AbstractTestSet
         end
 
@@ -575,7 +617,8 @@
             dir = mktempdir()
             mkpath(joinpath(dir, "src"))
             mkpath(joinpath(dir, "ext"))
-            write(joinpath(dir, "Project.toml"),
+            write(
+                joinpath(dir, "Project.toml"),
                 """
                 name = "ExtOrder189"
                 uuid = "e0f1c2d3-4455-6677-8899-aabbccddeeff"
@@ -584,8 +627,10 @@
                 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
                 [extensions]
                 ExtOrder189SparseArraysExt = "SparseArrays"
-                """)
-            write(joinpath(dir, "src", "ExtOrder189.jl"),
+                """,
+            )
+            write(
+                joinpath(dir, "src", "ExtOrder189.jl"),
                 """
                 module ExtOrder189
                 _secret() = 42
@@ -597,8 +642,10 @@
                 helper() = 1
                 end
                 end
-                """)
-            write(joinpath(dir, "ext", "ExtOrder189SparseArraysExt.jl"),
+                """,
+            )
+            write(
+                joinpath(dir, "ext", "ExtOrder189SparseArraysExt.jl"),
                 """
                 module ExtOrder189SparseArraysExt
                 import ExtOrder189: _secret
@@ -611,13 +658,16 @@
                 using SparseArrays
                 usesecret() = _secret() + length(sprand(2, 2, 0.5))
                 end
-                """)
+                """,
+            )
             push!(LOAD_PATH, dir)
             try
                 EI = Base.require(
                     Base.PkgId(
-                    Base.UUID("7d51a73a-1435-4ff3-83d9-f097790105c7"),
-                    "ExplicitImports"))
+                        Base.UUID("7d51a73a-1435-4ff3-83d9-f097790105c7"),
+                        "ExplicitImports",
+                    ),
+                )
                 Fix = Base.require(Main, :ExtOrder189)
 
                 # Extension not loaded yet: the check is clean.
@@ -628,12 +678,14 @@
                 # non-public `_secret` — the raw ExplicitImports check now fails.
                 Base.require(
                     Base.PkgId(
-                    Base.UUID("2f01184e-e22b-5df5-ae63-d93ebab69eaf"),
-                    "SparseArrays"))
+                        Base.UUID("2f01184e-e22b-5df5-ae63-d93ebab69eaf"),
+                        "SparseArrays",
+                    ),
+                )
                 @test check_flags() do
                     @test Base.invokelatest(
-                        EI.check_all_explicit_imports_are_public, Fix) ===
-                          nothing
+                        EI.check_all_explicit_imports_are_public, Fix
+                    ) === nothing
                 end
 
                 # But `test_explicit_imports` stays green: the verdict no longer
@@ -646,10 +698,13 @@
                 # `find_submodules` skips it (only the loaded extension's
                 # `_secret` is folded into the ignore list).
                 SubMod = Fix.Sub
-                @test !EpiAwarePackageTools._is_package_extension(EI, SubMod, Fix)
+                @test !EpiAwarePackageTools._is_package_extension(
+                    EI, SubMod, Fix
+                )
                 @test !EpiAwarePackageTools._is_package_extension(EI, Fix, Fix)
                 ignored = Base.invokelatest(
-                    EpiAwarePackageTools._extension_ignore_names, EI, Fix)
+                    EpiAwarePackageTools._extension_ignore_names, EI, Fix
+                )
                 @test :_secret in ignored
                 # The extension's implicit `using SparseArrays` import
                 # (`sprand`, used without an explicit list) is folded in too
@@ -667,42 +722,55 @@
                 main = joinpath(src, "MyPkg.jl")
                 # The main file's own top-level `using` is exactly where the
                 # convention wants it: exempt when passed as `main_file`.
-                write(main, """
-                module MyPkg
-                using Test: @test
-                include("other.jl")
-                include("sub.jl")
-                end # module MyPkg
-                """)
+                write(
+                    main,
+                    """
+        module MyPkg
+        using Test: @test
+        include("other.jl")
+        include("sub.jl")
+        end # module MyPkg
+        """,
+                )
                 # A plain included file with its own top-level `using`: this
                 # is the scattered-import defect kit issue #105 flags.
-                write(joinpath(src, "other.jl"), """
-                using Markdown: Markdown
+                write(
+                    joinpath(src, "other.jl"),
+                    """
+using Markdown: Markdown
 
-                f() = 1
-                """)
+f() = 1
+""",
+                )
                 # A nested `module`/`baremodule` block starts its own scope:
                 # its own top-level `using` is exempt (that submodule body
                 # IS its "module file"), matching `benchmarks.jl`/
                 # `docs_build.jl`'s `Benchmarks`/`DocsBuild` submodules.
-                write(joinpath(src, "sub.jl"), """
-                module Sub
-                using Test: @testset
-                end # module Sub
-                """)
+                write(
+                    joinpath(src, "sub.jl"),
+                    """
+module Sub
+using Test: @testset
+end # module Sub
+""",
+                )
                 # A lazy, call-time `Base.require` load inside a function is
                 # an ordinary function call, not `using`/`import` syntax, so
                 # it never trips the check.
-                write(joinpath(src, "lazy.jl"), """
-                function _load()
-                    return Base.require(Base.PkgId(
-                        Base.UUID("8dfed614-e22c-5e08-85e1-65c5234f0b40"),
-                        "Test"))
-                end
-                """)
+                write(
+                    joinpath(src, "lazy.jl"),
+                    """
+function _load()
+    return Base.require(Base.PkgId(
+        Base.UUID("8dfed614-e22c-5e08-85e1-65c5234f0b40"),
+        "Test"))
+end
+""",
+                )
 
                 v = EpiAwarePackageTools._import_centralisation_violations(
-                    src, main)
+                    src, main
+                )
                 @test length(v) == 1
                 @test v[1][1] == joinpath(src, "other.jl")
                 @test occursin("Markdown", v[1][3])
@@ -712,7 +780,8 @@
                 # regardless of the `main_file` skip — the count is the
                 # same whether or not `main` is passed.
                 v_no_main = EpiAwarePackageTools._import_centralisation_violations(
-                    src)
+                    src
+                )
                 @test length(v_no_main) == 1
             end
         end
@@ -728,10 +797,12 @@
                 write(main, "using Test: @test\n")
                 @test isempty(
                     EpiAwarePackageTools._import_centralisation_violations(
-                    src, main))
+                        src, main
+                    ),
+                )
                 @test length(
-                    EpiAwarePackageTools._import_centralisation_violations(
-                    src)) == 1
+                    EpiAwarePackageTools._import_centralisation_violations(src)
+                ) == 1
             end
         end
 
@@ -749,7 +820,7 @@
         @testset "dynamicppl_model_filter classifies reports" begin
             # A report whose innermost frame cannot be inspected is kept (fail
             # closed): the filter returns `true` for a non-report object.
-            @test dynamicppl_model_filter((; nope = 1)) == true
+            @test dynamicppl_model_filter((; nope=1)) == true
 
             # A `specTypes` that resolves but has no `.parameters` field (not
             # a real signature type) fails inside the `try`: kept.
@@ -763,14 +834,15 @@
 
             # The DynamicPPL evaluator signature `(::Model,
             # ::AbstractVarInfo, ...)`: dropped.
-            sig_match = Tuple{typeof(identity), _FakeDynamicPPL.Model,
-                _FakeDynamicPPL.VarInfo}
+            sig_match = Tuple{
+                typeof(identity),_FakeDynamicPPL.Model,_FakeDynamicPPL.VarInfo
+            }
             r_match = _FakeReport([_FakeFrame(_FakeLinfo(sig_match))])
             @test dynamicppl_model_filter(r_match) == false
 
             # A `Model` in position 2 but nothing VarInfo-like in position 3:
             # kept (not a full evaluator-signature match).
-            sig_partial = Tuple{typeof(identity), _FakeDynamicPPL.Model, Int}
+            sig_partial = Tuple{typeof(identity),_FakeDynamicPPL.Model,Int}
             r_partial = _FakeReport([_FakeFrame(_FakeLinfo(sig_partial))])
             @test dynamicppl_model_filter(r_partial) == true
         end
@@ -781,8 +853,7 @@
             # A value that is not a `Type`/`UnionAll` has no `.name` field:
             # caught, `false` (fail closed, same as the filter above).
             @test !EpiAwarePackageTools._typename_is(5, "Model")
-            @test EpiAwarePackageTools._occurs_varinfo(
-                _FakeDynamicPPL.VarInfo)
+            @test EpiAwarePackageTools._occurs_varinfo(_FakeDynamicPPL.VarInfo)
             @test !EpiAwarePackageTools._occurs_varinfo(Int)
         end
 
@@ -801,15 +872,19 @@
         end
 
         @testset "_formatter_style covers every named style" begin
-            JF = Base.require(Base.PkgId(
-                Base.UUID("98e50ef6-434e-11e9-1051-2b60c6c9e899"),
-                "JuliaFormatter"))
+            JF = Base.require(
+                Base.PkgId(
+                    Base.UUID("98e50ef6-434e-11e9-1051-2b60c6c9e899"),
+                    "JuliaFormatter",
+                ),
+            )
             for style in ("sciml", "blue", "yas", "default", "", "SciML")
                 s = EpiAwarePackageTools._formatter_style(JF, style)
                 @test s !== nothing
             end
             @test_throws ErrorException EpiAwarePackageTools._formatter_style(
-                JF, "not-a-style")
+                JF, "not-a-style"
+            )
         end
 
         @testset "_docstr_text falls back for a non-DocStr object" begin
@@ -823,15 +898,21 @@
             # is skipped rather than erroring, for both the type and the
             # function check.
             EpiAwarePackageTools._check_type_docstring(
-                _Conforming, :NoSuchBinding123; require_field_docs = true)
+                _Conforming, :NoSuchBinding123; require_field_docs=true
+            )
             EpiAwarePackageTools._check_func_docstring(
-                _Conforming, :NoSuchBinding123; exported_only_examples = true,
-                require_arg_sections = true, require_examples = true)
+                _Conforming,
+                :NoSuchBinding123;
+                exported_only_examples=true,
+                require_arg_sections=true,
+                require_examples=true,
+            )
 
             # A type whose docstring is too short to count as "meaningful"
             # is skipped too.
             EpiAwarePackageTools._check_type_docstring(
-                _ShortDoc, :Thingy; require_field_docs = true)
+                _ShortDoc, :Thingy; require_field_docs=true
+            )
         end
 
         @testset "_is_type fails closed on an unresolvable name" begin
@@ -839,24 +920,27 @@
             @test !EpiAwarePackageTools._is_type(_Conforming, :build)
             # `getfield` throws for a name that isn't actually defined;
             # caught and treated as "not a type" rather than erroring.
-            @test !EpiAwarePackageTools._is_type(
-                _Conforming, :NoSuchBinding123)
+            @test !EpiAwarePackageTools._is_type(_Conforming, :NoSuchBinding123)
         end
 
         @testset "ambiguity helpers error on unloaded extension" begin
             # No extension named :NotAnExtension is loaded, so both query helpers
             # error rather than silently passing.
             @test_throws ErrorException raw_ambiguity_count(
-                EpiAwarePackageTools, :NotAnExtension)
+                EpiAwarePackageTools, :NotAnExtension
+            )
             @test_throws ErrorException on_surface_ambiguities(
-                EpiAwarePackageTools, :NotAnExtension)
+                EpiAwarePackageTools, :NotAnExtension
+            )
             # `test_ext_ambiguities` wraps its body in its own `@testset`,
             # which catches the `error(...)` and records it as a failing
             # result rather than letting it propagate as an exception — so
             # this is checked the same way as a failing `test_docstring_format`
             # call above, via `check_flags`, not `@test_throws`.
-            @test check_flags(() -> test_ext_ambiguities(
-                EpiAwarePackageTools, :NotAnExtension))
+            @test check_flags(
+                () ->
+                    test_ext_ambiguities(EpiAwarePackageTools, :NotAnExtension),
+            )
         end
 
         @testset "test_aqua stale_deps forwards a NamedTuple to Aqua.test_stale_deps (#217)" begin
@@ -865,11 +949,17 @@
             # so passing a NamedTuple of Aqua kwargs (e.g. to `ignore` a
             # dependency a package deliberately keeps ahead of using it)
             # threw a `TypeError` rather than reaching `Aqua.test_stale_deps`.
-            ts = test_aqua(EpiAwarePackageTools; ambiguities = false,
-                unbound_args = false, undefined_exports = false,
-                project_extras = false, deps_compat = false,
-                undocumented_names = false, piracies = false,
-                stale_deps = (; ignore = [:Statistics]))
+            ts = test_aqua(
+                EpiAwarePackageTools;
+                ambiguities=false,
+                unbound_args=false,
+                undefined_exports=false,
+                project_extras=false,
+                deps_compat=false,
+                undocumented_names=false,
+                piracies=false,
+                stale_deps=(; ignore=[:Statistics]),
+            )
             @test ts isa Test.DefaultTestSet
         end
 
@@ -883,54 +973,80 @@
             # A conforming validator, mirroring the exemplar this helper's
             # docstring cites: rejects any name outside `valid_syms`, naming
             # the offender and listing the full valid set.
-            conforming(k) = k in valid_syms || error(
-                "unrecognised option $(repr(k)); valid options are " *
-                join(repr.(valid_syms), ", "))
-            @test !check_flags(() -> test_option_validation(
-                conforming, valid_syms; n = 20, rng = MersenneTwister(1)))
+            conforming(k) =
+                k in valid_syms || error(
+                    "unrecognised option $(repr(k)); valid options are " *
+                    join(repr.(valid_syms), ", "),
+                )
+            @test !check_flags(
+                () -> test_option_validation(
+                    conforming, valid_syms; n=20, rng=MersenneTwister(1)
+                ),
+            )
 
             # The same validator through the documented defaults (`n = 50`,
             # `rng = Random.default_rng()`). Every other case here pins both
             # for reproducibility, which leaves the bare two-argument call —
             # the form an adopter actually writes — unexercised.
-            @test !check_flags(() -> test_option_validation(
-                conforming, valid_syms))
+            @test !check_flags(
+                () -> test_option_validation(conforming, valid_syms)
+            )
 
             # A validator that silently accepts anything is exactly the
             # latent bug this convention exists to catch, and fails every
             # fuzz call.
             silent(_k) = nothing
-            @test check_flags(() -> test_option_validation(
-                silent, valid_syms; n = 5, rng = MersenneTwister(2)))
+            @test check_flags(
+                () -> test_option_validation(
+                    silent, valid_syms; n=5, rng=MersenneTwister(2)
+                ),
+            )
 
             # A validator that throws but whose message omits the offending
             # value also fails.
             vague(_k) = error("bad option")
-            @test check_flags(() -> test_option_validation(
-                vague, valid_syms; n = 5, rng = MersenneTwister(3)))
+            @test check_flags(
+                () -> test_option_validation(
+                    vague, valid_syms; n=5, rng=MersenneTwister(3)
+                ),
+            )
 
             # A validator whose message omits an entry of the valid set
             # also fails.
-            incomplete(k) = k in valid_syms || error(
-                "unrecognised option $(repr(k)); valid options are " *
-                "$(repr(:alpha)), $(repr(:bravo))")
-            @test check_flags(() -> test_option_validation(
-                incomplete, valid_syms; n = 5, rng = MersenneTwister(4)))
+            incomplete(k) =
+                k in valid_syms || error(
+                    "unrecognised option $(repr(k)); valid options are " *
+                    "$(repr(:alpha)), $(repr(:bravo))",
+                )
+            @test check_flags(
+                () -> test_option_validation(
+                    incomplete, valid_syms; n=5, rng=MersenneTwister(4)
+                ),
+            )
 
             # A `String`-flavoured valid set: fuzzed names are strings too.
             valid_strs = ("MIT", "Apache-2.0")
-            conforming_str(s) = s in valid_strs || error(
-                "unsupported license $(repr(s)); choose one of " *
-                join(repr.(valid_strs), ", "))
-            @test !check_flags(() -> test_option_validation(
-                conforming_str, valid_strs; n = 10, rng = MersenneTwister(5)))
+            conforming_str(s) =
+                s in valid_strs || error(
+                    "unsupported license $(repr(s)); choose one of " *
+                    join(repr.(valid_strs), ", "),
+                )
+            @test !check_flags(
+                () -> test_option_validation(
+                    conforming_str, valid_strs; n=10, rng=MersenneTwister(5)
+                ),
+            )
 
             # Dogfoods the actual exemplar the docstring cites: `scaffold`'s
             # own licence check.
-            @test !check_flags(() -> test_option_validation(
-                EpiAwarePackageTools._validate_license,
-                EpiAwarePackageTools.SUPPORTED_LICENSES; n = 10,
-                rng = MersenneTwister(6)))
+            @test !check_flags(
+                () -> test_option_validation(
+                    EpiAwarePackageTools._validate_license,
+                    EpiAwarePackageTools.SUPPORTED_LICENSES;
+                    n=10,
+                    rng=MersenneTwister(6),
+                ),
+            )
         end
     end # @testset "QA helpers"
 end # @testitem "QA helpers"

@@ -9,12 +9,10 @@ pages = [
     # README-derived home page).
     "Getting started" => [
         "Overview" => "getting-started/index.md",
-        "Customising your docs" => "getting-started/customising.md"
+        "Customising your docs" => "getting-started/customising.md",
     ],
-    "API reference" => [
-        "Public API" => "lib/public.md",
-        "Internal API" => "lib/internals.md"
-    ],
+    "API reference" =>
+        ["Public API" => "lib/public.md", "Internal API" => "lib/internals.md"],
     # Maintainer-facing reference: how the kit keeps itself (and adopters) to
     # the shared standard. Out of Getting started so it is not user-facing noise.
     "Development" => [
@@ -22,6 +20,6 @@ pages = [
         "Test infrastructure" => "getting-started/test-infrastructure.md",
         "Benchmarking" => "getting-started/benchmarking.md",
         "AD tooling" => "getting-started/ad-tooling.md",
-        "Changelog convention" => "getting-started/changelog.md"
-    ]
+        "Changelog convention" => "getting-started/changelog.md",
+    ],
 ]

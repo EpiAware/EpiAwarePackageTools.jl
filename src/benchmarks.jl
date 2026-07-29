@@ -62,7 +62,7 @@ the environment that runs the benchmark job, not as package dependencies.
 module Benchmarks
 
 import ..EpiAwarePackageTools: _require_pkg
-import Pkg
+using Pkg: Pkg
 
 export flatten_asv, asv_comment, compare_comment, run_suite
 export fmt_time, fmt_ratio
@@ -81,12 +81,12 @@ end
 
 function _benchmarktools()
     return _require_pkg(
-        "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf", "BenchmarkTools")
+        "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf", "BenchmarkTools"
+    )
 end
 
 function _localregistry()
-    return _require_pkg(
-        "89398ba2-070a-4b16-a995-9893c55d93cf", "LocalRegistry")
+    return _require_pkg("89398ba2-070a-4b16-a995-9893c55d93cf", "LocalRegistry")
 end
 
 # ---- shared formatting -----------------------------------------------------
@@ -103,13 +103,13 @@ Returns `"—"` for `NaN`.
 function fmt_time(ns::Real)
     isnan(ns) && return "—"
     if ns < 1e3
-        return string(round(ns; digits = 1), " ns")
+        return string(round(ns; digits=1), " ns")
     elseif ns < 1e6
-        return string(round(ns / 1e3; digits = 2), " μs")
+        return string(round(ns / 1e3; digits=2), " μs")
     elseif ns < 1e9
-        return string(round(ns / 1e6; digits = 2), " ms")
+        return string(round(ns / 1e6; digits=2), " ms")
     else
-        return string(round(ns / 1e9; digits = 2), " s")
+        return string(round(ns / 1e9; digits=2), " s")
     end
 end
 
@@ -118,7 +118,7 @@ end
 
 Format a head/base ratio to three digits. Returns `"—"` for `NaN`.
 """
-fmt_ratio(r::Real) = isnan(r) ? "—" : string(round(r; digits = 3))
+fmt_ratio(r::Real) = isnan(r) ? "—" : string(round(r; digits=3))
 
 # Ratio with a colour cue so notable moves catch the eye in Markdown.
 function _ratio_cell(r::Real)
@@ -138,7 +138,7 @@ function _median(times)
     xs = sort(collect(Float64, times))
     n = length(xs)
     n == 0 && return NaN
-    isodd(n) ? xs[(n + 1) ÷ 2] : (xs[n ÷ 2] + xs[n ÷ 2 + 1]) / 2
+    return isodd(n) ? xs[(n + 1) ÷ 2] : (xs[n ÷ 2] + xs[n ÷ 2 + 1]) / 2
 end
 
 # Split a full AD key "<prefix><scenario>/<backend>" into its parts.
@@ -153,7 +153,7 @@ end
 
 # Recursively flatten a BenchmarkTools/JSON3 group into `path => median_ns`.
 # Leaf groups have a "times" vector (nanoseconds); inner groups have "data".
-function _flatten!(out::Dict{String, Float64}, node, prefix::String)
+function _flatten!(out::Dict{String,Float64}, node, prefix::String)
     (node isa AbstractDict || nameof(typeof(node)) === :Object) || return out
     if haskey(node, "times")
         times = node["times"]
@@ -172,10 +172,12 @@ end
 
 # Locate `results_<pkg>@<rev>...json`, matching the rev as a prefix so a full
 # SHA on the command line still finds a file benchpkg truncated.
-function _find_results(dir::AbstractString, pkg::AbstractString,
-        rev::AbstractString)
-    candidates = filter(readdir(dir; join = true)) do f
-        endswith(f, ".json") && occursin("results_" * pkg * "@", basename(f))
+function _find_results(
+    dir::AbstractString, pkg::AbstractString, rev::AbstractString
+)
+    candidates = filter(readdir(dir; join=true)) do f
+        return endswith(f, ".json") &&
+               occursin("results_" * pkg * "@", basename(f))
     end
     isempty(candidates) && error("no results json for $pkg in $dir")
     for f in candidates
@@ -188,7 +190,7 @@ function _find_results(dir::AbstractString, pkg::AbstractString,
         end
     end
     length(candidates) == 1 && return only(candidates)
-    error("could not match rev $rev among $(basename.(candidates))")
+    return error("could not match rev $rev among $(basename.(candidates))")
 end
 
 """
@@ -202,14 +204,15 @@ The `rev` is matched as a prefix of the rev embedded in the filename (and vice
 versa), because the AirspeedVelocity action passes a full SHA while benchpkg
 may truncate it on disk. `JSON3` must be available in the calling environment.
 """
-function flatten_asv(dir::AbstractString, pkg::AbstractString,
-        rev::AbstractString)
+function flatten_asv(
+    dir::AbstractString, pkg::AbstractString, rev::AbstractString
+)
     JSON3 = _json3()
     file = _find_results(dir, pkg, rev)
     data = open(file, "r") do io
-        Base.invokelatest(JSON3.read, read(io, String))
+        return Base.invokelatest(JSON3.read, read(io, String))
     end
-    out = Dict{String, Float64}()
+    out = Dict{String,Float64}()
     _flatten!(out, data, "")
     return out
 end
@@ -217,7 +220,7 @@ end
 # ---- AirspeedVelocity comment sections ------------------------------------
 
 function _most_changed_section(io, base, head)
-    rows = Tuple{String, Float64, Float64, Float64}[]
+    rows = Tuple{String,Float64,Float64,Float64}[]
     for (k, h) in head
         haskey(base, k) || continue
         b = base[k]
@@ -227,37 +230,55 @@ function _most_changed_section(io, base, head)
     changed = filter(r -> abs(r[4] - 1) >= (RATIO_THRESHOLD - 1), rows)
     println(io, "### Most changed (median time)\n")
     if isempty(changed)
-        println(io,
+        println(
+            io,
             "No benchmark moved by more than ",
             round(Int, (RATIO_THRESHOLD - 1) * 100),
-            "%. ", length(rows), " benchmarks compared.\n")
-        return
+            "%. ",
+            length(rows),
+            " benchmarks compared.\n",
+        )
+        return nothing
     end
-    sort!(changed; by = r -> abs(r[4] - 1), rev = true)
+    sort!(changed; by=r -> abs(r[4] - 1), rev=true)
     println(io, "| Benchmark | base | PR | PR / base |")
     println(io, "|:--|--:|--:|--:|")
     for r in first(changed, TOP_N)
-        println(io, "| `", r[1], "` | ", fmt_time(r[2]), " | ",
-            fmt_time(r[3]), " | ", _ratio_cell(r[4]), " |")
+        println(
+            io,
+            "| `",
+            r[1],
+            "` | ",
+            fmt_time(r[2]),
+            " | ",
+            fmt_time(r[3]),
+            " | ",
+            _ratio_cell(r[4]),
+            " |",
+        )
     end
     if length(changed) > TOP_N
-        println(io, "\n", length(changed) - TOP_N,
-            " further benchmarks changed (see full results below).")
+        println(
+            io,
+            "\n",
+            length(changed) - TOP_N,
+            " further benchmarks changed (see full results below).",
+        )
     end
-    println(io)
+    return println(io)
 end
 
 function _ad_section(io, base, head, prefix)
-    isempty(prefix) && return
+    isempty(prefix) && return nothing
     ad_keys = filter(k -> startswith(k, prefix), keys(head))
     println(io, "### AD gradients (PR / base, median time)\n")
     if isempty(ad_keys)
         println(io, "No AD-gradient benchmarks in this run.\n")
-        return
+        return nothing
     end
     scenarios = String[]
     backends = String[]
-    cell = Dict{Tuple{String, String}, Float64}()
+    cell = Dict{Tuple{String,String},Float64}()
     for k in ad_keys
         scen, back = _ad_parts(k, prefix)
         haskey(base, k) || continue
@@ -269,9 +290,10 @@ function _ad_section(io, base, head, prefix)
         cell[(scen, back)] = h / b
     end
     if isempty(cell)
-        println(io,
-            "AD benchmarks ran but had no comparable base counterpart.\n")
-        return
+        println(
+            io, "AD benchmarks ran but had no comparable base counterpart.\n"
+        )
+        return nothing
     end
     sort!(scenarios)
     sort!(backends)
@@ -293,9 +315,11 @@ function _ad_section(io, base, head, prefix)
         end
         println(io)
     end
-    println(io,
+    return println(
+        io,
         "\nCells are PR median / base median. 🔴 ≥1.10 (slower), ",
-        "🟢 ≤0.91 (faster). Blank = backend skipped on that scenario.\n")
+        "🟢 ≤0.91 (faster). Blank = backend skipped on that scenario.\n",
+    )
 end
 
 function _full_section(io, base, head, prefix)
@@ -304,8 +328,7 @@ function _full_section(io, base, head, prefix)
     non_ad = has_ad ? filter(k -> !startswith(k, prefix), keys_all) : keys_all
     ad = has_ad ? filter(k -> startswith(k, prefix), keys_all) : String[]
     println(io, "<details><summary>Full results</summary>\n")
-    for (title, ks) in (("Core benchmarks", non_ad),
-        ("AD gradients (raw)", ad))
+    for (title, ks) in (("Core benchmarks", non_ad), ("AD gradients (raw)", ad))
         isempty(ks) && continue
         println(io, "\n#### ", title, "\n")
         println(io, "| Benchmark | base | PR | PR / base |")
@@ -314,11 +337,21 @@ function _full_section(io, base, head, prefix)
             h = get(head, k, NaN)
             b = get(base, k, NaN)
             r = (b > 0 && h > 0) ? h / b : NaN
-            println(io, "| `", k, "` | ", fmt_time(b), " | ",
-                fmt_time(h), " | ", fmt_ratio(r), " |")
+            println(
+                io,
+                "| `",
+                k,
+                "` | ",
+                fmt_time(b),
+                " | ",
+                fmt_time(h),
+                " | ",
+                fmt_ratio(r),
+                " |",
+            )
         end
     end
-    println(io, "\n</details>")
+    return println(io, "\n</details>")
 end
 
 """
@@ -333,19 +366,26 @@ compact AD scenario x backend ratio matrix for keys under `ad_prefix`, and the
 full table folded behind a `<details>` block. Set `ad_prefix = ""` to skip the
 AD matrix and treat every benchmark as a core benchmark.
 """
-function asv_comment(base::AbstractDict, head::AbstractDict;
-        ad_prefix::AbstractString = "AD gradients/")
+function asv_comment(
+    base::AbstractDict,
+    head::AbstractDict;
+    ad_prefix::AbstractString="AD gradients/",
+)
     io = IOBuffer()
     println(io, "## Benchmark results\n")
-    println(io,
+    println(
+        io,
         "Comparing PR head against the base branch ",
-        "(median time; ratio = PR / base, <1 is faster).\n")
+        "(median time; ratio = PR / base, <1 is faster).\n",
+    )
     _most_changed_section(io, base, head)
     _ad_section(io, base, head, ad_prefix)
     _full_section(io, base, head, ad_prefix)
-    println(io,
+    println(
+        io,
         "\n<sub>Generated from AirspeedVelocity results by ",
-        "EpiAwarePackageTools.Benchmarks.</sub>")
+        "EpiAwarePackageTools.Benchmarks.</sub>",
+    )
     return String(take!(io))
 end
 
@@ -356,12 +396,16 @@ end
 Convenience wrapper that loads the AirspeedVelocity result files for `base_rev`
 and `head_rev` from `dir` (via [`flatten_asv`]) and returns the comment.
 """
-function asv_comment(dir::AbstractString, pkg::AbstractString,
-        base_rev::AbstractString, head_rev::AbstractString;
-        ad_prefix::AbstractString = "AD gradients/")
+function asv_comment(
+    dir::AbstractString,
+    pkg::AbstractString,
+    base_rev::AbstractString,
+    head_rev::AbstractString;
+    ad_prefix::AbstractString="AD gradients/",
+)
     base = flatten_asv(dir, pkg, base_rev)
     head = flatten_asv(dir, pkg, head_rev)
-    return asv_comment(base, head; ad_prefix = ad_prefix)
+    return asv_comment(base, head; ad_prefix=ad_prefix)
 end
 
 # ---- BenchmarkTools pair comparison ---------------------------------------
@@ -377,18 +421,20 @@ const BUCKETS = [
     ("⚪ 95–105%", 105.0),
     ("🔴 105–125%", 125.0),
     ("🔴 125–150%", 150.0),
-    ("🔴 >150%", Inf)
+    ("🔴 >150%", Inf),
 ]
 
 # Map each benchmark key path (joined with " / ") to its minimum time (ns) and
 # allocated memory (bytes). Minimum time is the stable like-for-like estimator.
 function _index_results(BT, group)
-    out = Dict{String, NamedTuple{(:time, :memory), Tuple{Float64, Float64}}}()
+    out = Dict{String,NamedTuple{(:time, :memory),Tuple{Float64,Float64}}}()
     for (keypath, trial) in Base.invokelatest(BT.leaves, group)
         name = join(string.(keypath), " / ")
         est = Base.invokelatest(minimum, trial)
-        out[name] = (time = Float64(Base.invokelatest(BT.time, est)),
-            memory = Float64(Base.invokelatest(BT.memory, est)))
+        out[name] = (
+            time=Float64(Base.invokelatest(BT.time, est)),
+            memory=Float64(Base.invokelatest(BT.memory, est)),
+        )
     end
     return out
 end
@@ -412,17 +458,35 @@ function _build_rows(pr, base)
         pm = inpr ? pr[name].memory : NaN
         bm = inbase ? base[name].memory : NaN
         ratio = (inpr && inbase) ? pt / bt : NaN
-        status = inpr && inbase ? :both : inpr ? :new : :removed
+        status = if inpr && inbase
+            :both
+        elseif inpr
+            :new
+        else
+            :removed
+        end
         push!(rows, _Row(name, bt, pt, bm, pm, ratio, status))
     end
     return rows
 end
 
 function _fmt_ratio_x(r)
-    isnan(r) ? "—" :
-    string(r > 1 + CHANGE_THRESHOLD ? "🔴" :
-           r < 1 - CHANGE_THRESHOLD ? "🟢" : "⚪",
-        " ", round(r; digits = 2), "×")
+    return if isnan(r)
+        "—"
+    else
+        string(
+            if r > 1 + CHANGE_THRESHOLD
+                "🔴"
+            elseif r < 1 - CHANGE_THRESHOLD
+                "🟢"
+            else
+                "⚪"
+            end,
+            " ",
+            round(r; digits=2),
+            "×",
+        )
+    end
 end
 
 _sort_key(r) = isnan(r.time_ratio) ? Inf : abs(r.time_ratio - 1)
@@ -439,13 +503,26 @@ function _render_table(rows)
     println(io, "| Benchmark | base | PR | time | memory |")
     println(io, "|---|---|---|---|---|")
     for r in rows
-        memratio = (isnan(r.pr_mem) || isnan(r.base_mem) || r.base_mem == 0) ?
-                   NaN : r.pr_mem / r.base_mem
-        println(io, "| ", r.name, _status_note(r),
-            " | ", fmt_time(r.base_time),
-            " | ", fmt_time(r.pr_time),
-            " | ", _fmt_ratio_x(r.time_ratio),
-            " | ", _fmt_ratio_x(memratio), " |")
+        memratio = if (isnan(r.pr_mem) || isnan(r.base_mem) || r.base_mem == 0)
+            NaN
+        else
+            r.pr_mem / r.base_mem
+        end
+        println(
+            io,
+            "| ",
+            r.name,
+            _status_note(r),
+            " | ",
+            fmt_time(r.base_time),
+            " | ",
+            fmt_time(r.pr_time),
+            " | ",
+            _fmt_ratio_x(r.time_ratio),
+            " | ",
+            _fmt_ratio_x(memratio),
+            " |",
+        )
     end
     return String(take!(io))
 end
@@ -458,7 +535,7 @@ function _bucket_index(pct)
 end
 
 function _summary_table(rows, group_of, group_order)
-    counts = Dict{String, Vector{Int}}()
+    counts = Dict{String,Vector{Int}}()
     for r in rows
         isnan(r.time_ratio) && continue
         v = get!(counts, group_of(r.name), zeros(Int, length(BUCKETS)))
@@ -499,10 +576,13 @@ Benchmarks whose key path starts with `ad_prefix` are treated as AD gradients,
 grouped by their last path segment (the backend); pass `backend_order` to fix
 the summary row order for known backends. `BenchmarkTools` must be available.
 """
-function compare_comment(pr_file::AbstractString, base_file::AbstractString;
-        ad_prefix::AbstractString = "AD gradients",
-        backend_order::AbstractVector{<:AbstractString} = String[],
-        marker::AbstractString = "<!-- benchmark-comparison -->")
+function compare_comment(
+    pr_file::AbstractString,
+    base_file::AbstractString;
+    ad_prefix::AbstractString="AD gradients",
+    backend_order::AbstractVector{<:AbstractString}=String[],
+    marker::AbstractString="<!-- benchmark-comparison -->",
+)
     BT = _benchmarktools()
     load_group(path) = Base.invokelatest(BT.load, path)[1]
     pr = _index_results(BT, load_group(pr_file))
@@ -510,29 +590,39 @@ function compare_comment(pr_file::AbstractString, base_file::AbstractString;
     rows = _build_rows(pr, base)
 
     is_ad(name) = !isempty(ad_prefix) && startswith(name, ad_prefix)
-    group_of(name) = is_ad(name) ?
-                     String(split(name, " / ")[end]) : "Evaluation"
+    group_of(name) =
+        is_ad(name) ? String(split(name, " / ")[end]) : "Evaluation"
     group_order = vcat(["Evaluation"], collect(String, backend_order))
 
-    all_sorted = sort(rows; by = _sort_key, rev = true)
+    all_sorted = sort(rows; by=_sort_key, rev=true)
     eval_rows = filter(r -> !is_ad(r.name), all_sorted)
     ad_rows = filter(r -> is_ad(r.name), all_sorted)
 
     io = IOBuffer()
     println(io, marker)
     println(io, "## Benchmark comparison vs base\n")
-    println(io,
+    println(
+        io,
         "Minimum time per call. Buckets are **PR time as a % of base, so ",
         "lower is faster** (🟢 faster, ⚪ within ",
         round(Int, 100CHANGE_THRESHOLD),
-        "%, 🔴 slower). Counts of benchmarks per bucket:\n")
+        "%, 🔴 slower). Counts of benchmarks per bucket:\n",
+    )
     print(io, _summary_table(rows, group_of, group_order))
-    println(io, "\n<details><summary><b>Evaluation</b> — ", length(eval_rows),
-        " benchmarks (by time change)</summary>\n")
+    println(
+        io,
+        "\n<details><summary><b>Evaluation</b> — ",
+        length(eval_rows),
+        " benchmarks (by time change)</summary>\n",
+    )
     print(io, _render_table(eval_rows))
     println(io, "\n</details>")
-    println(io, "\n<details><summary><b>AD gradients</b> — ", length(ad_rows),
-        " benchmarks (by time change)</summary>\n")
+    println(
+        io,
+        "\n<details><summary><b>AD gradients</b> — ",
+        length(ad_rows),
+        " benchmarks (by time change)</summary>\n",
+    )
     print(io, _render_table(ad_rows))
     println(io, "\n</details>")
     return String(take!(io))
@@ -551,11 +641,14 @@ affordable while the minimum-time estimator used in [`compare_comment`] stays
 stable well below the BenchmarkTools default. Returns the results group; when
 `out_file` is given it is also saved there. `BenchmarkTools` must be available.
 """
-function run_suite(suite; out_file::Union{Nothing, AbstractString} = nothing,
-        seconds::Real = 1, verbose::Bool = true)
+function run_suite(
+    suite;
+    out_file::Union{Nothing,AbstractString}=nothing,
+    seconds::Real=1,
+    verbose::Bool=true,
+)
     BT = _benchmarktools()
-    results = Base.invokelatest(
-        BT.run, suite; verbose = verbose, seconds = seconds)
+    results = Base.invokelatest(BT.run, suite; verbose=verbose, seconds=seconds)
     if out_file !== nothing
         Base.invokelatest(BT.save, out_file, results)
     end
@@ -596,7 +689,8 @@ const SCRATCH_REGISTRY = "EpiAwareScratch"
 # cosmetic.
 const _SCRATCH_GITCONFIG = Dict(
     "user.name" => "EpiAwarePackageTools",
-    "user.email" => "noreply@epiaware.invalid")
+    "user.email" => "noreply@epiaware.invalid",
+)
 
 const _Source = @NamedTuple{name::String, url::String, rev::String}
 
@@ -614,21 +708,28 @@ function git_sources(project::AbstractString)
     isfile(file) || return _Source[]
     toml = Pkg.TOML.parsefile(file)
     out = _Source[]
-    for (name, entry) in get(toml, "sources", Dict{String, Any}())
+    for (name, entry) in get(toml, "sources", Dict{String,Any}())
         entry isa AbstractDict || continue
         haskey(entry, "url") || continue
-        push!(out, (name = String(name), url = String(entry["url"]),
-            rev = String(get(entry, "rev", ""))))
+        push!(
+            out,
+            (
+                name=String(name),
+                url=String(entry["url"]),
+                rev=String(get(entry, "rev", "")),
+            ),
+        )
     end
-    sort!(out; by = s -> s.name)
+    sort!(out; by=s -> s.name)
     return out
 end
 
 # Whether any registry reachable from the current depot knows the name. A
 # registered dependency resolves by name everywhere already, so the bootstrap
 # leaves it alone.
-function _is_registered(name::AbstractString;
-        ignore_registry::AbstractString = SCRATCH_REGISTRY)
+function _is_registered(
+    name::AbstractString; ignore_registry::AbstractString=SCRATCH_REGISTRY
+)
     for reg in Pkg.Registry.reachable_registries()
         reg.name == ignore_registry && continue
         any(p -> p.name == name, values(reg.pkgs)) && return true
@@ -653,10 +754,11 @@ written by an earlier run can still be sitting there; were it counted, a pin
 moved to a new revision since would look "registered" and be skipped, and the
 benchmark would silently resolve the stale revision.
 """
-function unregistered_sources(project::AbstractString;
-        ignore_registry::AbstractString = SCRATCH_REGISTRY)
+function unregistered_sources(
+    project::AbstractString; ignore_registry::AbstractString=SCRATCH_REGISTRY
+)
     return filter(git_sources(project)) do s
-        !_is_registered(s.name; ignore_registry = ignore_registry)
+        return !_is_registered(s.name; ignore_registry=ignore_registry)
     end
 end
 
@@ -695,17 +797,19 @@ dependency itself pins an unregistered dependency in *its* `[sources]`,
 registering the outer one is not enough and resolution still fails. Pin both in
 the benchmarked package to fix that.
 """
-function bootstrap_sources_registry(project::AbstractString = pwd();
-        depot::AbstractString = first(DEPOT_PATH),
-        registry_name::AbstractString = SCRATCH_REGISTRY,
-        work_dir::AbstractString = mktempdir(),
-        gitconfig::AbstractDict = _SCRATCH_GITCONFIG)
+function bootstrap_sources_registry(
+    project::AbstractString=pwd();
+    depot::AbstractString=first(DEPOT_PATH),
+    registry_name::AbstractString=SCRATCH_REGISTRY,
+    work_dir::AbstractString=mktempdir(),
+    gitconfig::AbstractDict=_SCRATCH_GITCONFIG,
+)
     registry = joinpath(depot, "registries", registry_name)
     # Which pins need registering is decided *before* the scratch registry is
     # removed, i.e. while a cached one from an earlier run is still reachable:
     # it is `ignore_registry` that must keep such a registry from making a
     # moved pin look registered, so that is the code path CI exercises.
-    sources = unregistered_sources(project; ignore_registry = registry_name)
+    sources = unregistered_sources(project; ignore_registry=registry_name)
     # A pin on a name a real registry knows cannot be honoured here: benchpkg
     # resolves the dependency from the registry, so the benchmark measures the
     # released version rather than the pinned revision. Registering it into the
@@ -714,9 +818,9 @@ function bootstrap_sources_registry(project::AbstractString = pwd();
     for s in git_sources(project)
         any(u -> u.name == s.name, sources) && continue
         @warn "the [sources] pin on $(s.name) (a registered package) is " *
-              "ignored by the benchmark environment, which resolves the " *
-              "registered version rather than the pinned revision " *
-              "\"$(s.rev)\" at $(s.url) (#216)"
+            "ignored by the benchmark environment, which resolves the " *
+            "registered version rather than the pinned revision " *
+            "\"$(s.rev)\" at $(s.url) (#216)"
     end
     # Unconditionally, and before the early return: a scratch registry restored
     # from the runner's cache is stale by construction, and once the pinned
@@ -725,14 +829,19 @@ function bootstrap_sources_registry(project::AbstractString = pwd();
     # depot with a registry hash mismatch. Removing it whether or not there is
     # anything to register means the step cleans up after itself the moment it
     # stops being needed.
-    rm(registry; recursive = true, force = true)
+    rm(registry; recursive=true, force=true)
     isempty(sources) && return String[]
     LR = _localregistry()
-    config = Dict{String, String}(gitconfig)
+    config = Dict{String,String}(gitconfig)
     mkpath(dirname(registry))
-    Base.invokelatest(LR.create_registry, registry, "file://" * registry;
-        description = "Scratch registry for unregistered [sources] pins.",
-        push = false, gitconfig = config)
+    Base.invokelatest(
+        LR.create_registry,
+        registry,
+        "file://" * registry;
+        description="Scratch registry for unregistered [sources] pins.",
+        push=false,
+        gitconfig=config,
+    )
     registered = String[]
     for s in sources
         clone = joinpath(work_dir, s.name)
@@ -740,11 +849,19 @@ function bootstrap_sources_registry(project::AbstractString = pwd();
             run(`git clone --quiet $(s.url) $clone`)
             isempty(s.rev) || run(`git -C $clone checkout --quiet $(s.rev)`)
         catch e
-            error("could not clone the [sources] pin $(s.name) from " *
-                  "$(s.url) at rev \"$(s.rev)\": $e")
+            error(
+                "could not clone the [sources] pin $(s.name) from " *
+                "$(s.url) at rev \"$(s.rev)\": $e",
+            )
         end
-        Base.invokelatest(LR.register, clone; registry = registry,
-            repo = s.url, push = false, gitconfig = config)
+        Base.invokelatest(
+            LR.register,
+            clone;
+            registry=registry,
+            repo=s.url,
+            push=false,
+            gitconfig=config,
+        )
         push!(registered, s.name)
     end
     return registered

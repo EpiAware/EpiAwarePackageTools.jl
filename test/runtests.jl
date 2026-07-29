@@ -24,9 +24,9 @@ using EpiAwarePackageTools: run_package_tests
 # TestItemRunner's `@run_package_tests`.
 
 if "skip_quality" in ARGS
-    run_package_tests(@__DIR__; filter = ti -> !(:quality in ti.tags))
+    run_package_tests(@__DIR__; filter=ti -> !(:quality in ti.tags))
 elseif "quality_only" in ARGS
-    run_package_tests(@__DIR__; filter = ti -> :quality in ti.tags)
+    run_package_tests(@__DIR__; filter=ti -> :quality in ti.tags)
 else
     run_package_tests(@__DIR__)
 end

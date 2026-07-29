@@ -11,11 +11,13 @@ using JuliaFormatter
 
 # Project root is two levels up from test/formatter.
 project_root = dirname(dirname(@__DIR__))
-dirs = filter(isdir,
-    [joinpath(project_root, d) for d in ("src", "test", "docs", "benchmark")])
+dirs = filter(
+    isdir,
+    [joinpath(project_root, d) for d in ("src", "test", "docs", "benchmark")],
+)
 
 all_formatted = all(dirs) do dir
-    JuliaFormatter.format(dir; verbose = true, overwrite = false)
+    return JuliaFormatter.format(dir; verbose=true, overwrite=false)
 end
 
 if all_formatted

@@ -45,13 +45,19 @@ can be unit-tested and reused in isolation.
 """
 module DocsBuild
 
-import Pkg
+using Pkg: Pkg
 
 import ..EpiAwarePackageTools: _require_pkg
-import Statistics
+using Statistics: Statistics
 
-export build_docs, build_index, build_release_notes, build_benchmark_page,
-       build_api_pages, api_bindings, api_owning_modules, api_remotes
+export build_docs,
+    build_index,
+    build_release_notes,
+    build_benchmark_page,
+    build_api_pages,
+    api_bindings,
+    api_owning_modules,
+    api_remotes
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -60,22 +66,26 @@ export build_docs, build_index, build_release_notes, build_benchmark_page,
 # environment. `_require_pkg` (defined once in the parent module, #58) is
 # shared with every other lazy-load site in the kit.
 function _documenter()
-    _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4", "Documenter")
+    return _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4", "Documenter")
 end
 function _vitepress()
-    _require_pkg("4710194d-e776-4893-9690-8d956a29c365", "DocumenterVitepress")
+    return _require_pkg(
+        "4710194d-e776-4893-9690-8d956a29c365", "DocumenterVitepress"
+    )
 end
 function _citations()
-    _require_pkg("daee34ce-89f3-4625-b898-19384cb65244", "DocumenterCitations")
+    return _require_pkg(
+        "daee34ce-89f3-4625-b898-19384cb65244", "DocumenterCitations"
+    )
 end
 function _literate()
-    _require_pkg("98b081ad-f1c9-55d3-8b20-4c87d4299306", "Literate")
+    return _require_pkg("98b081ad-f1c9-55d3-8b20-4c87d4299306", "Literate")
 end
 # `Plots` (GR backend) draws the overall trend plot (#202); only needed once
 # a package opts into `BENCHMARK_PAGE = true`, so it stays lazy like every
 # other docs dependency here.
 function _plots()
-    _require_pkg("91a5bcdd-55d7-5caf-9e0b-520d859cae80", "Plots")
+    return _require_pkg("91a5bcdd-55d7-5caf-9e0b-520d859cae80", "Plots")
 end
 
 # ---- empty-anchor inventory guard (#232) ----------------------------------
@@ -116,35 +126,43 @@ const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.5"
 # the original does.
 function _empty_anchor_writer()
     return quote
-        function render(io::IO, mime::MIME"text/plain",
-                node::Documenter.MarkdownAST.Node,
-                header::Documenter.AnchoredHeader, page, doc; kwargs...)
+        function render(
+            io::IO,
+            mime::MIME"text/plain",
+            node::Documenter.MarkdownAST.Node,
+            header::Documenter.AnchoredHeader,
+            page,
+            doc;
+            kwargs...,
+        )
             anchor = header.anchor
             id = replace(sanitized_anchor_label(anchor), " " => "-")
             heading = first(node.children)
             println(io)
             print(io, "#"^(heading.element.level), " ")
             heading_iob = IOBuffer()
-            render(heading_iob, mime, node, heading.children, page, doc;
-                kwargs...)
+            render(
+                heading_iob, mime, node, heading.children, page, doc; kwargs...
+            )
             heading_text = rstrip(String(take!(heading_iob)))
             print(io, heading_text)
             print(io, " {#$(id)}")
             if haskey(kwargs, :inventory)
                 if isempty(anchor.id)
                     # Patched by EpiAwarePackageTools (kit #232).
-                    @warn "Skipping inventory entry: anchored header has "*
-                    "an empty anchor id" page=page.source heading=heading_text
+                    @warn "Skipping inventory entry: anchored header has " *
+                        "an empty anchor id" page=page.source heading=heading_text
                 else
                     item = InventoryItem(
-                        name = anchor.id,
-                        domain = "std",
-                        role = "label",
-                        dispname = _get_inventory_dispname(
+                        name=anchor.id,
+                        domain="std",
+                        role="label",
+                        dispname=_get_inventory_dispname(
                             anchor.id,
-                            Documenter.MDFlatten.mdflatten(anchor.node)),
-                        priority = -1,
-                        uri = _get_inventory_uri(doc, page, id)
+                            Documenter.MDFlatten.mdflatten(anchor.node),
+                        ),
+                        priority=-1,
+                        uri=_get_inventory_uri(doc, page, id),
                     )
                     push!(kwargs[:inventory], item)
                 end
@@ -160,12 +178,17 @@ end
 # duck-typed stand-ins: the writer only reads `page.source`, `page.build` and
 # `doc.user.build` on this path, and touches no files. Used both by the probe
 # below and by the regression test.
-function _anchor_probe_render(Documenter, DocumenterVitepress;
-        id::AbstractString = "", heading::AbstractString = "Probe heading")
+function _anchor_probe_render(
+    Documenter,
+    DocumenterVitepress;
+    id::AbstractString="",
+    heading::AbstractString="Probe heading",
+)
     # `Base.eval` runs in the latest world age, so the freshly `require`d (and,
     # after patching, freshly redefined) methods are visible without a pile of
     # `invokelatest` calls.
-    return Base.eval(@__MODULE__,
+    return Base.eval(
+        @__MODULE__,
         quote
             let D = $Documenter, V = $DocumenterVitepress
                 MA = D.MarkdownAST
@@ -176,17 +199,27 @@ function _anchor_probe_render(Documenter, DocumenterVitepress;
                 anchor.node = head
                 node = MA.Node(D.AnchoredHeader(anchor))
                 push!(node.children, head)
-                page = (source = "probe.md",
-                    build = joinpath("build", "probe.md"),
-                    globals = nothing)
-                doc = (user = (build = "build",),)
+                page = (
+                    source="probe.md",
+                    build=joinpath("build", "probe.md"),
+                    globals=nothing,
+                )
+                doc = (user=(build="build",),)
                 io = IOBuffer()
                 items = Any[]
-                V.render(io, MIME("text/plain"), node, node.element, page, doc;
-                    inventory = items)
+                V.render(
+                    io,
+                    MIME("text/plain"),
+                    node,
+                    node.element,
+                    page,
+                    doc;
+                    inventory=items,
+                )
                 (String(take!(io)), items)
             end
-        end)
+        end,
+    )
 end
 
 # Does the installed writer still abort on an empty anchor id? `true` only for
@@ -201,7 +234,7 @@ function _empty_anchor_aborts(Documenter, DocumenterVitepress)
         # (`page = "probe.md"`) into every adopter's real docs log — the very
         # log this guard exists to keep legible.
         Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
-            _anchor_probe_render(Documenter, DocumenterVitepress; id = "")
+            return _anchor_probe_render(Documenter, DocumenterVitepress; id="")
         end
         return false
     catch err
@@ -210,7 +243,7 @@ function _empty_anchor_aborts(Documenter, DocumenterVitepress)
             return true
         end
         @warn "Empty-anchor probe failed unexpectedly; leaving the " *
-              "DocumenterVitepress writer unpatched (kit #232)" exception=e
+            "DocumenterVitepress writer unpatched (kit #232)" exception=e
         return false
     end
 end
@@ -227,23 +260,23 @@ end
 # version is a real case, not a theoretical one — and it is the same question
 # as "too new": we cannot show the installed writer is the one we copied, so we
 # do not overwrite it.
-function _vitepress_patchable(version::Union{Nothing, VersionNumber})
+function _vitepress_patchable(version::Union{Nothing,VersionNumber})
     if version === nothing
         @warn "Could not determine the installed DocumenterVitepress " *
-              "version, so cannot confirm its writer is the one this shim " *
-              "copies ($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it " *
-              "unpatched rather than overwriting a method body that may not " *
-              "match (kit #232)."
+            "version, so cannot confirm its writer is the one this shim " *
+            "copies ($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it " *
+            "unpatched rather than overwriting a method body that may not " *
+            "match (kit #232)."
         return false
     end
     version > _VITEPRESS_LAST_KNOWN_BROKEN || return true
     @warn "DocumenterVitepress $version still aborts the docs build on " *
-          "an anchored header with an empty anchor id, but its writer is " *
-          "newer than the version this shim copies " *
-          "($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it unpatched " *
-          "rather than silently reverting unseen upstream changes. " *
-          "Refresh the kit's copy of the method and the version bound " *
-          "(kit #232)."
+        "an anchored header with an empty anchor id, but its writer is " *
+        "newer than the version this shim copies " *
+        "($(_VITEPRESS_LAST_KNOWN_BROKEN)); leaving it unpatched " *
+        "rather than silently reverting unseen upstream changes. " *
+        "Refresh the kit's copy of the method and the version bound " *
+        "(kit #232)."
     return false
 end
 
@@ -277,8 +310,7 @@ end
 # other two CommonMark code forms; they are handled separately below (#306)
 # since neither toggles multi-line state the way a fence does.
 function _is_fence_delimiter(line::AbstractString)
-    startswith(line, "```") ||
-        startswith(line, "~~~")
+    return startswith(line, "```") || startswith(line, "~~~")
 end
 
 # Whether `line` is an indented (4-space) CommonMark code block line. Unlike a
@@ -286,7 +318,7 @@ end
 # its own, so the caller need only skip comment-stripping for lines where this
 # holds (#306) rather than track an `in_indented_code` state across lines.
 function _is_indented_code_line(line::AbstractString)
-    startswith(line, "    ")
+    return startswith(line, "    ")
 end
 
 # Strip HTML comments from one README line, carrying `in_comment` (whether a
@@ -330,12 +362,15 @@ end
 # `in_comment`, even if it looks like comment syntax, because it is code.
 const _INLINE_CODE_SPAN = r"`[^`]*`"
 
-function _strip_line_comments_outside_code_spans(line::AbstractString, in_comment::Bool)
+function _strip_line_comments_outside_code_spans(
+    line::AbstractString, in_comment::Bool
+)
     out = IOBuffer()
     pos = firstindex(line)
     for m in eachmatch(_INLINE_CODE_SPAN, line)
-        before, in_comment = _strip_line_comments(line[pos:prevind(line, m.offset)],
-            in_comment)
+        before, in_comment = _strip_line_comments(
+            line[pos:prevind(line, m.offset)], in_comment
+        )
         print(out, before)
         print(out, m.match)
         pos = m.offset + ncodeunits(m.match)
@@ -374,10 +409,14 @@ the next heading of the same or a higher level) — this is the package-owned
 hook for omitting a named README section from the home page; the managed build
 hardcodes no such section.
 """
-function build_index(; readme::AbstractString, dest::AbstractString,
-        repo::AbstractString, execute::Bool = true,
-        rewrites = Pair{String, String}[],
-        strip_sections = String[])
+function build_index(;
+    readme::AbstractString,
+    dest::AbstractString,
+    repo::AbstractString,
+    execute::Bool=true,
+    rewrites=Pair{String,String}[],
+    strip_sections=String[],
+)
     mkpath(dirname(dest))
     buf = IOBuffer()
     println(buf, "```@meta")
@@ -418,7 +457,8 @@ function build_index(; readme::AbstractString, dest::AbstractString,
             if strip_level > 0 && level <= strip_level
                 strip_level = 0
             end
-            if strip_level == 0 && strip(something(m.captures[2])) in strip_sections
+            if strip_level == 0 &&
+                strip(something(m.captures[2])) in strip_sections
                 strip_level = level
                 continue
             end
@@ -440,14 +480,20 @@ function build_index(; readme::AbstractString, dest::AbstractString,
         if execute && startswith(line, "```julia")
             println(buf, "```@example readme")
         elseif occursin("docs/src/assets/logo.svg", line)
-            println(buf, replace(line,
-                r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
+            println(
+                buf,
+                replace(
+                    line, r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""
+                ),
+            )
         else
             for (from, to) in rewrites
                 line = replace(line, from => to)
             end
             if !was_in_fence && !in_indented_code
-                line, in_comment = _strip_line_comments_outside_code_spans(line, false)
+                line, in_comment = _strip_line_comments_outside_code_spans(
+                    line, false
+                )
             end
             println(buf, line)
         end
@@ -474,8 +520,9 @@ release-notes header defined in `header_file` (which must set
 `RELEASE_NOTES_HEADER`). Both are optional: if either is missing nothing is
 written and `nothing` is returned.
 """
-function build_release_notes(; news::AbstractString, header_file::AbstractString,
-        dest::AbstractString)
+function build_release_notes(;
+    news::AbstractString, header_file::AbstractString, dest::AbstractString
+)
     if isfile(news) && isfile(header_file)
         # Evaluate the header file in a throwaway module and take the value it
         # returns (its trailing `const RELEASE_NOTES_HEADER = "..."`). Using the
@@ -491,7 +538,9 @@ function build_release_notes(; news::AbstractString, header_file::AbstractString
         println("Generated release-notes.md from header + NEWS.md")
         return dest
     else
-        println("No NEWS.md / release-notes header found; skipping release notes")
+        println(
+            "No NEWS.md / release-notes header found; skipping release notes"
+        )
         return nothing
     end
 end
@@ -529,25 +578,39 @@ the named headline suites. `overall_plot_dest`, when given, is where the
 combined trend plot PNG is written (skipped when `nothing`, e.g. from a
 caller that only wants the tabular content).
 """
-function _embed_benchmark_history(io, repo::AbstractString,
-        project_root::AbstractString; fetch::Bool = true,
-        history_suites = String[], history_commits::Integer = 5,
-        history_regression_threshold::Real = 1.1,
-        overall_plot_dest::Union{Nothing, AbstractString} = nothing,
-        notes::AbstractString = "")
-    ref = _benchmarks_ref(project_root; fetch = fetch)
+function _embed_benchmark_history(
+    io,
+    repo::AbstractString,
+    project_root::AbstractString;
+    fetch::Bool=true,
+    history_suites=String[],
+    history_commits::Integer=5,
+    history_regression_threshold::Real=1.1,
+    overall_plot_dest::Union{Nothing,AbstractString}=nothing,
+    notes::AbstractString="",
+)
+    ref = _benchmarks_ref(project_root; fetch=fetch)
     if ref !== nothing
         files = _history_files(project_root, ref)
         pngs = sort!(filter(f -> endswith(f, ".png"), files))
         has_table = "history/table.md" in files
         if has_table || !isempty(pngs)
             if has_table
-                tbl = read(`git -C $project_root show $ref:history/table.md`,
-                    String)
-                _render_benchmark_overview(io, tbl, project_root, pngs, repo;
-                    last_n = history_commits, suites = history_suites,
-                    regression_threshold = history_regression_threshold,
-                    plot_dest = overall_plot_dest, notes = notes)
+                tbl = read(
+                    `git -C $project_root show $ref:history/table.md`, String
+                )
+                _render_benchmark_overview(
+                    io,
+                    tbl,
+                    project_root,
+                    pngs,
+                    repo;
+                    last_n=history_commits,
+                    suites=history_suites,
+                    regression_threshold=history_regression_threshold,
+                    plot_dest=overall_plot_dest,
+                    notes=notes,
+                )
             elseif !isempty(pngs)
                 _write_benchmark_notes(io, notes)
                 _embed_history_plots(io, repo, pngs)
@@ -556,11 +619,15 @@ function _embed_benchmark_history(io, repo::AbstractString,
         end
     end
     _write_benchmark_notes(io, notes)
-    println(io,
-        "The performance timeline (per-benchmark plots and a ratio table) is")
-    println(io,
+    println(
+        io,
+        "The performance timeline (per-benchmark plots and a ratio table) is",
+    )
+    println(
+        io,
         "published to the [`benchmarks` branch]" *
-        "(https://github.com/$repo/tree/benchmarks/history) on each push to")
+        "(https://github.com/$repo/tree/benchmarks/history) on each push to",
+    )
     println(io, "`main` and each tagged release.")
     return false
 end
@@ -575,29 +642,40 @@ end
 # invisible and the page silently rendered empty (#192). Failures (offline, or
 # no `benchmarks` branch yet) are expected and non-fatal, but now log a
 # one-line reason instead of degrading silently.
-function _benchmarks_ref(project_root::AbstractString; fetch::Bool = true)
+function _benchmarks_ref(project_root::AbstractString; fetch::Bool=true)
     if fetch
         try
-            run(pipeline(`git -C $project_root fetch --no-tags origin
-                    +refs/heads/benchmarks:refs/remotes/origin/benchmarks`;
-                stdout = devnull, stderr = devnull))
+            run(
+                pipeline(
+                    `git -C $project_root fetch --no-tags origin
+               +refs/heads/benchmarks:refs/remotes/origin/benchmarks`;
+                    stdout=devnull,
+                    stderr=devnull,
+                ),
+            )
         catch err
             @info "benchmark history: could not fetch the `benchmarks` " *
-                  "branch (offline, or it does not exist yet); the page " *
-                  "will use any locally present ref or the fallback link" exception = err
+                "branch (offline, or it does not exist yet); the page " *
+                "will use any locally present ref or the fallback link" exception =
+                err
         end
     end
     for ref in ("origin/benchmarks", "benchmarks")
         try
-            run(pipeline(`git -C $project_root rev-parse --verify --quiet $ref`;
-                stdout = devnull, stderr = devnull))
+            run(
+                pipeline(
+                    `git -C $project_root rev-parse --verify --quiet $ref`;
+                    stdout=devnull,
+                    stderr=devnull,
+                ),
+            )
             return ref
         catch
         end
     end
     @info "benchmark history: no `benchmarks` ref resolvable after fetch; " *
-          "rendering the fallback link (publish a timeline via " *
-          "benchmark-history.yaml to populate this page)"
+        "rendering the fallback link (publish a timeline via " *
+        "benchmark-history.yaml to populate this page)"
     return nothing
 end
 
@@ -605,7 +683,8 @@ function _history_files(project_root::AbstractString, ref::AbstractString)
     try
         out = read(
             `git -C $project_root ls-tree -r --name-only $ref -- history`,
-            String)
+            String,
+        )
         return filter(!isempty, split(out, '\n'))
     catch
         return String[]
@@ -631,7 +710,9 @@ end
 
 # Whether every cell is a markdown alignment marker (`---`, `:---`, `:---:`),
 # i.e. the header separator row.
-_is_alignment_row(cells) = !isempty(cells) && all(c -> occursin(r"^:?-+:?$", c), cells)
+function _is_alignment_row(cells)
+    return !isempty(cells) && all(c -> occursin(r"^:?-+:?$", c), cells)
+end
 
 # Whether row `i` of `rows` is a table header: a row immediately followed by a
 # markdown alignment row. benchpkgtable's `--mode time,memory` output is two
@@ -655,10 +736,10 @@ _is_header_row(rows, i) = i < length(rows) && _is_alignment_row(rows[i + 1])
 # format change produces.
 function _history_table_parts(md::AbstractString)
     all_rows = _parse_pipe_table(md)
-    isempty(all_rows) && return (String[], Pair{String, Vector{String}}[])
+    isempty(all_rows) && return (String[], Pair{String,Vector{String}}[])
     header = all_rows[1]
     col_labels = length(header) > 1 ? header[2:end] : String[]
-    entries = Pair{String, Vector{String}}[]
+    entries = Pair{String,Vector{String}}[]
     for (i, r) in enumerate(all_rows)
         i == 1 && continue
         (isempty(r) || _is_alignment_row(r) || _is_header_row(all_rows, i)) &&
@@ -679,8 +760,8 @@ end
 # (`bytes`, `KiB`, `MiB`, ...) and the `kB`/`MB` short forms; timing cells
 # (`10.3 ± 0.1 μs`, `2.0 ms`, `0.865 s`) match neither pattern.
 function _looks_like_memory(cell::AbstractString)
-    occursin(r"alloc"i, cell) ||
-        occursin(r"\b[0-9]+(?:\.[0-9]+)?\s*(?:bytes?|[kKMGT]i?B|B)\b", cell)
+    return occursin(r"alloc"i, cell) ||
+           occursin(r"\b[0-9]+(?:\.[0-9]+)?\s*(?:bytes?|[kKMGT]i?B|B)\b", cell)
 end
 
 # The metric label (`"Time"` or `"Memory"`) for one parsed table block, by
@@ -691,7 +772,6 @@ function _block_metric(entries)
     mem = 0
     tot = 0
     for (_, vals) in entries, v in vals
-
         isempty(strip(v)) && continue
         tot += 1
         _looks_like_memory(v) && (mem += 1)
@@ -723,17 +803,17 @@ end
 # first-seen metric order.
 function _history_metric_blocks(md::AbstractString)
     all_rows = _parse_pipe_table(md)
-    empty_blocks = Pair{String, Vector{Pair{String, Vector{String}}}}[]
+    empty_blocks = Pair{String,Vector{Pair{String,Vector{String}}}}[]
     isempty(all_rows) && return (String[], empty_blocks)
     header = all_rows[1]
     col_labels = length(header) > 1 ? header[2:end] : String[]
-    raw_blocks = Vector{Pair{String, Vector{String}}}[]
-    current = Pair{String, Vector{String}}[]
+    raw_blocks = Vector{Pair{String,Vector{String}}}[]
+    current = Pair{String,Vector{String}}[]
     for (i, r) in enumerate(all_rows)
         if _is_header_row(all_rows, i)
             if !isempty(current)
                 push!(raw_blocks, current)
-                current = Pair{String, Vector{String}}[]
+                current = Pair{String,Vector{String}}[]
             end
             continue
         end
@@ -742,7 +822,7 @@ function _history_metric_blocks(md::AbstractString)
     end
     isempty(current) || push!(raw_blocks, current)
     blocks = empty_blocks
-    index = Dict{String, Int}()
+    index = Dict{String,Int}()
     for b in raw_blocks
         (isempty(b) || !_block_has_data(b)) && continue
         m = _block_metric(b)
@@ -764,7 +844,7 @@ function _cap_columns(col_labels, entries, n::Integer)
     (n <= 0 || n >= ncol) && return (col_labels, entries)
     keep = (ncol - n + 1):ncol
     capped = map(entries) do (name, vals)
-        length(vals) == ncol ? (name => vals[keep]) : (name => vals)
+        return length(vals) == ncol ? (name => vals[keep]) : (name => vals)
     end
     return (col_labels[keep], capped)
 end
@@ -776,8 +856,15 @@ function _commit_date(project_root::AbstractString, label::AbstractString)
     ref = rstrip(replace(strip(label), "..." => "", "…" => ""))
     (isempty(ref) || !occursin(r"^[0-9a-fA-F]{7,40}$", ref)) && return label
     try
-        d = strip(read(pipeline(`git -C $project_root show -s
-                --date=short --format=%cd $ref`; stderr = devnull), String))
+        d = strip(
+            read(
+                pipeline(
+                    `git -C $project_root show -s
+    --date=short --format=%cd $ref`;
+                    stderr=devnull,
+                ), String
+            ),
+        )
         return isempty(d) ? label : d
     catch
         return label
@@ -786,7 +873,7 @@ end
 
 # Relabel each revision column with its commit date where resolvable.
 function _relabel_history_columns(col_labels, project_root)
-    [_commit_date(project_root, l) for l in col_labels]
+    return [_commit_date(project_root, l) for l in col_labels]
 end
 
 # Group `name => values` rows by the first `/`-segment of each name, preserving
@@ -797,8 +884,8 @@ end
 # drops such rows; this is the second line of defence, so no caller of this
 # function can produce an empty anchor.
 function _group_rows_by_suite(entries)
-    groups = Pair{String, Vector{Pair{String, Vector{String}}}}[]
-    index = Dict{String, Int}()
+    groups = Pair{String,Vector{Pair{String,Vector{String}}}}[]
+    index = Dict{String,Int}()
     for (name, vals) in entries
         isempty(strip(name)) && continue
         slash = findfirst('/', name)
@@ -809,7 +896,7 @@ function _group_rows_by_suite(entries)
             label = name[nextind(name, slash):end]
         end
         if !haskey(index, suite)
-            push!(groups, suite => Pair{String, Vector{String}}[])
+            push!(groups, suite => Pair{String,Vector{String}}[])
             index[suite] = length(groups)
         end
         push!(groups[index[suite]].second, label => vals)
@@ -828,13 +915,18 @@ end
 # revision columns). `metric_groups` (or a metric's `groups`) is empty when
 # `suites` filters everything out (an unparseable `md` is the caller's
 # concern — check `_history_table_parts(md)` first).
-function _reshape_history_metrics(md::AbstractString,
-        project_root::AbstractString; last_n::Integer = 5, suites = String[])
+function _reshape_history_metrics(
+    md::AbstractString,
+    project_root::AbstractString;
+    last_n::Integer=5,
+    suites=String[],
+)
     col_labels, blocks = _history_metric_blocks(md)
     wanted = isempty(suites) ? nothing : Set(String.(suites))
     capped_labels = col_labels
-    metric_groups = Pair{String,
-        Vector{Pair{String, Vector{Pair{String, Vector{String}}}}}}[]
+    metric_groups = Pair{
+        String,Vector{Pair{String,Vector{Pair{String,Vector{String}}}}}
+    }[]
     for (metric, entries) in blocks
         capped_labels, capped = _cap_columns(col_labels, entries, last_n)
         groups = _group_rows_by_suite(capped)
@@ -852,7 +944,7 @@ end
 # median must never mix microsecond timings with allocation counts.
 function _headline_groups(metric_groups)
     isempty(metric_groups) &&
-        return Pair{String, Vector{Pair{String, Vector{String}}}}[]
+        return Pair{String,Vector{Pair{String,Vector{String}}}}[]
     idx = findfirst(mg -> mg.first == "Time", metric_groups)
     return metric_groups[something(idx, firstindex(metric_groups))].second
 end
@@ -867,13 +959,11 @@ function _suite_metric_detail(metric_groups)
     suites = String[]
     seen = Set{String}()
     for (_, groups) in metric_groups, (suite, _) in groups
-
         suite in seen || (push!(suites, suite); push!(seen, suite))
     end
-    out = Pair{String,
-        Vector{Pair{String, Vector{Pair{String, Vector{String}}}}}}[]
+    out = Pair{String,Vector{Pair{String,Vector{Pair{String,Vector{String}}}}}}[]
     for suite in suites
-        per_metric = Pair{String, Vector{Pair{String, Vector{String}}}}[]
+        per_metric = Pair{String,Vector{Pair{String,Vector{String}}}}[]
         for (metric, groups) in metric_groups
             idx = findfirst(g -> g.first == suite, groups)
             idx === nothing || push!(per_metric, metric => groups[idx].second)
@@ -890,7 +980,7 @@ function _write_history_subtable(io, col_labels, subrows)
     for (label, vals) in subrows
         println(io, "| ", label, " | ", join(vals, " | "), " |")
     end
-    return
+    return nothing
 end
 
 # Write the reshaped per-suite detail: the "_Most recent N revisions_"
@@ -907,15 +997,21 @@ end
 function _write_reshaped_detail(io, col_labels, suite_detail)
     if !isempty(col_labels)
         n = length(col_labels)
-        println(io, "_Most recent ", n, n == 1 ? " revision" : " revisions",
-            ", columns labelled by commit date._")
+        println(
+            io,
+            "_Most recent ",
+            n,
+            n == 1 ? " revision" : " revisions",
+            ", columns labelled by commit date._",
+        )
         println(io)
     end
     if isempty(suite_detail)
-        println(io,
-            "_No benchmark suites matched the configured `history_suites`._")
+        println(
+            io, "_No benchmark suites matched the configured `history_suites`._"
+        )
         println(io)
-        return
+        return nothing
     end
     for (suite, per_metric) in suite_detail
         println(io, "### ", suite)
@@ -927,7 +1023,7 @@ function _write_reshaped_detail(io, col_labels, suite_detail)
             println(io)
         end
     end
-    return
+    return nothing
 end
 
 # Give a pipe table's header its benchmark-name label when the first cell is
@@ -940,9 +1036,10 @@ end
 # hardens the one remaining verbatim path so no emitted table can carry an empty
 # leading header cell. Only the first such row (the header) is relabelled.
 function _label_empty_leading_header(
-        md::AbstractString; label::AbstractString = "Benchmark")
+    md::AbstractString; label::AbstractString="Benchmark"
+)
     repl = SubstitutionString("\\1| " * label * " |")
-    return replace(md, r"(?m)^([ \t]*)\|[ \t]*\|" => repl; count = 1)
+    return replace(md, r"(?m)^([ \t]*)\|[ \t]*\|" => repl; count=1)
 end
 
 # Reshape the raw `table.md` into grouped, capped, date-labelled per-suite
@@ -950,18 +1047,23 @@ end
 # table verbatim if it cannot be parsed, so a format change never blanks the
 # page — sanitising the header first so the fallback cannot emit an empty
 # anchor (#204).
-function _render_ratio_table(io, md::AbstractString,
-        project_root::AbstractString; last_n::Integer = 5,
-        suites = String[])
+function _render_ratio_table(
+    io,
+    md::AbstractString,
+    project_root::AbstractString;
+    last_n::Integer=5,
+    suites=String[],
+)
     if isempty(_history_table_parts(md)[2])
         println(io, _label_empty_leading_header(rstrip(md)))
         println(io)
-        return
+        return nothing
     end
-    col_labels, metric_groups = _reshape_history_metrics(md, project_root;
-        last_n = last_n, suites = suites)
+    col_labels, metric_groups = _reshape_history_metrics(
+        md, project_root; last_n=last_n, suites=suites
+    )
     _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups))
-    return
+    return nothing
 end
 
 # Collapse the per-benchmark plot wall behind a `<details>` so the page stays
@@ -972,8 +1074,13 @@ function _embed_history_plots(io, repo::AbstractString, pngs)
     println(io, "### Per-benchmark timelines")
     println(io)
     println(io, "<details>")
-    println(io, "<summary>Show ", length(pngs),
-        length(pngs) == 1 ? " plot" : " plots", "</summary>")
+    println(
+        io,
+        "<summary>Show ",
+        length(pngs),
+        length(pngs) == 1 ? " plot" : " plots",
+        "</summary>",
+    )
     println(io)
     for p in pngs
         url = "https://raw.githubusercontent.com/$repo/benchmarks/$p"
@@ -982,7 +1089,7 @@ function _embed_history_plots(io, repo::AbstractString, pngs)
     end
     println(io, "</details>")
     println(io)
-    return
+    return nothing
 end
 
 # ---- benchmark history: overall summary (#202) -----------------------------
@@ -1010,7 +1117,7 @@ end
 # values with the newest (capped) columns — wrong data with no visible sign
 # of the misalignment, feeding straight into the headline summary/plot.
 function _suite_column_medians(subrows, ncol::Integer)
-    out = Vector{Union{Float64, Missing}}(missing, ncol)
+    out = Vector{Union{Float64,Missing}}(missing, ncol)
     for j in 1:ncol
         vals = Float64[]
         for (_, cellvals) in subrows
@@ -1038,7 +1145,7 @@ end
 function _suite_ratio_series(medians::AbstractVector)
     baseline_idx = findfirst(v -> !ismissing(v) && v != 0, medians)
     baseline_idx === nothing &&
-        return Vector{Union{Float64, Missing}}(missing, length(medians))
+        return Vector{Union{Float64,Missing}}(missing, length(medians))
     baseline = medians[baseline_idx]
     return [ismissing(v) ? missing : v / baseline for v in medians]
 end
@@ -1055,8 +1162,11 @@ end
 # thresholds (silently `false` every time, rendering as an unremarkable
 # "no change" row instead of flagging the missing signal). `ratio_series` is
 # `AbstractVector` for the same reason as `_suite_ratio_series`'s input.
-function _suite_trend_status(ratio_series::AbstractVector;
-        regression_threshold::Real = 1.1, flat_threshold::Real = 0.02)
+function _suite_trend_status(
+    ratio_series::AbstractVector;
+    regression_threshold::Real=1.1,
+    flat_threshold::Real=0.02,
+)
     finite = findall(v -> !ismissing(v) && isfinite(v), ratio_series)
     length(finite) < 2 && return (missing, "→", "n/a")
     ratio = ratio_series[finite[end]]
@@ -1072,26 +1182,31 @@ function _suite_trend_status(ratio_series::AbstractVector;
 end
 
 _fmt_ratio(::Missing) = "n/a"
-_fmt_ratio(r::Real) = isfinite(r) ? string(round(r; digits = 2)) : "n/a"
+_fmt_ratio(r::Real) = isfinite(r) ? string(round(r; digits=2)) : "n/a"
 
 # Per-suite ratio series from a single metric's `groups` (the headline
 # [`_headline_groups`](@ref) block) — the shared input to both the summary
 # table and the overall trend plot.
 function _suite_ratio_series_by_group(groups, ncol::Integer)
-    return [(suite, _suite_ratio_series(_suite_column_medians(subrows, ncol)))
-            for (suite, subrows) in groups]
+    return [
+        (suite, _suite_ratio_series(_suite_column_medians(subrows, ncol))) for
+        (suite, subrows) in groups
+    ]
 end
 
 # One summary row per suite: `(suite, ratio, trend, status)`.
-function _benchmark_summary_rows(series_by_suite;
-        regression_threshold::Real = 1.1)
-    rows = NamedTuple{(:suite, :ratio, :trend, :status),
-        Tuple{String, Union{Float64, Missing}, String, String}}[]
+function _benchmark_summary_rows(
+    series_by_suite; regression_threshold::Real=1.1
+)
+    rows = NamedTuple{
+        (:suite, :ratio, :trend, :status),
+        Tuple{String,Union{Float64,Missing},String,String},
+    }[]
     for (suite, series) in series_by_suite
-        ratio, trend, status = _suite_trend_status(series;
-            regression_threshold = regression_threshold)
-        push!(rows, (suite = suite, ratio = ratio, trend = trend,
-            status = status))
+        ratio, trend, status = _suite_trend_status(
+            series; regression_threshold=regression_threshold
+        )
+        push!(rows, (suite=suite, ratio=ratio, trend=trend, status=status))
     end
     return rows
 end
@@ -1110,32 +1225,46 @@ function _write_benchmark_summary(io, rows)
     if isempty(rows)
         println(io, "_No benchmark suites to summarise._")
         println(io)
-        return
+        return nothing
     end
     # A single-revision package (or any run with no comparable baseline yet)
     # has a `missing` ratio for every suite, so the table would be all-`n/a`
     # and read as broken (#282). Render a short note in its place until a
     # second revision provides something to compare against.
     if all(r -> ismissing(r.ratio), rows)
-        println(io,
+        println(
+            io,
             "_Not enough comparable revisions to compute ratios yet — the " *
-            "summary populates once a second revision is benchmarked._")
+            "summary populates once a second revision is benchmarked._",
+        )
         println(io)
-        return
+        return nothing
     end
     println(io, "| Suite | Median ratio | Trend | Status |")
     println(io, "|:---|:---:|:---:|:---:|")
     for r in rows
-        println(io, "| ", r.suite, " | ", _fmt_ratio(r.ratio), " | ",
-            r.trend, " | ", r.status, " |")
+        println(
+            io,
+            "| ",
+            r.suite,
+            " | ",
+            _fmt_ratio(r.ratio),
+            " | ",
+            r.trend,
+            " | ",
+            r.status,
+            " |",
+        )
     end
     println(io)
-    println(io,
+    println(
+        io,
         "_Ratio: latest vs oldest shown revision (1.00 = no change, " *
         "higher = slower/larger). ⚠ reg = at/above the regression " *
-        "threshold._")
+        "threshold._",
+    )
     println(io)
-    return
+    return nothing
 end
 
 # Render the combined multi-suite trend plot to `dest_png`: one line per
@@ -1153,14 +1282,15 @@ end
 # render (a real bug) is distinguishable from the expected "not installed
 # yet" case — `Plots` missing degrades to `@info` (nothing plottable does
 # too), a load-then-render failure degrades to `@warn`.
-function _write_overall_trend_plot(dest_png::AbstractString, col_labels,
-        series_by_suite)
+function _write_overall_trend_plot(
+    dest_png::AbstractString, col_labels, series_by_suite
+)
     plottable = filter(series_by_suite) do (_, series)
-        count(!ismissing, series) >= 2
+        return count(!ismissing, series) >= 2
     end
     if isempty(plottable)
         @info "benchmark history: fewer than two comparable revisions; " *
-              "skipping the overall trend plot"
+            "skipping the overall trend plot"
         return false
     end
     local Plots
@@ -1168,8 +1298,8 @@ function _write_overall_trend_plot(dest_png::AbstractString, col_labels,
         Plots = _plots()
     catch err
         @info "benchmark history: `Plots` is not available in the docs " *
-              "environment; add it to `docs/Project.toml` to enable the " *
-              "overall trend plot" exception = err
+            "environment; add it to `docs/Project.toml` to enable the " *
+            "overall trend plot" exception = err
         return false
     end
     try
@@ -1179,20 +1309,25 @@ function _write_overall_trend_plot(dest_png::AbstractString, col_labels,
             ENV["GKSwstype"] = get(ENV, "GKSwstype", "100")
             Plots.gr()
             x = 1:length(col_labels)
-            plt = Plots.plot(; xlabel = "Revision", ylabel = "Ratio",
-                legend = :outertopright, size = (900, 500),
-                xticks = (x, col_labels), xrotation = 30,
-                title = "Overall benchmark trend")
+            plt = Plots.plot(;
+                xlabel="Revision",
+                ylabel="Ratio",
+                legend=:outertopright,
+                size=(900, 500),
+                xticks=(x, col_labels),
+                xrotation=30,
+                title="Overall benchmark trend",
+            )
             for (suite, series) in plottable
-                Plots.plot!(plt, x, series; label = suite, marker = :circle)
+                Plots.plot!(plt, x, series; label=suite, marker=:circle)
             end
             mkpath(dirname(dest_png))
-            Plots.savefig(plt, dest_png)
+            return Plots.savefig(plt, dest_png)
         end
         return true
     catch err
         @warn "benchmark history: the overall trend plot failed to " *
-              "render; the summary table still renders without it" exception = err
+            "render; the summary table still renders without it" exception = err
         return false
     end
 end
@@ -1222,18 +1357,23 @@ end
 # unconditionally near the top of the page, even before any history has
 # published, so a maintainer can document a known-skipped suite ahead of CI
 # ever running. Renders nothing when there is neither prose nor a detection.
-function _write_benchmark_notes(io, notes::AbstractString,
-        auto::AbstractVector{<:AbstractString} = String[])
-    (isempty(strip(notes)) && isempty(auto)) && return
+function _write_benchmark_notes(
+    io, notes::AbstractString, auto::AbstractVector{<:AbstractString}=String[]
+)
+    (isempty(strip(notes)) && isempty(auto)) && return nothing
     println(io, "### Skipped & broken benchmarks")
     println(io)
     isempty(strip(notes)) || (println(io, notes); println(io))
     if !isempty(auto)
-        println(io, "_No data in the shown revisions: ",
-            join(("`$a`" for a in auto), ", "), "._")
+        println(
+            io,
+            "_No data in the shown revisions: ",
+            join(("`$a`" for a in auto), ", "),
+            "._",
+        )
         println(io)
     end
-    return
+    return nothing
 end
 
 # Orchestrates the `## Performance history` body: the
@@ -1248,23 +1388,29 @@ end
 # both the summary and the detail section (rather than calling
 # [`_render_ratio_table`](@ref), which would re-parse and re-shell out to
 # `git show` a second time).
-function _render_benchmark_overview(io, md::AbstractString,
-        project_root::AbstractString, pngs, repo::AbstractString;
-        last_n::Integer = 5, suites = String[],
-        regression_threshold::Real = 1.1,
-        plot_dest::Union{Nothing, AbstractString} = nothing,
-        notes::AbstractString = "")
+function _render_benchmark_overview(
+    io,
+    md::AbstractString,
+    project_root::AbstractString,
+    pngs,
+    repo::AbstractString;
+    last_n::Integer=5,
+    suites=String[],
+    regression_threshold::Real=1.1,
+    plot_dest::Union{Nothing,AbstractString}=nothing,
+    notes::AbstractString="",
+)
     if isempty(_history_table_parts(md)[2])
         _write_benchmark_notes(io, notes)
         println(io, "### Ratio summary")
         println(io)
-        _render_ratio_table(io, md, project_root; last_n = last_n,
-            suites = suites)
+        _render_ratio_table(io, md, project_root; last_n=last_n, suites=suites)
         !isempty(pngs) && _embed_history_plots(io, repo, pngs)
-        return
+        return nothing
     end
-    col_labels, metric_groups = _reshape_history_metrics(md, project_root;
-        last_n = last_n, suites = suites)
+    col_labels, metric_groups = _reshape_history_metrics(
+        md, project_root; last_n=last_n, suites=suites
+    )
     # Summary and trend plot are computed from a single metric (the headline
     # "Time" block), never a median that mixes timings with allocation counts
     # (#231).
@@ -1273,15 +1419,20 @@ function _render_benchmark_overview(io, md::AbstractString,
     # One orienting line so `## Performance history` (printed by the caller)
     # is never an empty heading sitting directly above `## Benchmark summary
     # (overall)` (#282).
-    println(io,
+    println(
+        io,
         "The summary tracks each benchmark suite's headline timing across " *
-        "recent revisions.")
+        "recent revisions.",
+    )
     println(io)
-    _write_benchmark_summary(io,
-        _benchmark_summary_rows(series_by_suite;
-            regression_threshold = regression_threshold))
+    _write_benchmark_summary(
+        io,
+        _benchmark_summary_rows(
+            series_by_suite; regression_threshold=regression_threshold
+        ),
+    )
     if plot_dest !== nothing &&
-       _write_overall_trend_plot(plot_dest, col_labels, series_by_suite)
+        _write_overall_trend_plot(plot_dest, col_labels, series_by_suite)
         println(io, "![Overall benchmark trend](", basename(plot_dest), ")")
         println(io)
     end
@@ -1295,7 +1446,7 @@ function _render_benchmark_overview(io, md::AbstractString,
     !isempty(pngs) && _embed_history_plots(io, repo, pngs)
     println(io, "</details>")
     println(io)
-    return
+    return nothing
 end
 
 # The package-owned seed files (`docs/benchmarks.md`,
@@ -1304,7 +1455,7 @@ end
 # text on the Benchmarks page (#145). Splice-side so it holds even though
 # the seed is package-owned and sync never rewrites it.
 function _strip_seed_comment(s::AbstractString)
-    lstrip(replace(s, r"^\s*<!--.*?-->"s => ""))
+    return lstrip(replace(s, r"^\s*<!--.*?-->"s => ""))
 end
 
 # The package-owned seed file's content, or `default` when the file is
@@ -1340,14 +1491,20 @@ overall-summary ratio (relative to the oldest shown revision) at or above
 which a suite's `Status` flags "⚠ reg". Returns the list of linkcheck-ignore
 regexes for the history URLs (the branch may not be live yet).
 """
-function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
-        package::AbstractString, prose_file::AbstractString,
-        embed_history::Bool = true,
-        project_root::AbstractString = dirname(dirname(dest)),
-        notes_file::AbstractString = joinpath(
-            dirname(dirname(dest)), "benchmarks_notes.md"),
-        history_suites = String[], history_commits::Integer = 5,
-        history_regression_threshold::Real = 1.1)
+function build_benchmark_page(;
+    dest::AbstractString,
+    repo::AbstractString,
+    package::AbstractString,
+    prose_file::AbstractString,
+    embed_history::Bool=true,
+    project_root::AbstractString=dirname(dirname(dest)),
+    notes_file::AbstractString=joinpath(
+        dirname(dirname(dest)), "benchmarks_notes.md"
+    ),
+    history_suites=String[],
+    history_commits::Integer=5,
+    history_regression_threshold::Real=1.1,
+)
     prose = _read_seed(prose_file, "Performance benchmarks for `$package`.")
     notes = _read_seed(notes_file, "")
     mkpath(dirname(dest))
@@ -1365,21 +1522,25 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         println(io, "## Performance history")
         println(io)
         if embed_history
-            _embed_benchmark_history(io, repo, project_root;
-                history_suites = history_suites,
-                history_commits = history_commits,
-                history_regression_threshold = history_regression_threshold,
-                overall_plot_dest = plot_dest, notes = notes)
+            _embed_benchmark_history(
+                io,
+                repo,
+                project_root;
+                history_suites=history_suites,
+                history_commits=history_commits,
+                history_regression_threshold=history_regression_threshold,
+                overall_plot_dest=plot_dest,
+                notes=notes,
+            )
         else
-            println(io,
-                "A performance timeline is published on each release.")
+            println(io, "A performance timeline is published on each release.")
         end
     end
     println("Generated benchmarks.md (benchmark history page)")
     esc = replace(repo, "." => "\\.", "/" => "/")
     return Regex[
         Regex("raw\\.githubusercontent\\.com/$esc/benchmarks"),
-        Regex("github\\.com/$esc/tree/benchmarks")
+        Regex("github\\.com/$esc/tree/benchmarks"),
     ]
 end
 
@@ -1429,8 +1590,8 @@ function api_bindings(mod::Module)
     # exports or declares `public` (`names` returns exported + public names,
     # re-exports included). De-duplicate by symbol.
     own = Set(b.var for b in keys(Base.Docs.meta(mod)))
-    surface = Set(names(mod; all = false))
-    candidates = sort!(collect(union(own, surface)); by = string)
+    surface = Set(names(mod; all=false))
+    candidates = sort!(collect(union(own, surface)); by=string)
     public = Symbol[]
     private = Symbol[]
     for v in candidates
@@ -1457,7 +1618,7 @@ end
 # however tidy the rest of the docs are (#313). `build_api_pages` uses this to
 # decide whether to prepend a `@docs` block for `mod` to `public.md`.
 function _has_own_docstring(mod::Module)
-    haskey(Base.Docs.meta(mod), Base.Docs.Binding(mod, nameof(mod)))
+    return haskey(Base.Docs.meta(mod), Base.Docs.Binding(mod, nameof(mod)))
 end
 
 # Whether `m` is `root` or nested inside it (a submodule at any depth). The
@@ -1576,7 +1737,7 @@ function _docs_entries(mod::Module, name::Symbol)
     own_md = get(Base.Docs.meta(mod), b, nothing)
     if own_md === nothing || isempty(own_md.order)
         @warn "no own MultiDoc found for $bare (extends $(b.mod).$(name)); " *
-              "emitting the bare entry, which may pull in $(b.mod)'s own docs"
+            "emitting the bare entry, which may pull in $(b.mod)'s own docs"
         return [bare]
     end
     entries = String[]
@@ -1584,8 +1745,8 @@ function _docs_entries(mod::Module, name::Symbol)
         qualified = _qualified_docs_entry(mod, name, sig)
         if qualified === nothing
             @warn "could not build a signature-qualified @docs entry for " *
-                  "$bare at signature $sig; falling back to the bare entry, " *
-                  "which may pull in $(b.mod)'s own docs for this method too"
+                "$bare at signature $sig; falling back to the bare entry, " *
+                "which may pull in $(b.mod)'s own docs for this method too"
             return [bare]
         end
         push!(entries, qualified)
@@ -1593,8 +1754,17 @@ function _docs_entries(mod::Module, name::Symbol)
     return entries
 end
 
-function _write_api_page(path, title, anchor, page, intro, api_heading,
-        mod, names; own_docstring_entry::Union{Nothing, AbstractString} = nothing)
+function _write_api_page(
+    path,
+    title,
+    anchor,
+    page,
+    intro,
+    api_heading,
+    mod,
+    names;
+    own_docstring_entry::Union{Nothing,AbstractString}=nothing,
+)
     mkpath(dirname(path))
     open(path, "w") do io
         if anchor === nothing
@@ -1636,7 +1806,7 @@ function _write_api_page(path, title, anchor, page, intro, api_heading,
                 println(io, entry)
             end
         end
-        println(io, "```")
+        return println(io, "```")
     end
     return path
 end
@@ -1653,20 +1823,33 @@ it is both readable on the built site and counted towards a `:all`
 """
 function build_api_pages(mod::Module, lib_dir::AbstractString)
     public, private = api_bindings(mod)
-    own_docstring = _has_own_docstring(mod) ? string(mod, ".", nameof(mod)) : nothing
+    own_docstring =
+        _has_own_docstring(mod) ? string(mod, ".", nameof(mod)) : nothing
     _write_api_page(
         joinpath(lib_dir, "public.md"),
-        "Public Documentation", "public-api", "public.md",
+        "Public Documentation",
+        "public-api",
+        "public.md",
         "Documentation for `$mod`'s public interface.",
-        "Public API", mod, public; own_docstring_entry = own_docstring)
+        "Public API",
+        mod,
+        public;
+        own_docstring_entry=own_docstring,
+    )
     _write_api_page(
         joinpath(lib_dir, "internals.md"),
-        "Internal Documentation", nothing, "internals.md",
+        "Internal Documentation",
+        nothing,
+        "internals.md",
         "Documentation for `$mod`'s internal interface.",
-        "Internal API", mod, private)
+        "Internal API",
+        mod,
+        private,
+    )
     println(
         "Generated API pages: $(length(public)) public, " *
-        "$(length(private)) internal bindings")
+        "$(length(private)) internal bindings",
+    )
     return public, private
 end
 
@@ -1688,9 +1871,11 @@ end
 # the revision it tracks; otherwise the installed version names its release tag
 # (registered packages tag `vX.Y.Z`). `nothing` when no GitHub source URL or no
 # ref can be found — the caller then leaves the package to Documenter.
-function _remote_spec(url::Union{Nothing, AbstractString},
-        rev::Union{Nothing, AbstractString},
-        version::Union{Nothing, VersionNumber})
+function _remote_spec(
+    url::Union{Nothing,AbstractString},
+    rev::Union{Nothing,AbstractString},
+    version::Union{Nothing,VersionNumber},
+)
     url === nothing && return nothing
     org_repo = _github_org_repo(url)
     org_repo === nothing && return nothing
@@ -1723,10 +1908,11 @@ end
 function _extra_remote(Documenter, value)
     value isa AbstractString || return value
     parts = split(value, '/')
-    length(parts) == 2 || error(
-        "extra_remotes: \"$value\" is not an \"Org/Repo.jl\" pair")
+    length(parts) == 2 ||
+        error("extra_remotes: \"$value\" is not an \"Org/Repo.jl\" pair")
     remote = Base.invokelatest(
-        Documenter.Remotes.GitHub, String(parts[1]), String(parts[2]))
+        Documenter.Remotes.GitHub, String(parts[1]), String(parts[2])
+    )
     return (remote, "main")
 end
 
@@ -1749,16 +1935,15 @@ to either an `"Org/Repo.jl"` string or anything Documenter's `remotes` accepts
 (a `Remotes.Remote`, or a `(remote, ref)` tuple), and overrides any derived
 entry for the same path.
 """
-function api_remotes(mods; extra_remotes = Dict())
+function api_remotes(mods; extra_remotes=Dict())
     Documenter = _documenter()
-    remotes = Dict{String, Any}()
+    remotes = Dict{String,Any}()
     for mod in mods
         root = pkgdir(mod)
         (root === nothing || !isdir(root)) && continue
         entry = _package_entry(mod)
         entry === nothing && continue
-        spec = _remote_spec(
-            entry.git_source, entry.git_revision, entry.version)
+        spec = _remote_spec(entry.git_source, entry.git_revision, entry.version)
         spec === nothing && continue
         remote = Base.invokelatest(Documenter.Remotes.GitHub, spec[1], spec[2])
         remotes[realpath(root)] = (remote, spec[3])
@@ -1778,25 +1963,34 @@ end
 # executed once in a fresh subprocess (via the package-owned
 # `run_literate_tutorial.jl`) so native/memory state cannot accumulate.
 function _process_tutorials(docs_dir, tutorials_dir, light, heavy)
-    (isempty(light) && isempty(heavy)) && return
+    (isempty(light) && isempty(heavy)) && return nothing
     Literate = _literate()
     if !isempty(light)
-        println("Building light Literate tutorials " *
-                "(this may take several minutes)...")
+        println(
+            "Building light Literate tutorials " *
+            "(this may take several minutes)...",
+        )
         # `DocumenterFlavor` lives in a newer world age than this function
         # (Literate is lazily `Base.require`d), so construct it through
         # `invokelatest` like every other call into the lazily-loaded deps.
         flavor = Base.invokelatest(Literate.DocumenterFlavor)
         for file in light
-            Base.invokelatest(Literate.markdown,
-                joinpath(tutorials_dir, file), tutorials_dir;
-                flavor = flavor, mdstrings = true, credit = false)
+            Base.invokelatest(
+                Literate.markdown,
+                joinpath(tutorials_dir, file),
+                tutorials_dir;
+                flavor=flavor,
+                mdstrings=true,
+                credit=false,
+            )
         end
     end
     if !isempty(heavy)
         tutorial_threads = get(ENV, "JULIA_NUM_THREADS", "4")
-        println("Executing heavy Literate tutorials, one per subprocess " *
-                "($(tutorial_threads) threads each)...")
+        println(
+            "Executing heavy Literate tutorials, one per subprocess " *
+            "($(tutorial_threads) threads each)...",
+        )
         runner = joinpath(docs_dir, "run_literate_tutorial.jl")
         jl = Base.julia_cmd()
         for file in heavy
@@ -1807,7 +2001,7 @@ function _process_tutorials(docs_dir, tutorials_dir, light, heavy)
         end
     end
     println("Literate tutorial processing complete")
-    return
+    return nothing
 end
 
 # The rendered `.md` basename Literate produces for a tutorial source file
@@ -1832,20 +2026,30 @@ _tutorial_md_names(files) = Set(_tutorial_md_name(f) for f in files)
 # sampler), while its siblings keep executing for real in their own
 # subprocess (unaffected — no need to fall back to whole-build stubbing just
 # because one tutorial cannot run yet).
-function _render_tutorials(docs_dir, tutorials_dir, skip_notebooks::Bool,
-        light, heavy, stubs; force_stub = String[])
+function _render_tutorials(
+    docs_dir,
+    tutorials_dir,
+    skip_notebooks::Bool,
+    light,
+    heavy,
+    stubs;
+    force_stub=String[],
+)
     if !skip_notebooks
         run_heavy = filter(!in(force_stub), heavy)
         _process_tutorials(docs_dir, tutorials_dir, light, run_heavy)
         if !isempty(force_stub)
             force_stub_md = _tutorial_md_names(force_stub)
-            _write_tutorial_stubs(tutorials_dir,
-                filter(p -> first(p) in force_stub_md, stubs))
+            _write_tutorial_stubs(
+                tutorials_dir, filter(p -> first(p) in force_stub_md, stubs)
+            )
         end
     else
-        println("Fast docs build: rendering light tutorials in-process, " *
-                "stubbing heavy tutorials (--skip-notebooks or " *
-                "SKIP_NOTEBOOKS=true)")
+        println(
+            "Fast docs build: rendering light tutorials in-process, " *
+            "stubbing heavy tutorials (--skip-notebooks or " *
+            "SKIP_NOTEBOOKS=true)",
+        )
         _process_tutorials(docs_dir, tutorials_dir, light, String[])
         heavy_md = _tutorial_md_names(heavy)
         heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
@@ -1857,20 +2061,22 @@ end
 # Fast-build stubs: a lightweight `.md` for each tutorial so the nav resolves
 # and cross-references still anchor without running the heavy pipeline.
 function _write_tutorial_stubs(tutorials_dir, stubs)
-    isempty(stubs) && return
+    isempty(stubs) && return nothing
     mkpath(tutorials_dir)
     for (file, heading) in stubs
         open(joinpath(tutorials_dir, file), "w") do io
             println(io, heading)
             println(io)
-            println(io,
+            return println(
+                io,
                 "_This tutorial is omitted from the fast documentation " *
                 "build. Build the full documentation (`task docs`) to " *
-                "render it._")
+                "render it._",
+            )
         end
     end
     println("Wrote fast-build tutorial stubs")
-    return
+    return nothing
 end
 
 # Copy every tutorial data directory into the matching build output dir so the
@@ -1884,11 +2090,11 @@ function _copy_tutorial_data(src_root, build_root)
             rel = relpath(src_data, src_root)
             dest_data = joinpath(build_root, rel)
             mkpath(dirname(dest_data))
-            cp(src_data, dest_data; force = true)
+            cp(src_data, dest_data; force=true)
             println("Copied tutorial data: $rel")
         end
     end
-    return
+    return nothing
 end
 
 # ---- orchestrator ---------------------------------------------------------
@@ -1911,8 +2117,9 @@ function _strip_extensions_nav(pages, src_dir::AbstractString)
     for entry in pages
         if entry isa Pair && entry.second isa AbstractString
             target = entry.second
-            if startswith(target, "extensions/") && endswith(target, ".md") &&
-               !isfile(joinpath(src_dir, split(target, '/')...))
+            if startswith(target, "extensions/") &&
+                endswith(target, ".md") &&
+                !isfile(joinpath(src_dir, split(target, '/')...))
                 continue
             end
             push!(kept, entry)
@@ -1958,21 +2165,24 @@ end
 # of silently shipping a half-built home page. `built_dir` may lack an
 # `index.md` for callers that skip the Documenter build entirely (tests
 # exercising only the page generators); there is then nothing to check.
-function _check_index_not_truncated(index_src::AbstractString,
-        built_dir::AbstractString)
+function _check_index_not_truncated(
+    index_src::AbstractString, built_dir::AbstractString
+)
     isfile(index_src) || return nothing
     built = joinpath(built_dir, "index.md")
     isfile(built) || return nothing
     src_lines = countlines(index_src)
     built_lines = countlines(built)
     if built_lines < max(5, src_lines ÷ 2)
-        error("docs build looks truncated (kit issue #91): the built home " *
-              "page has $built_lines lines but the generated " *
-              "docs/src/index.md has $src_lines lines. This matches the " *
-              "silent npm/vitepress ordering failure from #91 — re-run the " *
-              "docs build; if it persists, run `julia --project=docs -e " *
-              "'using Pkg; Pkg.instantiate()'` once (so docs/node_modules " *
-              "already exists) before running `docs/make.jl`.")
+        error(
+            "docs build looks truncated (kit issue #91): the built home " *
+            "page has $built_lines lines but the generated " *
+            "docs/src/index.md has $src_lines lines. This matches the " *
+            "silent npm/vitepress ordering failure from #91 — re-run the " *
+            "docs build; if it persists, run `julia --project=docs -e " *
+            "'using Pkg; Pkg.instantiate()'` once (so docs/node_modules " *
+            "already exists) before running `docs/make.jl`.",
+        )
     end
     return nothing
 end
@@ -2027,20 +2237,31 @@ one from the dependency's recorded git source URL and passes it to Documenter's
 an `"Org/Repo.jl"` string or to anything Documenter's `remotes` accepts (e.g.
 `Dict(SomeDep => "EpiAware/SomeDep.jl")`).
 """
-function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
-        pages, deploy_url = nothing, skip_notebooks::Bool = false,
-        tutorials_subdir::AbstractString = joinpath(
-            "getting-started", "tutorials"),
-        light_tutorials = String[], heavy_tutorials = String[],
-        tutorial_stubs = Pair{String, String}[],
-        force_stub_tutorials = String[],
-        linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
-        readme_execute::Bool = true, index_strip_sections = String[],
-        benchmark_page::Bool = true, history_suites = String[],
-        history_commits::Integer = 5,
-        history_regression_threshold::Real = 1.1, extra_modules = Module[],
-        extra_remotes = Dict(),
-        build_vitepress::Bool = true, deploy::Bool = true)
+function build_docs(
+    mod::Module;
+    repo::AbstractString,
+    authors::AbstractString,
+    pages,
+    deploy_url=nothing,
+    skip_notebooks::Bool=false,
+    tutorials_subdir::AbstractString=joinpath("getting-started", "tutorials"),
+    light_tutorials=String[],
+    heavy_tutorials=String[],
+    tutorial_stubs=Pair{String,String}[],
+    force_stub_tutorials=String[],
+    linkcheck_ignore=Regex[],
+    index_rewrites=Pair{String,String}[],
+    readme_execute::Bool=true,
+    index_strip_sections=String[],
+    benchmark_page::Bool=true,
+    history_suites=String[],
+    history_commits::Integer=5,
+    history_regression_threshold::Real=1.1,
+    extra_modules=Module[],
+    extra_remotes=Dict(),
+    build_vitepress::Bool=true,
+    deploy::Bool=true,
+)
     project_root = pkgdir(mod)
     # `pkgdir` returns `Union{Nothing,String}`; narrow to a concrete String up
     # front so the downstream `joinpath` calls never see `Nothing` (keeps JET
@@ -2052,26 +2273,42 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     tutorials_dir = joinpath(src_dir, tutorials_subdir)
 
     # --- tutorials ---------------------------------------------------------
-    _render_tutorials(docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
-        heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials)
+    _render_tutorials(
+        docs_dir,
+        tutorials_dir,
+        skip_notebooks,
+        light_tutorials,
+        heavy_tutorials,
+        tutorial_stubs;
+        force_stub=force_stub_tutorials,
+    )
 
     # --- generated pages ---------------------------------------------------
-    build_index(; readme = joinpath(project_root, "README.md"),
-        dest = joinpath(src_dir, "index.md"), repo = repo,
-        execute = readme_execute, rewrites = index_rewrites,
-        strip_sections = index_strip_sections)
-    build_release_notes(; news = joinpath(project_root, "NEWS.md"),
-        header_file = joinpath(docs_dir, "release_notes_header.jl"),
-        dest = joinpath(src_dir, "release-notes.md"))
+    build_index(;
+        readme=joinpath(project_root, "README.md"),
+        dest=joinpath(src_dir, "index.md"),
+        repo=repo,
+        execute=readme_execute,
+        rewrites=index_rewrites,
+        strip_sections=index_strip_sections,
+    )
+    build_release_notes(;
+        news=joinpath(project_root, "NEWS.md"),
+        header_file=joinpath(docs_dir, "release_notes_header.jl"),
+        dest=joinpath(src_dir, "release-notes.md"),
+    )
     benchmark_linkcheck = Regex[]
     if benchmark_page
         benchmark_linkcheck = build_benchmark_page(;
-            dest = joinpath(src_dir, "benchmarks.md"), repo = repo,
-            package = string(mod),
-            prose_file = joinpath(docs_dir, "benchmarks.md"),
-            project_root = project_root, history_suites = history_suites,
-            history_commits = history_commits,
-            history_regression_threshold = history_regression_threshold)
+            dest=joinpath(src_dir, "benchmarks.md"),
+            repo=repo,
+            package=string(mod),
+            prose_file=joinpath(docs_dir, "benchmarks.md"),
+            project_root=project_root,
+            history_suites=history_suites,
+            history_commits=history_commits,
+            history_regression_threshold=history_regression_threshold,
+        )
     else
         println("BENCHMARK_PAGE = false; skipping benchmark history page")
         # Drop any stale Benchmarks nav entry so a package that disabled the page
@@ -2091,22 +2328,37 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     # docstring can carry an empty anchor id): warn and skip that inventory
     # entry rather than abort the build (#232). No-op once upstream fixes it.
     _guard_empty_anchors()
-    Base.invokelatest(Documenter.DocMeta.setdocmeta!, mod, :DocTestSetup,
-        Expr(:using, Expr(:., nameof(mod))); recursive = true)
+    Base.invokelatest(
+        Documenter.DocMeta.setdocmeta!,
+        mod,
+        :DocTestSetup,
+        Expr(:using, Expr(:., nameof(mod)));
+        recursive=true,
+    )
 
     bib_path = joinpath(src_dir, "refs.bib")
     plugins = if isfile(bib_path)
         DocumenterCitations = _citations()
-        [Base.invokelatest(DocumenterCitations.CitationBibliography, bib_path;
-            style = :numeric)]
+        [
+            Base.invokelatest(
+                DocumenterCitations.CitationBibliography,
+                bib_path;
+                style=:numeric,
+            ),
+        ]
     else
         Documenter.Plugin[]
     end
 
-    format = Base.invokelatest(DocumenterVitepress.MarkdownVitepress;
-        repo = "github.com/$repo", devbranch = "main", devurl = "dev",
-        deploy_url = deploy_url, build_vitepress = build_vitepress,
-        keep = :patch)
+    format = Base.invokelatest(
+        DocumenterVitepress.MarkdownVitepress;
+        repo="github.com/$repo",
+        devbranch="main",
+        devurl="dev",
+        deploy_url=deploy_url,
+        build_vitepress=build_vitepress,
+        keep=:patch,
+    )
 
     # The modules Documenter's `@docs` resolver searches. `mod` always leads;
     # the owning modules of `mod`'s re-exported docstrings follow so their
@@ -2138,35 +2390,51 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     # without this the widened `modules` list kills the build with
     # `MissingRemoteError` (#190). `mod` itself is left out: its docs build runs
     # in its own checkout, which Documenter resolves from git.
-    remotes = api_remotes(owning_modules; extra_remotes = extra_remotes)
+    remotes = api_remotes(owning_modules; extra_remotes=extra_remotes)
     # `root` is pinned to the package's docs dir. Documenter otherwise defaults
     # it to the running script's directory; because the build now lives in the
     # kit rather than in `docs/make.jl`, the thin caller (or a test) may run
     # from anywhere, so set it explicitly. `source`/`build` keep their defaults
     # relative to `root` (`src`/`build`), matching the previous layout.
-    Base.invokelatest(Documenter.makedocs; root = docs_dir,
-        sitename = "$mod.jl",
-        authors = authors, clean = true, doctest = false,
-        linkcheck = !skip_notebooks,
-        linkcheck_ignore = vcat(linkcheck_ignore, benchmark_linkcheck),
-        warnonly = [
-            :docs_block, :missing_docs, :autodocs_block, :cross_references],
-        checkdocs = checkdocs, remotes = remotes,
-        modules = doc_modules, pages = pages, format = format,
-        plugins = plugins)
+    Base.invokelatest(
+        Documenter.makedocs;
+        root=docs_dir,
+        sitename="$mod.jl",
+        authors=authors,
+        clean=true,
+        doctest=false,
+        linkcheck=(!skip_notebooks),
+        linkcheck_ignore=vcat(linkcheck_ignore, benchmark_linkcheck),
+        warnonly=[
+            :docs_block, :missing_docs, :autodocs_block, :cross_references
+        ],
+        checkdocs=checkdocs,
+        remotes=remotes,
+        modules=doc_modules,
+        pages=pages,
+        format=format,
+        plugins=plugins,
+    )
 
     # Fail loudly rather than silently ship a truncated home page (#91).
-    _check_index_not_truncated(joinpath(src_dir, "index.md"),
-        joinpath(docs_dir, "build", ".documenter"))
+    _check_index_not_truncated(
+        joinpath(src_dir, "index.md"),
+        joinpath(docs_dir, "build", ".documenter"),
+    )
 
     _copy_tutorial_data(src_dir, joinpath(docs_dir, "build"))
 
     if deploy
-        Base.invokelatest(DocumenterVitepress.deploydocs;
-            repo = "github.com/$repo", target = "build", branch = "gh-pages",
-            devbranch = "main", push_preview = true)
+        Base.invokelatest(
+            DocumenterVitepress.deploydocs;
+            repo="github.com/$repo",
+            target="build",
+            branch="gh-pages",
+            devbranch="main",
+            push_preview=true,
+        )
     end
-    return
+    return nothing
 end
 
 end # module DocsBuild

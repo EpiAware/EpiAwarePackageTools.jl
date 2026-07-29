@@ -7,12 +7,14 @@
 
     @testset "resolves package/repo from Project.toml" begin
         mktempdir() do dir
-            write(joinpath(dir, "Project.toml"),
+            write(
+                joinpath(dir, "Project.toml"),
                 "name = \"FakePkg\"\n" *
                 "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
-                "authors = [\"Ada Lovelace\"]\n")
+                "authors = [\"Ada Lovelace\"]\n",
+            )
             buf = IOBuffer()
-            result = setup_checklist(dir; io = buf)
+            result = setup_checklist(dir; io=buf)
             @test result === nothing
             text = String(take!(buf))
             @test occursin("FakePkg", text)
@@ -41,8 +43,9 @@
     @testset "explicit package/repo/org override with no Project.toml" begin
         mktempdir() do dir
             buf = IOBuffer()
-            setup_checklist(dir; package = "OtherPkg",
-                repo = "SomeOrg/OtherPkg.jl", io = buf)
+            setup_checklist(
+                dir; package="OtherPkg", repo="SomeOrg/OtherPkg.jl", io=buf
+            )
             text = String(take!(buf))
             @test occursin("OtherPkg", text)
             @test occursin("SomeOrg/OtherPkg.jl", text)
@@ -52,7 +55,7 @@
     @testset "falls back to placeholders with nothing resolved" begin
         mktempdir() do dir
             buf = IOBuffer()
-            setup_checklist(dir; io = buf)
+            setup_checklist(dir; io=buf)
             text = String(take!(buf))
             @test occursin("<package>", text)
             @test occursin("<org>/<package>.jl", text)
