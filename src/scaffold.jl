@@ -105,6 +105,12 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/codecoverage.yaml", true, true),
     Template(".github/workflows/docpreviewcleanup.yaml",
         ".github/workflows/docpreviewcleanup.yaml", true, true),
+    # Tags and releases a version once its General registry PR merges. Runs on
+    # the `JuliaTagBot` comment (the upstream trigger), on demand, and on a
+    # daily cron. The cron is the one that does not depend on the TagBot app
+    # having access to the repo: without access no comment is ever posted and
+    # the version sits registered with no tag and no release, as
+    # ComposedDistributions.jl 0.1.0 did.
     Template(".github/workflows/TagBot.yaml",
         ".github/workflows/TagBot.yaml", true, true),
     # Triggers Julia General Registry registration: a `/register` issue/PR
