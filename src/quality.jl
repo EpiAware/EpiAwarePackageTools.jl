@@ -514,6 +514,9 @@ The H1 title and the managed badge block are checked here too: the README must
 open with a single `#` title and contain the badge markers the scaffolder
 manages (see [`scaffold`](@ref)).
 
+The README standards this check exists to hold a package to, and the ones no
+check covers, are listed in [Package standards](@ref standards).
+
 # Keyword Arguments
   - `required`: the ordered heading groups to require; default the standard set.
   - `order`: when `true`, also assert the present sections are in order.
