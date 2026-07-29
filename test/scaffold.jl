@@ -600,7 +600,7 @@
                 # shared (unpinned) test environment and floats with the CI
                 # Julia in use rather than the exact pin (#321).
                 ql = read(_dest(dir, "test/package/quality.jl"), String)
-                @test occursin("test_formatting(QA_CONFIG.mod; env = env)", ql)
+                @test occursin("test_formatting(QA_CONFIG.mod; env=env)", ql)
                 @test occursin("hasproperty(QA_CONFIG, :formatter_env)", ql)
                 cfg = read(_dest(dir, "test/package/qa_config.jl"), String)
                 @test occursin(
@@ -619,9 +619,7 @@
                 lines = split(ql, "\n")
                 i = findfirst(l -> occursin("env = if hasproperty", l), lines)
                 j = findfirst(
-                    l -> occursin(
-                        "test_formatting(QA_CONFIG.mod; env = env)", l
-                    ),
+                    l -> occursin("test_formatting(QA_CONFIG.mod; env=env)", l),
                     lines,
                 )
                 prelude = joinpath(dir, "test", "package", "_prelude321.jl")
