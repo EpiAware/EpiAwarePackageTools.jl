@@ -1898,22 +1898,6 @@ end
 
 # ---- orchestrator ---------------------------------------------------------
 
-# Remove any `... => "benchmarks/<page>.md"` leaf from a Documenter `pages`
-# nav tree (at any nesting depth) whose target page is not present under
-# `src_dir` -- mirroring `_strip_extensions_nav` below, not gated on
-# `benchmark_page` alone. Two independent, package-owned files can each
-# leave a dangling entry here: `docs/pages.jl` (the nav leaf itself) and
-# `docs/docs_config.jl` (whether `over-time.md`/`ad-comparison.md` actually
-# get written, via `BENCHMARK_PAGE`/`HEAVY_BENCHMARKS`). `update` warns
-# separately when either file is stale (`_benchmarks_nav_gap`,
-# `_ad_benchmarks_config_gap`), but nothing stops an adopter fixing only
-# one -- e.g. adding the "AD comparison" nav entry per the nav-gap warning
-# while never adding `ad-comparison.jl` to `HEAVY_BENCHMARKS`, so the page
-# is never rendered. Judging on the built page existing, exactly like
-# extensions, self-heals that combination regardless of which of the two
-# warnings the adopter acted on. A "Benchmarks" group left with no entries
-# by this removal (e.g. `benchmarks = true`, `ad = false`, page disabled)
-# is dropped too, exactly like `_strip_extensions_nav`.
 # Remove any `... => "extensions/<page>.md"` leaf whose source page is not
 # present under `src_dir`, and any nav group left empty by that removal. The
 # extension nav group is written once into the package-owned `pages.jl` from
@@ -1946,12 +1930,37 @@ function _strip_extensions_nav(pages, src_dir::AbstractString)
     return kept
 end
 
+# A benchmark nav target: any page under `benchmarks/`, plus the pre-#305
+# flat `benchmarks.md` the performance-history page used to live at. The
+# legacy form has to count: Documenter hard-errors on a nav entry with no
+# page ("'benchmarks.md' is not an existing page!"), so an adopter who has
+# not yet edited their package-owned `pages.jl` would lose their docs build
+# outright rather than just a sidebar entry.
+function _is_benchmark_nav_target(target::AbstractString)
+    (startswith(target, "benchmarks/") || target == "benchmarks.md") &&
+        endswith(target, ".md")
+end
+
+# Remove any benchmark leaf from a Documenter `pages` nav tree (at any
+# nesting depth) whose target page is not present under `src_dir` --
+# mirroring `_strip_extensions_nav` above, not gated on `benchmark_page`
+# alone. Three package-owned states can each leave a dangling entry:
+# `docs/pages.jl` (the nav leaf itself, including a pre-#305 `benchmarks.md`
+# one), and `docs/docs_config.jl` (whether `over-time.md`/`ad-comparison.md`
+# get written, via `BENCHMARK_PAGE`/`HEAVY_BENCHMARKS`). `update` warns when
+# either file is stale (`_benchmarks_nav_gap`, `_ad_benchmarks_config_gap`),
+# but nothing stops an adopter fixing only one -- e.g. adding the "AD
+# comparison" nav entry per the nav-gap warning while never adding
+# `ad-comparison.jl` to `HEAVY_BENCHMARKS`, so the page is never rendered.
+# Judging on the built page existing, exactly like extensions, self-heals
+# every combination regardless of which warning was acted on. A "Benchmarks"
+# group left with no entries by this removal is dropped too.
 function _strip_benchmark_nav(pages, src_dir::AbstractString)
     kept = Any[]
     for entry in pages
         if entry isa Pair && entry.second isa AbstractString
             target = entry.second
-            if startswith(target, "benchmarks/") && endswith(target, ".md") &&
+            if _is_benchmark_nav_target(target) &&
                !isfile(joinpath(src_dir, split(target, '/')...))
                 continue
             end

@@ -193,6 +193,44 @@
         end
     end
 
+    @testset "_strip_benchmark_nav drops a pre-#305 benchmarks.md leaf" begin
+        # An adopter who synced #305 but has not yet edited their
+        # package-owned `pages.jl` still names the performance-history page
+        # `benchmarks.md`, which the build now writes as
+        # `benchmarks/over-time.md`. Documenter hard-errors on a nav entry
+        # with no page ("'benchmarks.md' is not an existing page!"), so
+        # leaving that leaf would break their docs build outright rather
+        # than costing them a sidebar entry.
+        strip = EpiAwarePackageTools.DocsBuild._strip_benchmark_nav
+        mktempdir() do dir
+            src = mkpath(joinpath(dir, "src"))
+            bdir = mkpath(joinpath(src, "benchmarks"))
+            write(joinpath(bdir, "over-time.md"), "x")
+            # The flat pre-#305 shape.
+            flat = strip(
+                ["Home" => "index.md", "Benchmarks" => "benchmarks.md"], src)
+            @test flat == ["Home" => "index.md"]
+            # And the same stale target inside a group, alongside a sibling
+            # whose page does exist.
+            grouped = strip(
+                ["Home" => "index.md",
+                    "Benchmarks" => [
+                        "Performance over time" => "benchmarks.md",
+                        "AD comparison" => "benchmarks/over-time.md"
+                    ]], src)
+            @test grouped[2] == ("Benchmarks" =>
+                ["AD comparison" => "benchmarks/over-time.md"])
+        end
+        # A package that genuinely still writes `src/benchmarks.md` keeps it:
+        # the judgement is the page on disk, never the path's shape.
+        mktempdir() do dir
+            src = mkpath(joinpath(dir, "src"))
+            write(joinpath(src, "benchmarks.md"), "x")
+            pages = ["Home" => "index.md", "Benchmarks" => "benchmarks.md"]
+            @test strip(pages, src) == pages
+        end
+    end
+
     @testset "_strip_benchmark_nav self-heals a mixed remediation (#305)" begin
         # Mixed remediation: an `ad = true` adopter added the "AD
         # comparison" nav entry per `_benchmarks_nav_gap`'s warning, but

@@ -46,6 +46,10 @@ build now drops any `pages.jl` entry whose page it did not actually
 render, so an adopter who only fixes `pages.jl` never ships a dangling nav
 link either — the entry is simply absent until both edits land, not
 present-but-broken.
+That drop covers the stale flat `"Benchmarks" => "benchmarks.md"` leaf too,
+so an adopter who makes neither edit keeps a working docs build: Documenter
+hard-errors on a nav entry with no page, and losing the sidebar entry is a
+far smaller cost than losing the build.
 `update` now warns when either edit is still outstanding, so the gap
 surfaces at sync time rather than only in this note.
 
