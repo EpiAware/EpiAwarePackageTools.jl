@@ -627,7 +627,7 @@
 
             | **Docs** | **Build** |
             |:---:|:---:|
-            | [![R](https://e.org/novel.svg)](https://e.org/robust-framework) | ok |
+            | [![R](https://e.org/novel.svg)](https://e.org/robust) | ok |
 
             A small package for one job.
 
@@ -644,6 +644,9 @@
             robust = leverage_framework(; novel = true)
             ```
             """
+            # The sentence each fixture below swaps out for the wording it is
+            # testing. Named once so the swaps stay one line each.
+            lead = "A small package for one job."
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), legitimate)
                 test_readme_prose(dir)
@@ -651,8 +654,8 @@
 
             # A banned word in a sentence is flagged, and only that word: the
             # same README with plain wording passes.
-            padded = replace(legitimate,
-                "A small package for one job." => "A comprehensive package that leverages a novel landscape.")
+            padding = "A comprehensive tool that leverages a novel landscape."
+            padded = replace(legitimate, lead => padding)
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), padded)
                 @test check_flags(() -> test_readme_prose(dir))
@@ -672,13 +675,28 @@
                 @test check_flags(() -> test_readme_prose(dir))
             end
 
-            # A plural or inflected form of a listed word is flagged too.
-            for word in ("practitioners", "leveraging", "utilises")
-                inflected = replace(legitimate,
-                    "A small package for one job." => "A package for $word everywhere.")
+            # A plural or inflected form of a listed word is flagged too,
+            # including the three whose stem the general rule gets wrong:
+            # `synergy` has to reach `synergies` and `synergistic`, and
+            # `current approaches` the singular `current approach`.
+            for word in ("practitioners", "leveraging", "utilises",
+                "synergies", "synergistic", "current approach")
+                sentence = "A package for $word everywhere."
+                inflected = replace(legitimate, lead => sentence)
                 mktempdir() do dir
                     write(joinpath(dir, "README.md"), inflected)
                     @test check_flags(() -> test_readme_prose(dir))
+                end
+            end
+
+            # A word the stem only happens to prefix is not the banned word:
+            # `novel` must not reach `novelist`.
+            for word in ("novelist", "novelists")
+                sentence = "A package a $word would enjoy."
+                unrelated = replace(legitimate, lead => sentence)
+                mktempdir() do dir
+                    write(joinpath(dir, "README.md"), unrelated)
+                    test_readme_prose(dir)
                 end
             end
 
@@ -706,8 +724,8 @@
             # `e.g.` does not read as the end of a sentence, so a short
             # sentence carrying one is not measured as two fragments (nor a
             # long one let through as several short ones).
-            abbreviated = replace(legitimate,
-                "A small package for one job." => "It handles the awkward cases (e.g. an empty input).")
+            abbrev = "It handles the awkward cases (e.g. an empty input)."
+            abbreviated = replace(legitimate, lead => abbrev)
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), abbreviated)
                 test_readme_prose(dir)
@@ -778,8 +796,9 @@
 
             # A bold word that is not a label followed by a colon is prose, not
             # an inventory entry, so it passes.
-            emphasised = replace(motivation,
-                "- A reader can see what a model assumes without " => "- A reader can see what a model **assumes** without ")
+            plain = "- A reader can see what a model assumes without "
+            bold = replace(plain, "assumes" => "**assumes**")
+            emphasised = replace(motivation, plain => bold)
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), emphasised)
                 test_readme_bullets(dir)
@@ -805,8 +824,8 @@
                 test_readme_bullets(dir; min_bullets = 2)
             end
 
-            many = replace(motivation,
-                "## Getting started" => "- Five.\n- Six.\n- Seven.\n\n## Getting started")
+            extra = "- Five.\n- Six.\n- Seven.\n\n## Getting started"
+            many = replace(motivation, "## Getting started" => extra)
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), many)
                 @test check_flags(() -> test_readme_bullets(dir))
@@ -850,8 +869,8 @@
             # trailing paragraph does not turn it into several sentences.
             framed = replace(motivation,
                 "## Getting started" =>
-                    "Package-specific content stays in the package. It is not a " *
-                    "bullet.\n\n## Getting started")
+                    "Package-specific content stays in the package. " *
+                    "It is not a bullet.\n\n## Getting started")
             mktempdir() do dir
                 write(joinpath(dir, "README.md"), framed)
                 test_readme_bullets(dir)

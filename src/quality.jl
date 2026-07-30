@@ -729,7 +729,10 @@ default `banned` list by [`test_readme_prose`](@ref).
 
 Each entry is matched case-insensitively at a word boundary by stem, with any
 suffix allowed, so listing `leverage` also catches `leverages` and `leveraging`,
-and `practitioner` catches `practitioners`.
+and `practitioner` catches `practitioners`. A few entries carry a hand-written
+stem instead, where the general one either overreaches (`novel` must not match
+`novelist`) or falls short (`synergy` has to reach `synergies` and
+`synergistic`, `current approaches` the singular `current approach`).
 
 `framework` and `harness` are the two context-sensitive entries: both are
 legitimate when they name a specific thing (a test harness, a named framework)
@@ -742,17 +745,32 @@ const BANNED_README_WORDS = ["comprehensive", "cornerstone",
     "pivotal", "practitioner", "robust", "streamline", "synergy", "utilise",
     "utilize"]
 
+# Entries the stem rule below gets wrong, as the body of their own regex.
+# `novel` needs a closed suffix list, since an open one reaches `novelist`.
+# `synergy` and `current approaches` need a shorter stem than trimming a
+# trailing `e` gives, to reach `synergies`, `synergistic`, and the singular
+# `current approach`.
+const _BANNED_WORD_PATTERNS = Dict("novel" => "novel(?:s|ly|ty|ties)?",
+    "synergy" => "synerg(?:y|ies|i[sz]e[sd]?|i[sz]ing|istic(?:ally)?)",
+    "current approaches" => "current\\s+approach(?:es)?")
+
 # A banned word or phrase as a regex: case-insensitive, anchored at a word
 # boundary, any suffix allowed, and tolerant of how a phrase happens to be
 # wrapped across lines (a two-word phrase is one phrase however the author
 # broke the line). A trailing `e` is trimmed off the final word so the `-ing`
 # and `-ed` inflections are caught as well as the `-s` one: `leverage` has to
 # match `leveraging`, which `leverage[a-z]*` alone would miss. The trimmed
-# stems are long enough not to reach an unrelated word.
+# stems are long enough not to reach an unrelated word, bar the entries in
+# `_BANNED_WORD_PATTERNS`, which carry their own body instead.
 function _banned_word_regex(word::AbstractString)
-    stems = map(_regex_escape, split(strip(word)))
-    stems[end] = replace(stems[end], r"e$" => "")
-    return Regex("\\b" * join(stems, "\\s+") * "[a-z]*\\b", "i")
+    key = String(strip(word))
+    body = get(_BANNED_WORD_PATTERNS, lowercase(key), nothing)
+    if body === nothing
+        stems = map(_regex_escape, split(key))
+        stems[end] = replace(stems[end], r"e$" => "")
+        body = join(stems, "\\s+") * "[a-z]*"
+    end
+    return Regex("\\b" * body * "\\b", "i")
 end
 
 # Markup scrubbed from one prose line: inline code spans, images, link targets
@@ -849,9 +867,10 @@ const _DOT_LEADER = '\u2024'
 # lowercase word (`Gamma, LogNormal, etc. without extra work`).
 const _SENTENCE_BREAK = r"(?<=[.!?])\s+(?=[A-Z0-9(\[\"'])"
 
-# Split prose into sentences. Deliberately conservative: what this misses reads
-# as one longer sentence rather than as two short ones, so a genuinely long
-# sentence is still measured whole.
+# Split prose into sentences. The capital rule breaks at any abbreviation not
+# listed above (`Fig. 1`, `Dr. Smith`), so one sentence can be reported as two:
+# fine for the length check, which then measures fragments and passes, but the
+# one-sentence bullet rule false-positives on it. Tracked in #347.
 function _sentences(text::AbstractString)
     protected = text
     for abbrev in _PROSE_ABBREVIATIONS
