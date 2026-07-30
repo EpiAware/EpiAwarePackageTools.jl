@@ -8,7 +8,7 @@ fix is a rename rather than a hunt for what is missing.
 The scaffolded README skeleton seeds the heading and a placeholder bullet; the
 bullets themselves are package-specific (one sentence per sibling with a real
 relationship, linked to that sibling's docs) and cannot be templated.
-Five adopting packages do not carry the section in that slot yet, so bumping to
+Four adopting packages do not carry the section in that slot yet, so bumping to
 this version reds their README check until each is updated.
 
 Three further README checks ship alongside, none of them wired into the
