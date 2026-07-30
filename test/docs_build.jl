@@ -1,6 +1,9 @@
 # Unit tests for the generic docs-build machinery (EpiAwarePackageTools.DocsBuild).
-# These exercise the page generators in isolation — the heavy makedocs orchestration
-# is covered by each package's own docs build, not re-run here.
+# These exercise the page generators in isolation. One testitem
+# ("build_docs: benchmarks pipeline + shipped nav") drives the full
+# `build_docs` orchestration, for the two steps with no other observable
+# surface: which directory each Literate pipeline renders into, and which
+# nav the shipped VitePress sidebar carries.
 
 @testitem "DocsBuild page generators" begin
     using Test
@@ -2079,5 +2082,106 @@ end
         plain = ["Home" => "index.md",
             "API reference" => ["Public API" => "lib/public.md"]]
         @test DB._strip_extensions_nav(plain, src_dir) == plain
+    end
+end
+
+@testitem "build_docs: benchmarks pipeline + shipped nav (#305)" begin
+    using Test
+    using EpiAwarePackageTools
+
+    # The only test that drives `build_docs` end to end. Two of its steps
+    # have no other observable surface: which directory each Literate
+    # pipeline renders into, and which nav the shipped VitePress sidebar
+    # ends up carrying. `build_vitepress = false` skips the npm pass and
+    # `deploy = false` the gh-pages push, so this needs nothing but git.
+    root = mktempdir()
+    write(joinpath(root, "Project.toml"),
+        """
+        name = "NavProbe"
+        uuid = "8b1b9c1e-5c1d-4f4a-9f0e-2a1f6d5c7b31"
+        version = "0.1.0"
+        """)
+    mkpath(joinpath(root, "src"))
+    write(joinpath(root, "src", "NavProbe.jl"),
+        """
+        \"\"\"
+        NavProbe docstring.
+        \"\"\"
+        module NavProbe
+        "probe docstring"
+        probe
+        probe() = 1
+        export probe
+        end
+        """)
+    write(joinpath(root, "README.md"), "# NavProbe\n\nA probe package.\n")
+    write(joinpath(root, "NEWS.md"), "# Changelog\n\n## Unreleased\n\n- x.\n")
+    docs = mkpath(joinpath(root, "docs"))
+    write(joinpath(docs, "release_notes_header.jl"),
+        "const RELEASE_NOTES_HEADER = \"\"\"\n# Release notes\n\n\"\"\"\n")
+    mkpath(joinpath(docs, "src"))
+    # Documenter needs a git origin and a commit to resolve source links.
+    run(pipeline(`git -C $root init -q`; stdout = devnull, stderr = devnull))
+    run(pipeline(`git -C $root remote add origin
+                  https://github.com/Org/NavProbe.jl.git`;
+        stdout = devnull, stderr = devnull))
+    run(pipeline(`git -C $root add -A`; stdout = devnull, stderr = devnull))
+    run(pipeline(
+        `git -C $root -c user.name=t -c user.email=t@t
+         commit -qm init`; stdout = devnull, stderr = devnull))
+
+    # `pkgdir(mod)` is how `build_docs` finds the project, so the probe has
+    # to be loaded as a real package rather than defined inline.
+    push!(LOAD_PATH, root)
+    try
+        @eval import NavProbe
+        mod = NavProbe
+
+        # A nav that names both benchmark pages, but only `ad-comparison.md`
+        # is ever registered for rendering (`benchmark_page = false` skips
+        # the performance-history page). That is the half-remediated adopter
+        # `_strip_benchmark_nav` exists for.
+        pages = [
+            "Home" => "index.md",
+            "Getting started" => [
+                "Tutorials" => ["Guide" => "tutorials/guide.md"]
+            ],
+            "Benchmarks" => [
+                "Performance over time" => "benchmarks/over-time.md",
+                "AD comparison" => "benchmarks/ad-comparison.md"
+            ],
+            "Release notes" => "release-notes.md"]
+
+        bench_stub = "# [AD comparison](@id ad-comparison)"
+        Base.invokelatest(EpiAwarePackageTools.build_docs, mod;
+            repo = "Org/NavProbe.jl", authors = "Nobody", pages = pages,
+            skip_notebooks = true, tutorials_subdir = "tutorials",
+            heavy_tutorials = ["guide.jl"],
+            tutorial_stubs = ["guide.md" => "# [Guide](@id guide)"],
+            heavy_benchmarks = ["ad-comparison.jl"],
+            benchmark_stubs = ["ad-comparison.md" => bench_stub],
+            benchmark_page = false, build_vitepress = false, deploy = false)
+
+        # The two pipelines render into their own directories: a benchmark
+        # page lands under `src/benchmarks/`, never under the tutorials
+        # subdir, and neither list leaks into the other's directory.
+        src = joinpath(docs, "src")
+        @test isfile(joinpath(src, "benchmarks", "ad-comparison.md"))
+        @test isfile(joinpath(src, "tutorials", "guide.md"))
+        @test !isfile(joinpath(src, "tutorials", "ad-comparison.md"))
+        @test !isfile(joinpath(src, "benchmarks", "guide.md"))
+
+        # And the nav the site actually ships: the "Benchmarks" group keeps
+        # the page that exists and drops the one that was never rendered,
+        # rather than shipping a dangling sidebar link.
+        cfg = joinpath(docs, "build", ".documenter", ".vitepress",
+            "config.mts")
+        @test isfile(cfg)
+        nav = read(cfg, String)
+        @test occursin("text: 'Benchmarks'", nav)
+        @test occursin("link: '/benchmarks/ad-comparison'", nav)
+        @test !occursin("over-time", nav)
+    finally
+        filter!(!=(root), LOAD_PATH)
     end
 end
