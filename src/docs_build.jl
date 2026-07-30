@@ -1941,20 +1941,15 @@ function _is_benchmark_nav_target(target::AbstractString)
         endswith(target, ".md")
 end
 
-# Remove any benchmark leaf from a Documenter `pages` nav tree (at any
-# nesting depth) whose target page is not present under `src_dir` --
-# mirroring `_strip_extensions_nav` above, not gated on `benchmark_page`
-# alone. Three package-owned states can each leave a dangling entry:
-# `docs/pages.jl` (the nav leaf itself, including a pre-#305 `benchmarks.md`
-# one), and `docs/docs_config.jl` (whether `over-time.md`/`ad-comparison.md`
-# get written, via `BENCHMARK_PAGE`/`HEAVY_BENCHMARKS`). `update` warns when
-# either file is stale (`_benchmarks_nav_gap`, `_ad_benchmarks_config_gap`),
-# but nothing stops an adopter fixing only one -- e.g. adding the "AD
-# comparison" nav entry per the nav-gap warning while never adding
-# `ad-comparison.jl` to `HEAVY_BENCHMARKS`, so the page is never rendered.
-# Judging on the built page existing, exactly like extensions, self-heals
-# every combination regardless of which warning was acted on. A "Benchmarks"
-# group left with no entries by this removal is dropped too.
+# Remove any benchmark leaf (see `_is_benchmark_nav_target`) whose page is
+# not present under `src_dir`, at any nesting depth, and any group left empty
+# by that removal -- mirroring `_strip_extensions_nav` above, not gated on
+# `benchmark_page` alone. Two package-owned files decide whether a leaf has a
+# page: `docs/pages.jl` names it, `docs/docs_config.jl` registers it for
+# rendering (`BENCHMARK_PAGE`/`HEAVY_BENCHMARKS`). `update` warns when either
+# is stale (`_benchmarks_nav_gap`, `_ad_benchmarks_config_gap`), but nothing
+# stops an adopter fixing one and not the other, so judge on the page rather
+# than on the flags and every combination self-heals.
 function _strip_benchmark_nav(pages, src_dir::AbstractString)
     kept = Any[]
     for entry in pages
