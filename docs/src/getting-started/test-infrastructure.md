@@ -6,7 +6,8 @@ This page describes what it writes, how the pieces fit together, and how to run
 and configure them.
 See [Infrastructure and template sync](@ref infrastructure) for the
 managed-versus-package-owned split that governs which of these files a sync
-rewrites.
+rewrites, and [Package standards](@ref standards) for the standards these checks
+hold a package to (and the ones no check covers).
 
 ## The test tree
 
