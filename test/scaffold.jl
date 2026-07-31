@@ -1829,6 +1829,12 @@
                 # The package-owned seed carries the body sections.
                 @test occursin("## Why Fresh?", txt)
                 @test occursin("## Getting started", txt)
+                # Seeded in the slot #292 puts it in: after Getting started,
+                # before the Documentation section.
+                @test occursin("## Related packages", txt)
+                @test findfirst("## Getting started", txt)[1] <
+                      findfirst("## Related packages", txt)[1] <
+                      findfirst("## Where to learn more", txt)[1]
                 @test occursin("## Where to learn more", txt)
                 # The BibTeX citation is no longer inlined in the seed — the
                 # citation content lives in CITATION.cff (#67).

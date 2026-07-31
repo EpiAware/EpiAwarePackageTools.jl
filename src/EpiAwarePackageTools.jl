@@ -16,7 +16,11 @@ Two groups are provided.
     docstring conventions ([`test_docstring_format`](@ref)), per-extension
     method ambiguities ([`test_ext_ambiguities`](@ref)), doctests
     ([`test_doctest`](@ref)), and formatting/linting ([`test_formatting`](@ref),
-    [`test_linting`](@ref)).
+    [`test_linting`](@ref)). README structure and wording have their own set:
+    [`test_readme_sections`](@ref) for the standard section structure, plus
+    [`test_readme_placeholders`](@ref), [`test_readme_prose`](@ref), and
+    [`test_readme_bullets`](@ref), which are opt-in (a package calls them from
+    its own tests; the scaffolded quality testset does not).
   - An AD-gradient harness ([`check_broken`](@ref),
     [`test_working_backend`](@ref), [`test_partial_backend`](@ref)) checks a
     package's reverse/forward AD backends against a ForwardDiff reference. It
@@ -119,6 +123,8 @@ export dynamicppl_model_filter
 export test_docstring_format, test_ext_ambiguities, test_doctest,
        test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
+export STALE_README_HEADINGS, BANNED_README_WORDS
+export test_readme_placeholders, test_readme_prose, test_readme_bullets
 export on_surface_ambiguities, raw_ambiguity_count
 export test_option_validation
 export scaffold, scaffold_generate, scaffold_inputs, setup_checklist

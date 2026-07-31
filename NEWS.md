@@ -1,5 +1,30 @@
 ## Unreleased
 
+The standard README structure now requires a `## Related packages` section, in
+the slot after Getting started and before the Documentation section (#292).
+`test_readme_sections` also reports the retired `What packages work well with
+X?` heading as drift, naming `## Related packages` as its replacement, so the
+fix is a rename rather than a hunt for what is missing.
+The scaffolded README skeleton seeds the heading and a placeholder bullet; the
+bullets themselves are package-specific (one sentence per sibling with a real
+relationship, linked to that sibling's docs) and cannot be templated.
+Four adopting packages do not carry the section in that slot yet, so bumping to
+this version reds their README check until each is updated.
+
+Three further README checks ship alongside, none of them wired into the
+scaffolded quality testset: turning them on for adopting packages is a separate
+rollout decision.
+`test_readme_placeholders` fails when a README still carries the scaffold's
+unfilled placeholder text, deriving its patterns from the seeded skeleton so it
+tracks the template.
+`test_readme_prose` fails on a banned-word list and on sentences over a
+configurable length, reading only prose (code fences, tables, link URLs, and
+inline code are skipped).
+`test_readme_bullets` checks the Why section's bullets: it flags the
+feature-inventory form (`**Label**: ...`) that #292 rules out in favour of
+motivation sentences, bounds the bullet count, and flags a multi-sentence
+bullet.
+
 A package that declares `[extensions]` now gets an "Extensions" group in its
 docs nav, one entry per extension, each pointing at a seeded page under
 `docs/src/extensions/` (#319).
