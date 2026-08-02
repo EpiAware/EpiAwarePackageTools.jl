@@ -452,10 +452,10 @@
                 @test occursin("using Wombat", mk)
                 @test occursin("EpiAware/Wombat.jl", mk)
                 @test !occursin("makedocs", mk)
-                # Default docs hosting is project-pages: deploy_url = nothing
+                # Default docs hosting is project-pages: deploy_url=nothing
                 # (no custom subdomain), so DocumenterVitepress derives the base
                 # from the repo name and the site needs no DNS.
-                @test occursin("deploy_url = nothing", mk)
+                @test occursin("deploy_url=nothing", mk)
                 @test !occursin("wombat.epiaware.org", mk)
                 @test !occursin("Documenter.HTML", mk)
                 @test !occursin("{{", mk)
@@ -528,9 +528,9 @@
                 # builds a root base (a scheme-less host is baked into the base
                 # and 404s every asset).
                 @test occursin(
-                    "deploy_url = \"https://wombat.epiaware.org\"", mk
+                    "deploy_url=\"https://wombat.epiaware.org\"", mk
                 )
-                @test !occursin("deploy_url = nothing", mk)
+                @test !occursin("deploy_url=nothing", mk)
                 @test !occursin("{{", mk)
                 txt = read(joinpath(dir, "README.md"), String)
                 # Badges link the bare host (no scheme baked into the path).
@@ -545,7 +545,7 @@
                 _fake_pkg(dir; name="Wombat")
                 scaffold(dir; docs_subdomain="docs.example.org")
                 mk = read(_dest(dir, "docs/make.jl"), String)
-                @test occursin("deploy_url = \"https://docs.example.org\"", mk)
+                @test occursin("deploy_url=\"https://docs.example.org\"", mk)
                 txt = read(joinpath(dir, "README.md"), String)
                 @test occursin("docs.example.org/stable/", txt)
             end
@@ -657,6 +657,10 @@
                 j = findfirst(
                     l -> occursin("getfield(@__MODULE__, sym)", l), lines
                 )
+                # Blue expands `_cfg` into a `function ... end` block (not a
+                # one-line def), so the extracted prelude must include the
+                # closing `end` too or it's an unterminated function.
+                j = findnext(l -> strip(l) == "end", lines, j)
                 prelude = joinpath(dir, "docs", "_prelude188.jl")
                 write(prelude, join(lines[i:j], "\n") * "\n")
                 m = Module()
@@ -677,7 +681,7 @@
                 scaffold(dir; docs_subdomain=true)
                 mk = _dest(dir, "docs/make.jl")
                 @test occursin(
-                    "deploy_url = \"https://wombat.epiaware.org\"",
+                    "deploy_url=\"https://wombat.epiaware.org\"",
                     read(mk, String),
                 )
                 # The common maintenance call: no docs_subdomain kwarg. The
@@ -686,10 +690,10 @@
                 # nor churns the literal.
                 update(dir)
                 @test occursin(
-                    "deploy_url = \"https://wombat.epiaware.org\"",
+                    "deploy_url=\"https://wombat.epiaware.org\"",
                     read(mk, String),
                 )
-                @test !occursin("deploy_url = nothing", read(mk, String))
+                @test !occursin("deploy_url=nothing", read(mk, String))
                 # The README badges stay on the subdomain host too.
                 @test occursin(
                     "wombat.epiaware.org/stable/",
@@ -701,9 +705,9 @@
                 _fake_pkg(dir; name="Wombat")
                 scaffold(dir)  # default: project-pages
                 mk = _dest(dir, "docs/make.jl")
-                @test occursin("deploy_url = nothing", read(mk, String))
+                @test occursin("deploy_url=nothing", read(mk, String))
                 update(dir)
-                @test occursin("deploy_url = nothing", read(mk, String))
+                @test occursin("deploy_url=nothing", read(mk, String))
             end
         end
 
@@ -745,19 +749,19 @@
                 # Simulate a repo carrying the old scheme-less literal.
                 old = replace(
                     read(mk, String),
-                    "deploy_url = \"https://wombat.epiaware.org\"" => "deploy_url = \"wombat.epiaware.org\"",
+                    "deploy_url=\"https://wombat.epiaware.org\"" => "deploy_url=\"wombat.epiaware.org\"",
                 )
                 write(mk, old)
                 @test occursin(
-                    "deploy_url = \"wombat.epiaware.org\"", read(mk, String)
+                    "deploy_url=\"wombat.epiaware.org\"", read(mk, String)
                 )
                 update(dir)  # no docs_subdomain kwarg
                 @test occursin(
-                    "deploy_url = \"https://wombat.epiaware.org\"",
+                    "deploy_url=\"https://wombat.epiaware.org\"",
                     read(mk, String),
                 )
                 @test !occursin(
-                    "deploy_url = \"wombat.epiaware.org\",", read(mk, String)
+                    "deploy_url=\"wombat.epiaware.org\",", read(mk, String)
                 )
             end
         end
@@ -1030,7 +1034,10 @@
                 @test occursin("using Wombat", cfg)
                 @test !occursin("{{PACKAGE}}", cfg)
                 jet = read(_dest(dir, "test/jet/runtests.jl"), String)
-                @test occursin("JET.test_package(Wombat", jet)
+                # Blue wraps the call onto its own line for a name this short,
+                # so the package name is on the line after `test_package(`.
+                @test occursin("JET.test_package(", jet)
+                @test occursin("Wombat; target_modules=(Wombat,)", jet)
             end
         end
 
