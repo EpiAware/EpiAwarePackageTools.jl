@@ -2068,6 +2068,12 @@
                 # The package-owned seed carries the body sections.
                 @test occursin("## Why Fresh?", txt)
                 @test occursin("## Getting started", txt)
+                # Seeded in the slot #292 puts it in: after Getting started,
+                # before the Documentation section.
+                @test occursin("## Related packages", txt)
+                @test findfirst("## Getting started", txt)[1] <
+                      findfirst("## Related packages", txt)[1] <
+                      findfirst("## Where to learn more", txt)[1]
                 @test occursin("## Where to learn more", txt)
                 # The BibTeX citation is no longer inlined in the seed — the
                 # citation content lives in CITATION.cff (#67).
@@ -2931,6 +2937,109 @@
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String)
                 @test occursin("downgrade_compat = false", sync)
+            end
+        end
+
+        @testset "scaffold_update warns before dropping a caller repointed at a local reusable workflow (#325)" begin
+            # The regression #325 reports: a package repoints a managed
+            # caller job at a repo-local copy of the reusable workflow (so
+            # it can pass an input the shared reusable does not expose,
+            # e.g. `downgrade-compat` → `./.github/workflows/downgrade.yaml`
+            # with `projects: '., test'`). `_CALLER_JOB` keys only the
+            # org's shared-reusable shape, so `_preserve_caller_with_inputs`
+            # cannot see the job and the next resync silently reverts it,
+            # dropping the input with no trace in the sync output. Option 2
+            # from the issue: still revert (no change to preservation
+            # behaviour — the caller cannot be kept without teaching
+            # `_CALLER_JOB` to key local paths too), but warn so the loss is
+            # visible.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                caller = _dest(dir, ".github/workflows/test.yaml")
+                before = read(caller, String)
+                @test occursin(
+                    "uses: EpiAware/.github/.github/workflows/downgrade.yml",
+                    before)
+                localised = replace(before,
+                    r"uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+" => "uses: ./.github/workflows/downgrade.yaml",
+                    r"(?m)^(      )julia_version: '1'$" => s"\1projects: '., test'")
+                @test occursin(
+                    "uses: ./.github/workflows/downgrade.yaml", localised)
+                @test occursin("projects: '., test'", localised)
+                write(caller, localised)
+                # `downgrade_compat = true` explicitly, matching what the
+                # scheduled `template-sync.yaml` actually bakes in and
+                # calls (see the "scheduled sync is managed" testset
+                # below) — the real regression's trigger, rather than
+                # `_detect_downgrade_compat`'s own `occursin("downgrade.yml",
+                # ...)` heuristic, which a `downgrade.yaml`-named local
+                # file (deliberately not `.yml`, to prove path/extension
+                # do not matter to this warning) does not satisfy.
+                local res
+                @test_logs (:warn,
+                    r"downgrade-compat.*local reusable workflow"is) match_mode=:any begin
+                    res = scaffold_update(dir; ad = false, downgrade_compat = true)
+                end
+                # The loss is now visible ...
+                @test !isempty(res.warnings)
+                @test any(
+                    w -> occursin(".github/workflows/test.yaml", w) &&
+                         occursin("downgrade-compat", w), res.warnings)
+                # ... but the job still reverts: no change to what gets
+                # emitted, only new diagnostic output.
+                after = read(caller, String)
+                @test occursin(
+                    "uses: EpiAware/.github/.github/workflows/downgrade.yml",
+                    after)
+                @test !occursin("projects:", after)
+                @test caller in res.updated
+            end
+            # A local caller with no `with:` block (nothing package-owned
+            # to lose) does not warn.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat2")
+                scaffold(dir; ad = false)
+                caller = _dest(dir, ".github/workflows/test.yaml")
+                before = read(caller, String)
+                localised = replace(before,
+                    r"(?m)^  downgrade-compat:\n    uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+\n    with:\n      julia_version: '1'\n    secrets: inherit  # pragma: allowlist secret$" => "  downgrade-compat:\n    uses: ./.github/workflows/downgrade.yaml\n    secrets: inherit  # pragma: allowlist secret")
+                @test occursin(
+                    "uses: ./.github/workflows/downgrade.yaml", localised)
+                @test !occursin("with:", localised) ||
+                      !occursin(
+                    r"uses: \./\.github/workflows/downgrade\.yaml\n    with:",
+                    localised)
+                write(caller, localised)
+                res = scaffold_update(dir; ad = false)
+                @test isempty(res.warnings)
+            end
+            # A normal org-reusable caller repointed via `_preserve_caller_with_inputs`
+            # (the #73 case) is unaffected: it is preserved, not reverted,
+            # and does not spuriously trigger this warning.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat3")
+                scaffold(dir; ad = false)
+                caller = _dest(dir, ".github/workflows/test.yaml")
+                before = read(caller, String)
+                overridden = replace(before,
+                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'")
+                write(caller, overridden)
+                res = scaffold_update(dir; ad = false)
+                @test isempty(res.warnings)
+                @test occursin("julia_version: '1.12'", read(caller, String))
+            end
+            # A repo-local *composite action* step (`uses:
+            # ./.github/actions/<name>`, e.g. `auto-version-increment.yaml`'s
+            # `increment-version` call), a routine, unrelated shape that
+            # also has a `with:` block, must not be mistaken for a
+            # local-reusable-workflow caller job.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat4")
+                res = scaffold(dir; ad = false)
+                @test isempty(res.warnings)
+                res2 = scaffold_update(dir; ad = false)
+                @test isempty(res2.warnings)
             end
         end
 

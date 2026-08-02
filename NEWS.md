@@ -53,6 +53,31 @@ far smaller cost than losing the build.
 `update` now warns when either edit is still outstanding, so the gap
 surfaces at sync time rather than only in this note.
 
+The standard README structure now requires a `## Related packages` section, in
+the slot after Getting started and before the Documentation section (#292).
+`test_readme_sections` also reports the retired `What packages work well with
+X?` heading as drift, naming `## Related packages` as its replacement, so the
+fix is a rename rather than a hunt for what is missing.
+The scaffolded README skeleton seeds the heading and a placeholder bullet; the
+bullets themselves are package-specific (one sentence per sibling with a real
+relationship, linked to that sibling's docs) and cannot be templated.
+Four adopting packages do not carry the section in that slot yet, so bumping to
+this version reds their README check until each is updated.
+
+Three further README checks ship alongside, none of them wired into the
+scaffolded quality testset: turning them on for adopting packages is a separate
+rollout decision.
+`test_readme_placeholders` fails when a README still carries the scaffold's
+unfilled placeholder text, deriving its patterns from the seeded skeleton so it
+tracks the template.
+`test_readme_prose` fails on a banned-word list and on sentences over a
+configurable length, reading only prose (code fences, tables, link URLs, and
+inline code are skipped).
+`test_readme_bullets` checks the Why section's bullets: it flags the
+feature-inventory form (`**Label**: ...`) that #292 rules out in favour of
+motivation sentences, bounds the bullet count, and flags a multi-sentence
+bullet.
+
 A package that declares `[extensions]` now gets an "Extensions" group in its
 docs nav, one entry per extension, each pointing at a seeded page under
 `docs/src/extensions/` (#319).
@@ -145,3 +170,5 @@ The managed `Taskfile.yml` `coverage` task now instruments the actual test run. 
 The managed `Quality: formatting` testitem now runs through the package's isolated, exactly-pinned `test/formatter/` environment (the same isolation `test_linting` already used for JET), instead of resolving JuliaFormatter from the shared test environment where its version floats with the CI Julia in the matrix. Packages get this automatically once `qa_config.jl` gains a `formatter_env` key on their next `scaffold`; adopters whose package-owned `qa_config.jl` predates the key keep today's in-process check via a `hasproperty` guard that warns when it engages, matching the existing `QA_CONFIG.readme` fallback idiom (#188, #321).
 
 `update` now seeds a missing `CITATION.cff` (write-once, like `scaffold`) instead of only ever rendering the managed "How to cite" README section that points at it. A package that adopted the template before citation seeding existed used to carry a permanently dangling `CITATION.cff` link that no `update` could ever fix — a hard docs-linkcheck 404 the moment its README reached a linkchecked build (#322).
+
+`update`/`scaffold_update` now warns before a resync silently reverts a caller job that was repointed at a repo-local reusable workflow to add its own `with:` inputs. `_CALLER_JOB` only keys the org's shared-reusable `uses:` shape, so a job pointed at `./.github/workflows/<file>.yaml` instead was never seen and never preserved: the sync would quietly drop its inputs and revert it to the shared reusable, exactly what happened to `DistributionsInference.jl`'s `downgrade-compat` job. The job still reverts — that behaviour is unchanged — but the loss now shows up as a `@warn` and an entry in the returned `warnings` vector, so it surfaces in the sync PR instead of as an unrelated-looking red check days later (#325).
