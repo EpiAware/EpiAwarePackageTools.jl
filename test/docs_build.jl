@@ -2094,7 +2094,16 @@ end
     # pipeline renders into, and which nav the shipped VitePress sidebar
     # ends up carrying. `build_vitepress = false` skips the npm pass and
     # `deploy = false` the gh-pages push, so this needs nothing but git.
-    root = mktempdir()
+    # `realpath` collapses macOS's `/var` -> `/private/var` symlink up
+    # front. Without it, Documenter/DocumenterVitepress compute some
+    # absolute paths from the unresolved `/var/folders/...` form and others
+    # (via `realpath`) from the resolved `/private/var/folders/...` form;
+    # the two disagree on directory depth, so a relative path meant to
+    # reach `docs/build/release-notes.md` climbs one level too far and 404s
+    # (`SystemError: opening file ".../release-notes.md": No such file or
+    # directory`) -- macOS-only, since Linux/Windows runners don't symlink
+    # their temp dirs this way.
+    root = realpath(mktempdir())
     write(joinpath(root, "Project.toml"),
         """
         name = "NavProbe"
