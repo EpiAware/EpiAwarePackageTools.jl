@@ -17,6 +17,11 @@
 # check still reports on a Dependabot PR — as a clean green no-op, not the red
 # it used to be under Dependabot's restricted token (#256). Drift on a
 # Dependabot bump is caught by the next scheduled run.
+#
+# A scheduled run has no audience, so a failure that needs a human is reported
+# as an issue on this repo rather than as a red X nobody opens (#352). One
+# issue, labelled `template-sync`, is edited in place on each failing run and
+# closed again by the first clean run.
 
 name: Template sync
 
@@ -36,6 +41,9 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  # issues: write so a failing run can open, edit and close the single
+  # `template-sync` tracking issue that tells the maintainer about the drift.
+  issues: write
 
 jobs:
   sync:
@@ -130,3 +138,83 @@ jobs:
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,
             `LICENSE`) are never touched.
+      # A clean run means any open tracker is stale, so close it. Without this
+      # a repo that fixed its drift keeps an open issue about drift it no
+      # longer has, and the tracker stops meaning anything.
+      - name: Close the drift issue once a sync lands cleanly
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          run_url="$run_url/actions/runs/$GITHUB_RUN_ID"
+          open=$(gh issue list --state open --label template-sync \
+            --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$open" ]; then
+            msg="Template sync ran cleanly, so this drift is resolved:"
+            gh issue close "$open" --comment "$msg $run_url"
+          fi
+      # A scheduled run has no audience: the failure is a red X on the Actions
+      # tab that recurs every week until someone happens to look (#352). Report
+      # it where the maintainer will see it instead, and report it exactly
+      # once — the open `template-sync` issue is edited in place, and a new
+      # one is opened only when there is none, so a failure that repeats every
+      # Monday does not become a pile of duplicate issues.
+      - name: Report the drift as an issue when the sync fails
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          run_url="$run_url/actions/runs/$GITHUB_RUN_ID"
+          # The kit lives at one fixed address, not under the adopting repo's
+          # own org, so this URL is a literal rather than a substituted org.
+          kit=https://github.com/EpiAware/EpiAwarePackageTools.jl
+          cat > "$RUNNER_TEMP/drift-issue.md" <<EOF
+          The scheduled template-sync could not bring this repository back in
+          line with the managed EpiAware standard, so its CI infrastructure is
+          drifting from the kit.
+
+          Failing run: $run_url
+
+          ## What to do
+
+          Take one of two routes. Editing the managed file to make the failure
+          go away is not one of them: the next sync re-applies the standard and
+          reverts it.
+
+          1. **Fix the drift here.** Re-apply the standard locally and commit
+             the result:
+
+                 julia -e 'using EpiAwarePackageTools;
+                 EpiAwarePackageTools.update(".")'
+
+          2. **Ask the kit for the flexibility.** If \`update\` throws, or it
+             overwrites something this package legitimately needs to keep, that
+             is a gap in the kit rather than something to work around here.
+             Open an issue describing the usage that fails:
+             $kit/issues/new
+
+          Pushing a workflow file also needs the template-sync App configured
+          (\`TEMPLATE_SYNC_APP_ID\` variable and
+          \`TEMPLATE_SYNC_APP_PRIVATE_KEY\` secret); without it the sync can
+          only carry non-workflow drift.
+
+          ---
+
+          Opened and updated by the Template sync workflow. This one issue is
+          edited in place on each failing run, never duplicated, and closed
+          again by the first clean run.
+          EOF
+          gh label create template-sync --force --color ededed \
+            --description "Managed infra has drifted from the kit" >/dev/null
+          open=$(gh issue list --state open --label template-sync \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue edit "$open" --body-file "$RUNNER_TEMP/drift-issue.md"
+          else
+            gh issue create --label template-sync \
+              --title "Template sync failed: managed infra has drifted" \
+              --body-file "$RUNNER_TEMP/drift-issue.md"
+          fi

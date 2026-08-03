@@ -2884,6 +2884,43 @@
             end
         end
 
+        @testset "a failed sync opens one tracking issue (#352)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                sync = read(
+                    joinpath(dir, ".github/workflows/template-sync.yaml"),
+                    String)
+                # A scheduled run has no audience: a red X on the Actions tab
+                # recurs every week until someone happens to look. The failing
+                # run must tell the maintainer instead, via an issue on their
+                # own repo, so `issues: write` has to be granted.
+                @test occursin("issues: write", sync)
+                # Exactly one issue: the failure step reuses the open
+                # `template-sync` issue and edits it, and only creates one when
+                # no open issue carries that label. A create-per-run would bury
+                # the repo in duplicates of the same weekly failure.
+                @test occursin("gh issue edit", sync)
+                @test occursin("gh issue create", sync)
+                @test occursin("--label template-sync", sync)
+                # The step runs only when something failed, and never on the
+                # pull-request no-op leg (which cannot fail, and whose token
+                # could not open an issue anyway).
+                @test occursin(
+                    "failure() && github.event_name != 'pull_request'", sync)
+                # The two routes out are both named: fix the drift here, or ask
+                # the kit for the flexibility. Silently pinning/patching the
+                # managed file locally is the thing the issue must steer away
+                # from, since the next sync reverts it.
+                @test occursin(
+                    "github.com/EpiAware/EpiAwarePackageTools.jl", sync)
+                @test occursin("issues/new", sync)
+                # A clean run closes the issue again, so a stale tracker never
+                # outlives the drift it reported.
+                @test occursin("gh issue close", sync)
+            end
+        end
+
         @testset "root [workspace] stanza injected + preserved" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
