@@ -167,6 +167,20 @@
                     String)
                 @test occursin(
                     "EpiAware/.github/.github/workflows/cancel-on-close.yml", coc)
+                # The TagBot caller invokes the org reusable and carries the
+                # release-docs safety net: a tag created with the Actions app
+                # token (any package without a `DOCUMENTER_KEY` deploy key)
+                # raises no push event, so the docs build is dispatched by
+                # hand instead and the release never ships `dev`-only docs.
+                tagbot = read(_dest(dir, ".github/workflows/TagBot.yaml"),
+                    String)
+                @test occursin("EpiAware/.github/.github/workflows/tagbot.yml@",
+                    tagbot)
+                @test occursin("ReleaseDocs:", tagbot)
+                @test occursin("needs: TagBot", tagbot)
+                @test occursin("actions: write", tagbot)
+                @test occursin("gh workflow run document.yaml", tagbot)
+                @test !occursin("{{ORG}}", tagbot)
                 # The registrability caller invokes the org reusable, pins it
                 # by SHA (like the other callers, so Dependabot can bump it),
                 # and triggers only on a Project.toml change / dispatch / main.

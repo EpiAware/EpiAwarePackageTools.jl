@@ -148,6 +148,33 @@ It runs two read-only checks.
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
 
+## [Release documentation](@id release-docs)
+
+Documenter publishes a versioned `stable` and `vX.Y` copy of the docs only
+when the build runs at a release tag.
+Nothing makes that happen unless a `push` event reaches the managed
+`document.yaml` at the tag.
+
+TagBot pushes the tag over SSH when a `DOCUMENTER_KEY` deploy key is set.
+Without the key it falls back to the Actions app token, and GitHub raises no
+`push` or `release` event for a ref that token created, so the docs build never
+runs at the tag and the site keeps serving `dev` alone.
+The same fallback also fails outright when the tagged commit touches a workflow
+file, because the app token has no `workflows` permission.
+Adding the key is therefore the real fix, and
+[`setup_checklist`](@ref) lists it with the `DocumenterTools.genkeys` call that
+generates the pair.
+
+The managed `TagBot.yaml` carries a safety net for a package that has no key
+yet.
+A `ReleaseDocs` job runs after TagBot, and when the latest release has no
+`document.yaml` run of its own it dispatches one at that tag.
+`workflow_dispatch` is one of the two events GitHub does raise from the app
+token, and Documenter accepts it for a release build, so the versioned docs
+still publish.
+The job is idempotent and backfills a release tagged before it existed, so an
+adopting package repairs itself on its next TagBot run.
+
 ## Release nudges
 
 The managed `release-nudge.yaml` caller runs the shared `EpiAware/.github`

@@ -1,5 +1,23 @@
 ## Unreleased
 
+Released packages now publish versioned documentation.
+Documenter writes a `stable` and `vX.Y` copy of the site only when the docs
+build runs at a release tag, and no scaffolded package had ever had one: TagBot
+tags with the Actions app token unless a `DOCUMENTER_KEY` deploy key is set,
+and GitHub raises no `push` or `release` event for a ref that token created.
+Every adopting package was therefore serving `dev` docs alone, while
+CensoredDistributions.jl (which has the key, and predates the kit) was not.
+The managed `TagBot.yaml` gains a `ReleaseDocs` job that dispatches the docs
+build at the latest release tag when that tag has no run of its own.
+`workflow_dispatch` is one of the two events GitHub does raise from the app
+token, so the versioned docs publish without a per-repository secret, and the
+job backfills a release tagged before it existed.
+`setup_checklist` now also lists the deploy key, with the
+`DocumenterTools.genkeys` call that generates it.
+Adding the key remains the better fix: it is also what lets TagBot tag a commit
+that touches a workflow file, which the app token is refused outright (the
+failure that left ConvolvedDistributions.jl v0.1.0 untagged).
+
 The standard README structure now requires a `## Related packages` section, in
 the slot after Getting started and before the Documentation section (#292).
 `test_readme_sections` also reports the retired `What packages work well with
