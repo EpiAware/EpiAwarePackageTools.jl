@@ -38,7 +38,7 @@ jobs:
     # a non-TagBot comment, so there is nothing to check.
     if: ${{ !cancelled() && needs.TagBot.result != 'skipped' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       # `actions: write` to dispatch the docs build; `contents: read` so `gh`
       # can read the releases list.
@@ -62,9 +62,24 @@ jobs:
             echo "No published release yet; nothing to build."
             exit 0
           fi
-          # A run at a tag reports the tag name as its `branch`.
+          # A package that DOES have the deploy key gets its tag over SSH, and
+          # the resulting push run appears about two seconds later. Settle
+          # first so that run is visible: dispatching a second build at the
+          # same ref would land in `document.yaml`'s
+          # `${{ github.workflow }}-${{ github.ref }}` concurrency group, which
+          # is `cancel-in-progress`, and cancel the push run it was racing.
+          sleep 30
+          # A run at a tag reports the tag name as its `branch`. Guarded like
+          # the call above: a repo whose docs workflow is not `document.yaml`
+          # 404s here, and an unguarded `gh api` under `set -e` would red
+          # TagBot on every release rather than skip a build it cannot find.
           runs_url="repos/$REPO/actions/workflows/document.yaml/runs"
-          runs=$(gh api "$runs_url?branch=$tag&per_page=1" --jq .total_count)
+          if ! runs=$(gh api "$runs_url?branch=$tag&per_page=1" \
+            --jq .total_count 2>/dev/null); then
+            echo "::warning::No document.yaml workflow in $REPO, so the docs" \
+              "for $tag cannot be built here. Build them by hand."
+            exit 0
+          fi
           if [ "$runs" != "0" ]; then
             echo "Documenter has already run at $tag; nothing to do."
             exit 0
