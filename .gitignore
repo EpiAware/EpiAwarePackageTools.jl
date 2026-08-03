@@ -19,6 +19,7 @@ docs/package-lock.json
 # docs/make.jl.
 docs/src/index.md
 docs/src/benchmarks.md
+docs/src/overall_trend.png
 docs/src/lib/public.md
 docs/src/lib/internals.md
 # The release-notes page (from the repo's GitHub releases) and the

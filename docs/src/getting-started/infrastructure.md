@@ -156,6 +156,45 @@ It runs two read-only checks.
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
 
+## [Release documentation](@id release-docs)
+
+Documenter publishes a versioned `stable` and `vX.Y` copy of the docs only when
+the build runs at a release tag, and only a `push` event at that tag starts one.
+TagBot raises that event when a `DOCUMENTER_KEY` deploy key is set.
+Without the key it tags with the Actions app token, which raises no event, so
+the site keeps serving `dev` alone.
+The same fallback is refused outright when the tagged commit touches a workflow
+file.
+
+### [Adding the deploy key](@id documenter-key)
+
+Once per package, at repository creation.
+It needs repository admin, so `scaffold` cannot do it.
+
+```bash
+repo=EpiAware/YourPackage.jl
+ssh-keygen -t rsa -b 4096 -m PEM -N "" -C documenter -f /tmp/dk
+gh repo deploy-key add /tmp/dk.pub --repo "$repo" \
+  --title documenter --allow-write
+gh secret set DOCUMENTER_KEY --repo "$repo" --body "$(base64 -w0 < /tmp/dk)"
+shred -u /tmp/dk /tmp/dk.pub
+```
+
+`DocumenterTools.genkeys` prints the same two halves to paste by hand.
+Four details each break the deploy silently when wrong.
+
+- The deploy key needs **write** access.
+- The secret holds the **private** half, base64-encoded on one line.
+- One keypair per repository: GitHub refuses to reuse a deploy key, so there is
+  no org-wide version.
+- RSA in PEM form, matching what `DocumenterTools` emits.
+
+The secret does two jobs: TagBot reads it as `ssh:` to push the tag, Documenter
+as `DOCUMENTER_KEY` to push to `gh-pages`.
+Only the tag push needs it, since `deploydocs` also works from `GITHUB_TOKEN`.
+That is why a keyless package still ships `dev` docs and simply never a
+versioned copy.
+
 ## Release nudges
 
 The managed `release-nudge.yaml` caller runs the shared `EpiAware/.github`
