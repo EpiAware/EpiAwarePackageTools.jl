@@ -30,11 +30,13 @@ jobs:
   # workflow files, which the app token is refused outright.
   ReleaseDocs:
     needs: TagBot
-    # `always()` because TagBot reports failure when it could not tag some
-    # version while still having released others, which is exactly when the
-    # release docs are missing. A skipped TagBot means a non-TagBot comment,
-    # so there is nothing to check.
-    if: always() && needs.TagBot.result != 'skipped'
+    # An explicit `if` overrides the default "only when `needs` succeeded", so
+    # this runs after a FAILED TagBot too: TagBot reports failure when it could
+    # not tag some version while still having released others, which is exactly
+    # when the release docs are missing. `!cancelled()` rather than `always()`
+    # so a cancelled run does not still dispatch a build. A skipped TagBot means
+    # a non-TagBot comment, so there is nothing to check.
+    if: ${{ !cancelled() && needs.TagBot.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
