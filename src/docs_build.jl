@@ -572,12 +572,16 @@ end
 # text on the built page (#297).
 #
 # Fenced code in a body is left exactly as written -- a release note showing a
-# `#` comment or a `<!-- -->` in an example must survive verbatim.
+# `#` comment or a `<!-- -->` in an example must survive verbatim. A body that
+# leaves a fence open is closed at the end of that body: release bodies are
+# concatenated onto one page, so an unterminated fence would otherwise swallow
+# every release below it.
 function _normalise_release_body(body::AbstractString, tag::AbstractString)
     text = replace(String(body), "\r\n" => "\n", "\r" => "\n")
     out = IOBuffer()
     in_fence = false
     fence = ""
+    opened = ""
     in_comment = false
     dropped_title = false
     seen_content = false
@@ -593,6 +597,7 @@ function _normalise_release_body(body::AbstractString, tag::AbstractString)
             if !in_fence
                 in_fence = true
                 fence = string(marker[1])
+                opened = marker
             elseif startswith(marker, fence)
                 in_fence = false
             end
@@ -622,6 +627,7 @@ function _normalise_release_body(body::AbstractString, tag::AbstractString)
         isempty(strip(line)) || (seen_content = true)
         println(out, line)
     end
+    in_fence && println(out, opened)
     # Stripped comments leave runs of blank lines behind; collapse them so the
     # generated page reads tidily when diffed directly.
     return strip(replace(String(take!(out)), r"\n{3,}" => "\n\n"))

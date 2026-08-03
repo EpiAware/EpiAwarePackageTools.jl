@@ -385,6 +385,27 @@
         @test occursin("<!-- not a comment -->", out)
     end
 
+    @testset "build_release_notes: an open fence cannot swallow the page" begin
+        dir = mktempdir()
+        header = joinpath(dir, "header.jl")
+        write(header, _plain_header)
+        dest = joinpath(dir, "release-notes.md")
+        # Release bodies are concatenated onto one page, so a body that never
+        # closes its fence would take every release below it with it.
+        DB.build_release_notes(; repo = "Org/Pkg.jl", header_file = header,
+            dest = dest,
+            releases = Any[
+                Dict{String, Any}("tag_name" => "v2.0.0",
+                    "body" => "```julia\nf(x) = x\n"),
+                Dict{String, Any}("tag_name" => "v1.0.0",
+                    "body" => "Still readable.\n")
+            ])
+        out = read(dest, String)
+        @test count("```", out) == 2
+        @test occursin("## v1.0.0", out)
+        @test occursin("Still readable.", out)
+    end
+
     @testset "build_release_notes: degrades without a fetch" begin
         dir = mktempdir()
         header = joinpath(dir, "header.jl")
