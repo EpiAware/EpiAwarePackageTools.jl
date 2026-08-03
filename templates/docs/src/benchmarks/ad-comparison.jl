@@ -43,6 +43,31 @@ using CairoMakie
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 set_theme!(theme_latexfonts(); fontsize = 14)
 
+## A DataFrame is `showable` as `text/html`, and both Literate and
+## DocumenterVitepress take that branch first — so returning one from a cell
+## drops DataFrames' own styled `<table>` (inline styles, a `Row` index
+## column, a column-type row, an `N×M DataFrame` caption) straight into the
+## page as raw HTML, outside VitePress's table styling. Wrapping the text in
+## a type that is showable ONLY as `text/markdown` makes both writers emit a
+## plain pipe table instead, which VitePress renders as a native table.
+struct MarkdownTable
+    text::String
+end
+Base.show(io::IO, ::MIME"text/markdown", t::MarkdownTable) = print(io, t.text)
+
+## Render `df` as a markdown pipe table: first column left-aligned (the
+## label), the rest right-aligned (the numbers).
+function markdown_table(df)
+    cols = string.(names(df))
+    io = IOBuffer()
+    println(io, "| ", join(cols, " | "), " |")
+    println(io, "|:---|", repeat("---:|", max(length(cols) - 1, 0)))
+    for row in eachrow(df)
+        println(io, "| ", join((string(row[c]) for c in cols), " | "), " |")
+    end
+    return MarkdownTable(String(take!(io)))
+end
+
 backend_entries = ADFixtures.backends()
 scenario_list = ADFixtures.scenarios()
 
@@ -176,7 +201,7 @@ md"""
 ```
 """
 
-summary_table
+markdown_table(summary_table)
 
 md"""
 ### Spread across scenarios

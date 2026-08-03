@@ -1365,6 +1365,62 @@
                     ex -> ex isa Expr && ex.head in (:error, :incomplete),
                     parsed.args)
 
+                # The summary table is emitted through the wrapper, never as
+                # a bare DataFrame (#305).
+                @test occursin("markdown_table(summary_table)", txt)
+                @test !occursin(r"(?m)^summary_table$", txt)
+
+                # ...and the wrapper behaves: a DataFrame is `showable` as
+                # `text/html`, and Literate and DocumenterVitepress both take
+                # that branch first, so returning one drops DataFrames' own
+                # styled `<table>` into the page as raw HTML, outside
+                # VitePress's table styling. `MarkdownTable` is showable ONLY
+                # as `text/markdown`, so both writers emit a plain pipe table
+                # that VitePress renders natively. Evaluate the substituted
+                # definitions in a sandbox against a stand-in frame, so the
+                # kit's own tests need no DataFrames dependency.
+                helper_start = first(
+                    findfirst("struct MarkdownTable", txt))
+                helper_stop = first(findfirst(
+                    "backend_entries = ADFixtures.backends()", txt)) - 1
+                helpers = txt[helper_start:helper_stop]
+                mock = """
+                struct MockFrame
+                    cols::Vector{String}
+                    rows::Vector{Vector{Any}}
+                end
+                Base.names(d::MockFrame) = d.cols
+                Base.eachrow(d::MockFrame) =
+                    [Dict{String, Any}(zip(d.cols, r)) for r in d.rows]
+                """
+                sandbox = Module(:ADComparisonSandbox)
+                Core.eval(sandbox, Meta.parseall(mock * "\n" * helpers))
+                # Probe from inside the sandbox: the definitions above land
+                # in a newer world age than this test body, so `showable`
+                # and `show` called from here would not see them.
+                probe = Core.eval(sandbox,
+                    quote
+                        tbl = markdown_table(MockFrame(
+                            ["Backend", "Relative time"],
+                            [Any["ForwardDiff", 1.0],
+                                Any["Enzyme reverse", 3.39]]))
+                        (html = showable(MIME("text/html"), tbl),
+                            png = showable(MIME("image/png"), tbl),
+                            md = showable(MIME("text/markdown"), tbl),
+                            text = sprint(show, MIME("text/markdown"), tbl))
+                    end)
+                @test !probe.html
+                @test !probe.png
+                @test probe.md
+                @test occursin("| Backend | Relative time |", probe.text)
+                @test occursin("|:---|---:|", probe.text)
+                @test occursin("| ForwardDiff | 1.0 |", probe.text)
+                @test occursin("| Enzyme reverse | 3.39 |", probe.text)
+                # No DataFrames chrome: no `N×M DataFrame` caption, no `Row`
+                # index column, no column-type row, no inline styles.
+                @test !occursin("DataFrame", probe.text)
+                @test !occursin("style =", probe.text)
+
                 # Registered in the package-owned docs seeds: its own
                 # `docs/src/benchmarks/` Literate pipeline (heavy + stub,
                 # not HEAVY_TUTORIALS/TUTORIAL_STUBS) and the top-level

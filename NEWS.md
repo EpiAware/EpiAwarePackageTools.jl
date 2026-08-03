@@ -53,6 +53,35 @@ far smaller cost than losing the build.
 `update` now warns when either edit is still outstanding, so the gap
 surfaces at sync time rather than only in this note.
 
+**Changed**: the performance-over-time page is now a presentation of
+results rather than a narrative with the numbers hidden below it (#305).
+It is titled "Performance over time" (was "Benchmarks"), keeps its
+`@id benchmarks` anchor, and opens with a `## Summary` across the whole
+package (one row per suite, its ratio against the oldest shown revision, a
+trend arrow and a regression flag) plus the combined trend plot.
+Each benchmark suite then gets its own `##` section carrying that suite's
+timing and allocation tables.
+Those tables used to sit behind a single collapsed "Per-suite detail"
+block, which hid every measurement the page existed to show.
+The package-owned `docs/benchmarks.md` prose moves from the top of the page
+to the foot, under "About these benchmarks", so what the suite covers and
+how to run it is still there without standing between a reader and the
+results.
+The seed's authoring guidance is updated to match; an existing adopter's
+`docs/benchmarks.md` is package-owned and unchanged, it simply renders in
+the new position.
+
+**Fixed**: the AD-comparison page's summary table renders as a native
+table again (#305).
+It was returned as a `DataFrame`, which is `showable` as `text/html`, and
+both Literate and DocumenterVitepress take that branch first — so
+DataFrames' own styled `<table>` (inline styles, a `Row` index column, a
+column-type row, an `N×M DataFrame` caption) landed in the page as raw
+HTML, outside VitePress's table styling.
+The page now renders the summary through a wrapper that is showable only
+as `text/markdown`, so a plain pipe table reaches the site.
+The page is kit-managed, so an adopter picks this up on their next sync.
+
 The standard README structure now requires a `## Related packages` section, in
 the slot after Getting started and before the Documentation section (#292).
 `test_readme_sections` also reports the retired `What packages work well with

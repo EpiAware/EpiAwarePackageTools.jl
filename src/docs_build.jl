@@ -522,11 +522,11 @@ The raw `table.md` is a single flat table with one row per leaf benchmark
 (a `Suite/.../Leaf` slash-path) and one column per benchmarked revision
 (labelled by commit hash) — unreadable spliced verbatim at realistic suite
 sizes (200+ rows, #193). It is reshaped into two layers
-([`_render_benchmark_overview`](@ref)): a `## Benchmark summary (overall)`
-table (one row per suite: its median ratio against the oldest shown
-revision, a trend arrow and a regression flag) plus a combined trend plot,
-and — collapsed behind a `<details>` below it — the existing per-suite
-`###` ratio tables and per-benchmark plot wall. Both layers cap to the last
+([`_render_benchmark_overview`](@ref)): a `## Summary` table (one row per
+suite: its median ratio against the oldest shown revision, a trend arrow
+and a regression flag) plus a combined trend plot, then one open `##`
+section per suite carrying that suite's ratio tables. The per-benchmark
+plot wall stays collapsed below them. Both layers cap to the last
 `history_commits` revisions (columns relabelled with commit dates instead
 of raw hashes) and `history_suites` (when non-empty) restricts either to
 the named headline suites. `overall_plot_dest`, when given, is where the
@@ -897,22 +897,28 @@ function _write_history_subtable(io, col_labels, subrows)
     return
 end
 
-# Write the reshaped per-suite detail: the "_Most recent N revisions_"
-# caption, one grouped `###` section per suite, or a "no suites matched"
+# Write the reshaped per-suite results: one section per suite (at
+# `heading_level`, `##` on the page proper so each suite reads as its own
+# section under the across-the-package summary), or a "no suites matched"
 # note when `history_suites` filtered everything out. Under each suite the
-# timing and allocation tables are rendered as SEPARATE `#### Time` /
-# `#### Memory` sub-tables so a benchmark never appears twice with no
+# timing and allocation tables are rendered as SEPARATE `Time` / `Memory`
+# sub-tables one level down, so a benchmark never appears twice with no
 # indication of which cell is which (#231); a single-metric suite skips the
-# `####` heading and renders one table directly. Takes the already reshaped
-# suite-first detail ([`_suite_metric_detail`](@ref)) so the overall-summary
-# orchestrator ([`_render_benchmark_overview`](@ref)) does not re-parse
-# `table.md` and re-shell out to `git show` (once per column, for the
-# commit-date relabelling) a second time.
-function _write_reshaped_detail(io, col_labels, suite_detail)
-    if !isempty(col_labels)
-        n = length(col_labels)
-        println(io, "_Most recent ", n, n == 1 ? " revision" : " revisions",
-            ", columns labelled by commit date._")
+# sub-heading and renders one table directly. `caption` controls whether the
+# "_Most recent N revisions_" line is emitted here — the page proper prints
+# it as the closing line of `## Summary` instead, where it introduces every
+# table below rather than orphaning itself under the preceding section.
+# Takes the already reshaped suite-first detail
+# ([`_suite_metric_detail`](@ref)) so the summary orchestrator
+# ([`_render_benchmark_overview`](@ref)) does not re-parse `table.md` and
+# re-shell out to `git show` (once per column, for the commit-date
+# relabelling) a second time.
+function _write_reshaped_detail(io, col_labels, suite_detail;
+        heading_level::Integer = 3, caption::Bool = true)
+    suite_h = "#"^heading_level
+    metric_h = "#"^(heading_level + 1)
+    if caption && !isempty(col_labels)
+        println(io, _history_window_caption(col_labels))
         println(io)
     end
     if isempty(suite_detail)
@@ -922,16 +928,25 @@ function _write_reshaped_detail(io, col_labels, suite_detail)
         return
     end
     for (suite, per_metric) in suite_detail
-        println(io, "### ", suite)
+        println(io, suite_h, " ", suite)
         println(io)
         single = length(per_metric) == 1
         for (metric, subrows) in per_metric
-            single || (println(io, "#### ", metric); println(io))
+            single || (println(io, metric_h, " ", metric); println(io))
             _write_history_subtable(io, col_labels, subrows)
             println(io)
         end
     end
     return
+end
+
+# The one-line caption naming the revision window every per-suite table below
+# shares. Emitted once, as the closing line of `## Summary`.
+function _history_window_caption(col_labels)
+    n = length(col_labels)
+    return string("_Tables below show the most recent ", n,
+        n == 1 ? " revision" : " revisions",
+        ", columns labelled by commit date._")
 end
 
 # Give a pipe table's header its benchmark-name label when the first cell is
@@ -973,7 +988,7 @@ end
 # suite in the filename, so they cannot be grouped per suite; they are shown as
 # one collapsed block of raw-GitHub images.
 function _embed_history_plots(io, repo::AbstractString, pngs)
-    println(io, "### Per-benchmark timelines")
+    println(io, "## Per-benchmark timelines")
     println(io)
     println(io, "<details>")
     println(io, "<summary>Show ", length(pngs),
@@ -1100,16 +1115,18 @@ function _benchmark_summary_rows(series_by_suite;
     return rows
 end
 
-# Write the `## Benchmark summary (overall)` table: one row per suite, its
-# ratio against the oldest shown revision, a trend arrow and a regression
-# flag. Leads the page — the one thing worth skimming — above the collapsed
-# per-suite detail. Deliberately tight (a table + one caption line, matching
-# the terseness of CensoredDistributions.jl's own PR-comparison comment,
-# e.g. "Cells are PR median / base median. \U0001F534 >=1.10 (slower), ..."
-# — see `benchmark/comment/comment.jl`) rather than a multi-paragraph
-# explainer.
+# Write the `## Summary` table: one row per suite, its ratio against the
+# oldest shown revision, a trend arrow and a regression flag. Leads the page —
+# the across-the-package view — above the per-suite sections. Deliberately
+# tight (a table + one caption line, matching the terseness of
+# CensoredDistributions.jl's own PR-comparison comment, e.g. "Cells are PR
+# median / base median. \U0001F534 >=1.10 (slower), ..." — see
+# `benchmark/comment/comment.jl`) rather than a multi-paragraph explainer.
 function _write_benchmark_summary(io, rows)
-    println(io, "## Benchmark summary (overall)")
+    println(io, "## Summary")
+    println(io)
+    println(io,
+        "Each benchmark suite's headline timing across recent revisions.")
     println(io)
     if isempty(rows)
         println(io, "_No benchmark suites to summarise._")
@@ -1223,13 +1240,13 @@ end
 # Write the "Skipped & broken benchmarks" notes block: the package-owned
 # `notes` prose (`docs/benchmarks_notes.md`, write-once like the narrative
 # prose hook) plus any auto-detected no-data benchmarks. Rendered
-# unconditionally near the top of the page, even before any history has
-# published, so a maintainer can document a known-skipped suite ahead of CI
-# ever running. Renders nothing when there is neither prose nor a detection.
+# unconditionally, even before any history has published, so a maintainer can
+# document a known-skipped suite ahead of CI ever running. Renders nothing
+# when there is neither prose nor a detection.
 function _write_benchmark_notes(io, notes::AbstractString,
         auto::AbstractVector{<:AbstractString} = String[])
     (isempty(strip(notes)) && isempty(auto)) && return
-    println(io, "### Skipped & broken benchmarks")
+    println(io, "## Skipped & broken benchmarks")
     println(io)
     isempty(strip(notes)) || (println(io, notes); println(io))
     if !isempty(auto)
@@ -1240,16 +1257,24 @@ function _write_benchmark_notes(io, notes::AbstractString,
     return
 end
 
-# Orchestrates the `## Performance history` body: the
-# `## Benchmark summary (overall)` table + combined trend plot + the
-# "Skipped & broken benchmarks" notes, then the existing per-suite ratio
-# detail ([`_write_reshaped_detail`](@ref)) and per-benchmark plot wall
-# ([`_embed_history_plots`](@ref)) collapsed together behind one `<details>`
-# block. When `table.md` does not parse, skips straight to the original
-# unreshaped fallback so a format change never blanks the page. `plot_dest
-# === nothing` skips plot generation entirely (e.g. a caller that only wants
-# the tabular content). Reshapes `table.md` once and reuses the result for
-# both the summary and the detail section (rather than calling
+# Orchestrates the page body as a presentation of results (#305): a
+# `## Summary` table + combined trend plot across the whole package, then one
+# `##` section per benchmark suite ([`_write_reshaped_detail`](@ref)), then
+# the "Skipped & broken benchmarks" notes and the per-benchmark plot wall
+# ([`_embed_history_plots`](@ref), still collapsed — it is a wall of images,
+# not a section anyone reads top to bottom).
+#
+# The per-suite tables used to be buried behind a single `<details>` marked
+# "Per-suite detail", which hid every actual measurement the page had to show
+# and left the visible page as prose plus one summary table. They are now
+# open sections in their own right, with the summary reading as the
+# across-the-package view above them.
+#
+# When `table.md` does not parse, skips straight to the original unreshaped
+# fallback so a format change never blanks the page. `plot_dest === nothing`
+# skips plot generation entirely (e.g. a caller that only wants the tabular
+# content). Reshapes `table.md` once and reuses the result for both the
+# summary and the per-suite sections (rather than calling
 # [`_render_ratio_table`](@ref), which would re-parse and re-shell out to
 # `git show` a second time).
 function _render_benchmark_overview(io, md::AbstractString,
@@ -1259,11 +1284,11 @@ function _render_benchmark_overview(io, md::AbstractString,
         plot_dest::Union{Nothing, AbstractString} = nothing,
         notes::AbstractString = "")
     if isempty(_history_table_parts(md)[2])
-        _write_benchmark_notes(io, notes)
-        println(io, "### Ratio summary")
+        println(io, "## Ratio summary")
         println(io)
         _render_ratio_table(io, md, project_root; last_n = last_n,
             suites = suites)
+        _write_benchmark_notes(io, notes)
         !isempty(pngs) && _embed_history_plots(io, repo, pngs)
         return
     end
@@ -1274,13 +1299,6 @@ function _render_benchmark_overview(io, md::AbstractString,
     # (#231).
     headline = _headline_groups(metric_groups)
     series_by_suite = _suite_ratio_series_by_group(headline, length(col_labels))
-    # One orienting line so `## Performance history` (printed by the caller)
-    # is never an empty heading sitting directly above `## Benchmark summary
-    # (overall)` (#282).
-    println(io,
-        "The summary tracks each benchmark suite's headline timing across " *
-        "recent revisions.")
-    println(io)
     _write_benchmark_summary(io,
         _benchmark_summary_rows(series_by_suite;
             regression_threshold = regression_threshold))
@@ -1289,16 +1307,17 @@ function _render_benchmark_overview(io, md::AbstractString,
         println(io, "![Overall benchmark trend](", basename(plot_dest), ")")
         println(io)
     end
+    # Closes `## Summary` by naming the revision window every per-suite table
+    # below shares, so the caption introduces those sections instead of
+    # orphaning itself under whichever heading happens to precede them.
+    if !isempty(col_labels)
+        println(io, _history_window_caption(col_labels))
+        println(io)
+    end
+    _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups);
+        heading_level = 2, caption = false)
     _write_benchmark_notes(io, notes, _unparsed_benchmarks(headline))
-    println(io, "<details>")
-    println(io, "<summary>Per-suite detail</summary>")
-    println(io)
-    println(io, "### Ratio summary")
-    println(io)
-    _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups))
     !isempty(pngs) && _embed_history_plots(io, repo, pngs)
-    println(io, "</details>")
-    println(io)
     return
 end
 
@@ -1326,21 +1345,25 @@ end
                          history_suites=String[], history_commits=5,
                          history_regression_threshold=1.1)
 
-Generate `dest` (the benchmark docs page). The managed skeleton is deliberately
-tight: the page heading, the package-owned `prose_file` spliced verbatim (all
-narrative lives there, minus any leading HTML comment, which is stripped so the
-seed's authoring guidance never renders), and a data-driven
-`## Performance history` section that
-renders the timeline published to the repo's `benchmarks` branch (see
-[`_embed_benchmark_history`](@ref)). `notes_file` is a second package-owned
-seed (`docs/benchmarks_notes.md`) for hand-written notes on skipped or broken
-benchmarks, spliced under a "Skipped & broken benchmarks" heading near the top
-of the page (below the overall summary and trend plot); any benchmark with no
-parseable data across the shown revisions is auto-appended there too.
-`history_suites` (when non-empty) restricts the history to the named headline
-suites, `history_commits` caps the ratio table and trend plot to that many
-most-recent revisions, and `history_regression_threshold` sets the
-overall-summary ratio (relative to the oldest shown revision) at or above
+Generate `dest` (the performance-over-time docs page).
+
+The page is a presentation of results, not a how-to: a one-line managed
+intro, then the timeline published to the repo's `benchmarks` branch (see
+[`_embed_benchmark_history`](@ref)) as a `## Summary` across the package
+followed by one `##` section per benchmark suite. The package-owned
+`prose_file` is spliced verbatim (minus any leading HTML comment, which is
+stripped so the seed's authoring guidance never renders) at the *foot* of the
+page under `## About these benchmarks`, so what the suite covers and how to
+run it is available without leading the page ahead of the numbers.
+
+`notes_file` is a second package-owned seed (`docs/benchmarks_notes.md`) for
+hand-written notes on skipped or broken benchmarks, spliced under a
+"Skipped & broken benchmarks" heading below the per-suite sections; any
+benchmark with no parseable data across the shown revisions is auto-appended
+there too. `history_suites` (when non-empty) restricts the history to the
+named headline suites, `history_commits` caps the per-suite tables and trend
+plot to that many most-recent revisions, and `history_regression_threshold`
+sets the summary ratio (relative to the oldest shown revision) at or above
 which a suite's `Status` flags "⚠ reg". Returns the list of linkcheck-ignore
 regexes for the history URLs (the branch may not be live yet).
 """
@@ -1355,6 +1378,9 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         history_regression_threshold::Real = 1.1)
     prose = _read_seed(prose_file, "Performance benchmarks for `$package`.")
     notes = _read_seed(notes_file, "")
+    intro = "How `$package`'s benchmark suites have moved across recent " *
+            "revisions: an overall summary across the package first, then " *
+            "one section per suite."
     mkpath(dirname(dest))
     # The overall trend plot is a build artefact regenerated from `table.md`
     # on every docs build (like `index.md`/the API pages), so it lives
@@ -1363,11 +1389,9 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
     # externally pre-rendered per-benchmark plots.
     plot_dest = joinpath(dirname(dest), "overall_trend.png")
     open(dest, "w") do io
-        println(io, "# [Benchmarks](@id benchmarks)")
+        println(io, "# [Performance over time](@id benchmarks)")
         println(io)
-        println(io, prose)
-        println(io)
-        println(io, "## Performance history")
+        println(io, intro)
         println(io)
         if embed_history
             _embed_benchmark_history(io, repo, project_root;
@@ -1378,6 +1402,12 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         else
             println(io,
                 "A performance timeline is published on each release.")
+        end
+        if !isempty(strip(prose))
+            println(io)
+            println(io, "## About these benchmarks")
+            println(io)
+            println(io, prose)
         end
     end
     println("Generated $(basename(dest)) (benchmark history page)")

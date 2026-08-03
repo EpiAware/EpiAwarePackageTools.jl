@@ -343,13 +343,17 @@
         lc = DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        # Managed skeleton: anchored heading + Performance history only.
-        @test occursin("# [Benchmarks](@id benchmarks)", out)
-        @test occursin("## Performance history", out)
-        # Prose hook spliced verbatim; no managed free-text "Running" section.
+        # Managed skeleton: anchored heading + a one-line intro.
+        @test occursin("# [Performance over time](@id benchmarks)", out)
+        @test !occursin("## Performance history", out)
+        # Prose hook spliced verbatim, at the FOOT of the page under its own
+        # heading, so the results lead and the narrative supports them (#305).
+        @test occursin("## About these benchmarks", out)
         @test occursin("Narrative here.", out)
         @test occursin("## Structure", out)
         @test !occursin("## Running benchmarks", out)
+        @test first(findfirst("## About these benchmarks", out)) <
+              first(findfirst("Narrative here.", out))
         # No benchmarks branch yet -> graceful fallback link.
         @test occursin("`benchmarks` branch", out)
         @test occursin(
@@ -374,7 +378,7 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose)
         out = read(dest, String)
-        @test occursin("# [Benchmarks](@id benchmarks)", out)
+        @test occursin("# [Performance over time](@id benchmarks)", out)
         @test occursin("Narrative here.", out)
         @test occursin("Some skipped-benchmark note.", out)
     end
@@ -396,7 +400,7 @@
         @test !occursin("PACKAGE-OWNED", out)
         @test occursin("Real narrative.", out)
         # The heading still leads the page (comment did not push it down).
-        @test startswith(out, "# [Benchmarks](@id benchmarks)")
+        @test startswith(out, "# [Performance over time](@id benchmarks)")
     end
 
     @testset "build_benchmark_page: renders grouped published history" begin
@@ -439,10 +443,15 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        # Ratio table grouped into per-suite `###` sections (#193).
-        @test occursin("### Ratio summary", out)
-        @test occursin("### AD gradients", out)
-        @test occursin("### Baseline", out)
+        # Ratio tables grouped into per-suite sections (#193), now open `##`
+        # sections of the page rather than a collapsed `<details>` block
+        # (#305): the measurements ARE the page.
+        @test occursin("## AD gradients", out)
+        @test occursin("## Baseline", out)
+        @test !occursin("<summary>Per-suite detail</summary>", out)
+        # The summary leads, the suites follow.
+        @test first(findfirst("## Summary", out)) <
+              first(findfirst("## AD gradients", out))
         # Row labels have the suite prefix stripped.
         @test occursin("| Enzyme forward | 1.0 |", out)
         @test occursin("| ForwardDiff | 2.0 |", out)
@@ -453,7 +462,7 @@
         @test occursin(cdate, out)
         @test !occursin("$short...", out)
         # Plots collapsed behind <details>, each still embedded (sorted).
-        @test occursin("### Per-benchmark timelines", out)
+        @test occursin("## Per-benchmark timelines", out)
         @test occursin("<details>", out)
         @test occursin("<summary>", out)
         @test occursin(
@@ -498,8 +507,8 @@
             history_suites = ["AD gradients"])
         out = read(dest, String)
         # Only the named headline suite is rendered.
-        @test occursin("### AD gradients", out)
-        @test !occursin("### Baseline", out)
+        @test occursin("## AD gradients", out)
+        @test !occursin("## Baseline", out)
         @test !occursin("allocations", out)
     end
 
@@ -618,13 +627,13 @@
         ]
         DB._write_benchmark_summary(io, rows)
         out = String(take!(io))
-        @test occursin("## Benchmark summary (overall)", out)
+        @test occursin("## Summary", out)
         @test occursin("| AD gradients | 2.0 | ↗ | ⚠ reg |", out)
         @test occursin("| Baseline | n/a | → | n/a |", out)
         # Empty input still writes the heading + a graceful message.
         io2 = IOBuffer()
         DB._write_benchmark_summary(io2, [])
-        @test occursin("## Benchmark summary (overall)", String(take!(io2)))
+        @test occursin("## Summary", String(take!(io2)))
         # Every suite `n/a` (single-revision) -> a note replaces the table
         # (#282), never a wall of `n/a` rows.
         io5 = IOBuffer()
@@ -678,19 +687,23 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        # The overall summary leads the page, above the collapsed detail.
-        summary_pos = findfirst("## Benchmark summary (overall)", out)
-        detail_pos = findfirst("<summary>Per-suite detail</summary>", out)
+        # The across-the-package summary leads the page, above the per-suite
+        # sections.
+        summary_pos = findfirst("## Summary", out)
+        detail_pos = findfirst("## AD gradients", out)
         @test summary_pos !== nothing
         @test detail_pos !== nothing
         @test first(summary_pos) < first(detail_pos)
         @test occursin("| AD gradients | 2.1 | ↗ | ⚠ reg |", out)
         @test occursin("| Baseline | 0.5 | ↘ | ok |", out)
         @test occursin("| time_to_load | 1.01 | → | ok |", out)
-        # The existing #196 detail (per-suite tables + collapsed plots) still
-        # renders, now inside the outer `<details>`.
-        @test occursin("### Ratio summary", out)
-        @test occursin("### AD gradients", out)
+        # The revision-window caption closes the summary section, above the
+        # first per-suite section it describes (#305).
+        caption_pos = findfirst("Tables below show the most recent", out)
+        @test caption_pos !== nothing
+        @test first(summary_pos) < first(caption_pos) < first(detail_pos)
+        # The per-suite tables are open sections, not a collapsed block.
+        @test !occursin("<summary>Per-suite detail</summary>", out)
         # The combined trend plot was generated and embedded.
         png = joinpath(dirname(dest), "overall_trend.png")
         @test isfile(png)
@@ -744,19 +757,20 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        @test occursin("## Benchmark summary (overall)", out)
+        @test occursin("## Summary", out)
         # Single revision -> no ratios, so a note replaces the all-`n/a`
         # table (#282) rather than a row of `n/a` cells.
         @test occursin("Not enough comparable revisions", out)
         @test !occursin("| Baseline | n/a | → | n/a |", out)
-        # `## Performance history` is never an empty heading above the
-        # summary heading -- a one-line intro sits between them (#282).
-        hist_pos = findfirst("## Performance history", out)
-        intro_pos = findfirst("summary tracks each benchmark suite", out)
-        summary_pos = findfirst("## Benchmark summary (overall)", out)
-        @test hist_pos !== nothing && intro_pos !== nothing &&
-              summary_pos !== nothing
-        @test first(hist_pos) < first(intro_pos) < first(summary_pos)
+        # No heading on the page is ever empty: the managed intro sits under
+        # the page title (#282), and a lead line sits under `## Summary`.
+        title_pos = findfirst("# [Performance over time](@id benchmarks)", out)
+        intro_pos = findfirst("benchmark suites have moved", out)
+        summary_pos = findfirst("## Summary", out)
+        lead_pos = findfirst("headline timing across recent revisions", out)
+        @test all(!isnothing, (title_pos, intro_pos, summary_pos, lead_pos))
+        @test first(title_pos) < first(intro_pos) < first(summary_pos) <
+              first(lead_pos)
         @test !isfile(joinpath(dirname(dest), "overall_trend.png"))
         @test !occursin("Overall benchmark trend", out)
     end
@@ -765,13 +779,13 @@
         io = IOBuffer()
         DB._write_benchmark_notes(io, "`slow_path` is skipped: see #123.")
         out = String(take!(io))
-        @test occursin("### Skipped & broken benchmarks", out)
+        @test occursin("## Skipped & broken benchmarks", out)
         @test occursin("`slow_path` is skipped", out)
         # Auto-detected rows are appended, quoted, comma-joined.
         io2 = IOBuffer()
         DB._write_benchmark_notes(io2, "", ["Baseline/flaky", "time_to_load"])
         out2 = String(take!(io2))
-        @test occursin("### Skipped & broken benchmarks", out2)
+        @test occursin("## Skipped & broken benchmarks", out2)
         @test occursin("`Baseline/flaky`", out2)
         @test occursin("`time_to_load`", out2)
         # Neither prose nor an auto-detection -> nothing rendered at all.
@@ -834,7 +848,7 @@
             package = "Pkg", prose_file = prose, project_root = dir,
             notes_file = notes)
         out = read(dest, String)
-        @test occursin("### Skipped & broken benchmarks", out)
+        @test occursin("## Skipped & broken benchmarks", out)
         @test occursin("`weird_scenario` intentionally excluded.", out)
         @test !occursin("<!-- guidance -->", out)
         # The auto-detected no-data benchmark is appended alongside the
