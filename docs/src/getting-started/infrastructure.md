@@ -150,25 +150,18 @@ It runs two read-only checks.
 
 ## [Release documentation](@id release-docs)
 
-Documenter publishes a versioned `stable` and `vX.Y` copy of the docs only
-when the build runs at a release tag.
-Nothing makes that happen unless a `push` event reaches the managed
-`document.yaml` at the tag.
-
-TagBot pushes the tag over SSH when a `DOCUMENTER_KEY` deploy key is set.
-Without the key it falls back to the Actions app token, and GitHub raises no
-`push` or `release` event for a ref that token created, so the docs build never
-runs at the tag and the site keeps serving `dev` alone.
-The same fallback also fails outright when the tagged commit touches a workflow
-file, because the app token has no `workflows` permission.
-Adding the key is therefore the real fix, and
-[`setup_checklist`](@ref) lists it with the `DocumenterTools.genkeys` call that
-generates the pair.
+Documenter publishes a versioned `stable` and `vX.Y` copy of the docs only when
+the build runs at a release tag, and only a `push` event at that tag starts one.
+TagBot raises that event when a `DOCUMENTER_KEY` deploy key is set.
+Without the key it tags with the Actions app token, which raises no event, so
+the site keeps serving `dev` alone.
+The same fallback is refused outright when the tagged commit touches a workflow
+file.
 
 ### [Adding the deploy key](@id documenter-key)
 
-Do this once per package, when the repository is created.
-It needs admin on the repository, so it cannot be scripted into `scaffold`.
+Once per package, at repository creation.
+It needs repository admin, so `scaffold` cannot do it.
 
 ```bash
 repo=EpiAware/YourPackage.jl
@@ -179,38 +172,20 @@ gh secret set DOCUMENTER_KEY --repo "$repo" --body "$(base64 -w0 < /tmp/dk)"
 shred -u /tmp/dk /tmp/dk.pub
 ```
 
-`DocumenterTools.genkeys` does the same thing and prints both halves to paste
-by hand.
-Either way four details matter, and each one silently breaks the deploy if it
-is wrong.
+`DocumenterTools.genkeys` prints the same two halves to paste by hand.
+Four details each break the deploy silently when wrong.
 
 - The deploy key needs **write** access.
-  A read-only key passes the `git push` handshake and fails the push.
-- The secret holds the **private** half, **base64-encoded on one line**.
-  `base64 -w0` matters: a wrapped blob does not survive the round trip.
-- Generate **one keypair per repository**.
-  GitHub binds a deploy key to a single repository and refuses to register the
-  same public half anywhere else, so there is no org-wide version of this.
-- Use RSA in PEM form.
-  It matches what `DocumenterTools` emits, which is what both consumers of the
-  secret are known to read.
+- The secret holds the **private** half, base64-encoded on one line.
+- One keypair per repository: GitHub refuses to reuse a deploy key, so there is
+  no org-wide version.
+- RSA in PEM form, matching what `DocumenterTools` emits.
 
-That single secret does two jobs.
-TagBot reads it as `ssh:` to push the tag, and Documenter reads it as
-`DOCUMENTER_KEY` to push to `gh-pages`.
-Only the first needs the key, since `deploydocs` also works from
-`GITHUB_TOKEN`, which is why a package with no key still publishes `dev` docs
-and never a versioned copy.
-
-The managed `TagBot.yaml` carries a safety net for a package that has no key
-yet.
-A `ReleaseDocs` job runs after TagBot, and when the latest release has no
-`document.yaml` run of its own it dispatches one at that tag.
-`workflow_dispatch` is one of the two events GitHub does raise from the app
-token, and Documenter accepts it for a release build, so the versioned docs
-still publish.
-The job is idempotent and backfills a release tagged before it existed, so an
-adopting package repairs itself on its next TagBot run.
+The secret does two jobs: TagBot reads it as `ssh:` to push the tag, Documenter
+as `DOCUMENTER_KEY` to push to `gh-pages`.
+Only the tag push needs it, since `deploydocs` also works from `GITHUB_TOKEN`.
+That is why a keyless package still ships `dev` docs and simply never a
+versioned copy.
 
 ## Release nudges
 
