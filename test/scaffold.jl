@@ -1021,6 +1021,54 @@
             end
         end
 
+        @testset "CLAUDE.md ships the org coding standards" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                @test res.claude === :created
+                txt = read(joinpath(dir, "CLAUDE.md"), String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("<!-- epiaware-standards:start -->", txt)
+                @test occursin("<!-- epiaware-standards:end -->", txt)
+                @test occursin("@testitem", txt)
+                @test occursin("Comment the reason, not the action.", txt)
+            end
+        end
+
+        @testset "CLAUDE.md package-owned tail survives update" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "CLAUDE.md")
+                notes = "## Wombat notes\n\nThe kernel cache is not thread-safe."
+                write(path, read(path, String) * "\n" * notes * "\n")
+                res = update(dir)
+                @test res.claude === :refreshed
+                @test occursin(notes, read(path, String))
+                # Idempotent with a tail present.
+                before = read(path, String)
+                update(dir)
+                @test read(path, String) == before
+            end
+        end
+
+        @testset "CLAUDE.md a package already had is kept below the block" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                own = "# Wombat\n\nRun the slow suite with `task test-ad`.\n"
+                write(joinpath(dir, "CLAUDE.md"), own)
+                res = update(dir)
+                @test res.claude === :injected
+                txt = read(joinpath(dir, "CLAUDE.md"), String)
+                @test occursin(own, txt)
+                @test occursin("<!-- epiaware-standards:start -->", txt)
+                # Idempotent once the markers exist.
+                before = txt
+                update(dir)
+                @test read(joinpath(dir, "CLAUDE.md"), String) == before
+            end
+        end
+
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
