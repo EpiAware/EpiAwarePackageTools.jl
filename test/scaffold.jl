@@ -4040,21 +4040,35 @@ end
             "authors = [\"Ada Lovelace\"]\n")
         scaffold(dir)
         dep = read(_dest(dir, ".github/dependabot.yml"), String)
-        # Both ecosystems carry a `groups:` block with a wildcard pattern, so a
+        # EVERY entry carries a `groups:` block with a wildcard pattern, so a
         # run's bumps land in one grouped PR each rather than a PR per workflow
-        # file / per package — the storm Sam hit (#249).
-        @test count("groups:", dep) == 2
-        @test count("package-ecosystem:", dep) == 2
-        @test count("patterns:", dep) == 2
-        @test count("- \"*\"", dep) == 2
+        # file / per package — the storm Sam hit (#249). Asserted against the
+        # entry count rather than a hardcoded number, so adding an ecosystem
+        # entry cannot quietly add an *ungrouped* one: the invariant is
+        # "grouped, one per entry", not "there are exactly N entries".
+        entries = count("package-ecosystem:", dep)
+        @test entries == 3
+        @test count("groups:", dep) == entries
+        @test count("patterns:", dep) == entries
+        @test count("- \"*\"", dep) == entries
         @test occursin("      github-actions:\n", dep)
         @test occursin("      julia:\n", dep)
-        # Both run daily (#312). The grouping above is what makes that
+        # The isolated test environments (`test/jet`, `test/formatter`, and
+        # with `ad = true` also `test/ad` / `test/ADFixtures`) are not
+        # `[workspace]` members, so the `directory: "/"` julia entry never sees
+        # them and their pins drift from `test/Project.toml`'s. A separate
+        # entry over `/test/*` watches them, in its own group so a JET or
+        # JuliaFormatter minor — a breaking bump under 0.x semver — is reviewed
+        # on its own rather than bundled with the workspace updates. A glob
+        # because which of those directories exist is per-package.
+        @test occursin("      julia-isolated:\n", dep)
+        @test occursin("- \"/test/*\"", dep)
+        # Every entry runs daily (#312). The grouping above is what makes that
         # affordable: a grouped PR is refreshed in place, so the shorter
         # interval buys faster updates rather than more open PRs. Asserted
         # here, on the same scaffold, because the two settings only make
         # sense together — daily and ungrouped is the storm #249 fixed.
-        @test count("interval: \"daily\"", dep) == 2
+        @test count("interval: \"daily\"", dep) == entries
         @test !occursin("interval: \"weekly\"", dep)
         # No placeholder survives into the emitted config.
         @test !occursin("{{", dep)

@@ -1,1 +1,1 @@
-See the releases for news.
+Github releases contain news updates.
