@@ -2729,6 +2729,68 @@ function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
     return (:injected, true)
 end
 
+# --- managed CLAUDE.md block (package additions preserved) -----------------
+#
+# The org's coding standards for agents (comments, tests, formatting, commit
+# hygiene) ship as a managed block in every adopter's root `CLAUDE.md`, so the
+# whole fleet gets one wording and a change to it reaches every repo through
+# the usual sync. A package's own agent notes go after the closing marker and
+# are preserved, exactly as with `.gitignore` and the README sections.
+
+const CLAUDE_START = "<!-- epiaware-standards:start -->"
+const CLAUDE_END = "<!-- epiaware-standards:end -->"
+
+# The managed-block header, written just inside the start marker so it is part
+# of the refreshed region and is never duplicated on a later sync.
+const _CLAUDE_HEADER = string(
+    "<!--\n",
+    "MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n",
+    "These standards are re-rendered on every scaffold_update. Edit them in\n",
+    "the kit's `templates/CLAUDE.md`. Package-specific agent notes go after\n",
+    "the closing marker; they are preserved across updates.\n",
+    "-->")
+
+# Render the managed CLAUDE.md body (without markers) from the bundled
+# template. It carries no placeholders, so nothing is substituted.
+function _render_claude()
+    from = joinpath(_templates_dir(), "CLAUDE.md")
+    isfile(from) || error("missing bundled template CLAUDE.md at $from")
+    return read(from, String)
+end
+
+"""
+    _apply_claude(target_dir)
+
+Apply the managed org coding standards block to `target_dir/CLAUDE.md`.
+
+Returns `(action, changed)` where action is `:created`, `:injected` (markers
+added to a `CLAUDE.md` the package already had, whose content is kept below the
+block), or `:refreshed` (markers present; only the marked region is touched).
+Mirrors `_apply_gitignore`.
+"""
+function _apply_claude(target_dir::AbstractString)
+    path = joinpath(target_dir, "CLAUDE.md")
+    block = CLAUDE_START * "\n" * _CLAUDE_HEADER * "\n\n" *
+            _render_claude() * CLAUDE_END
+    if !isfile(path)
+        write(path, block * "\n")
+        return (:created, true)
+    end
+    text = read(path, String)
+    si = findfirst(CLAUDE_START, text)
+    ei = findlast(CLAUDE_END, text)
+    if si !== nothing && ei !== nothing && first(ei) > last(si)
+        new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
+        new == text && return (:refreshed, false)
+        write(path, new)
+        return (:refreshed, true)
+    end
+    # No markers: a hand-written CLAUDE.md. Put the standards on top and keep
+    # what was there as the package-owned tail rather than dropping it.
+    write(path, block * "\n\n" * text)
+    return (:injected, true)
+end
+
 # Whether a template is emitted for the requested `ad` value: `:always` always,
 # `:ad_only` when `ad = true`, `:noad_only` when `ad = false`.
 function _ad_selected(t::Template, ad::Bool)
@@ -3246,6 +3308,9 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # the block survive `update` (#65). Reported separately for the same
     # reason as `readme`/`license`/`workspace` above.
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
+    # `CLAUDE.md` is managed the same way: the org coding standards live between
+    # the markers, a package's own agent notes below them.
+    claude_action = first(_apply_claude(target_dir))
     # Managed files the kit has retired are deleted, not just left unwritten, so
     # a sync converges on the current standard rather than accreting dead infra
     # (#185). Reported as `removed`.
@@ -3259,6 +3324,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     return (created = created, updated = updated, preserved = preserved,
         removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
+        claude = claude_action,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
         extension_pages = (created = ext_created, preserved = ext_preserved),
@@ -3494,6 +3560,10 @@ before this behaviour existed) is treated the same way a legacy README is:
 the managed block is inserted at the top and the whole existing file is kept
 below as the tail, so nothing a package added is ever silently dropped.
 
+`CLAUDE.md` works the same way. The org's coding standards for agents live
+between `$(CLAUDE_START)` / `$(CLAUDE_END)`; package-specific agent notes go
+after the end marker and survive every sync.
+
 `docs_subdomain` selects how the docs site is hosted. The default (`nothing`) is
 a GitHub project-pages deploy: `docs/make.jl` gets `deploy_url = nothing`, so
 DocumenterVitepress derives the VitePress base from the repo name and the site
@@ -3530,14 +3600,15 @@ managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 managed files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, org_branding, extension_pages,
-warnings)` named tuple:
+gitignore, claude, logo, standard_sections, citation, org_branding,
+extension_pages, warnings)` named tuple:
 destination paths newly written, managed files overwritten, package-owned
 files left in place, retired managed paths deleted (`RETIRED_PATHS`, #185),
 the README badge action (`:created`, `:injected`, `:refreshed`, or
 `:skipped`), the `LICENSE` action, the root `[workspace]` stanza action
 (`:injected`, `:preserved`, or `:skipped`), the `.gitignore` managed-block
-action (`:created`, `:injected`, or `:refreshed`), the README logo-title
+action (`:created`, `:injected`, or `:refreshed`), the `CLAUDE.md`
+managed-block action (same three values), the README logo-title
 action (`:injected`, `:preserved`, or `:skipped` when no logo file exists
 yet), the managed standard-sections action (`:refreshed`, `:injected`, or
 `:skipped`), the `CITATION.cff` action (`:created`, `:preserved`, or
@@ -3617,9 +3688,9 @@ The README's managed badge block is also refreshed: `update` injects it when the
 current placeholders when present, so a package gets and keeps the standard
 badges automatically without its README body being touched.
 
-The managed `.gitignore` block is handled the same way: refreshed between its
-markers (or migrated in place if a pre-existing file has none yet), with any
-package-owned tail after the block left untouched.
+The managed `.gitignore` and `CLAUDE.md` blocks are handled the same way:
+refreshed between their markers (or migrated in place if a pre-existing file has
+none yet), with any package-owned tail after the block left untouched.
 
 The README logo title (see `scaffold`) is also (re)checked: once a package has
 a `docs/src/assets/logo.svg`, the tag is added to the title if missing.
@@ -3637,7 +3708,8 @@ Three limits on the marker, all deliberate:
 
   - It covers whole files emitted from a template, not the marker-delimited
     *regions* the kit injects into otherwise package-owned files. The
-    `.gitignore` managed block, the README badge and standard-sections blocks,
+    `.gitignore` and `CLAUDE.md` managed blocks, the README badge and
+    standard-sections blocks,
     and `Project.toml`'s `[workspace]` stanza are refreshed on every sync
     regardless of any `$(_MANAGED_OVERRIDE_MARKER)`; a package customises those
     by editing outside their markers, which is what the markers are for.
@@ -3670,12 +3742,13 @@ Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, org_branding, extension_pages,
-warnings)` named
+gitignore, claude, logo, standard_sections, citation, org_branding,
+extension_pages, warnings)` named
 tuple: managed files newly added, managed files rewritten, preserved files,
 retired paths deleted, the README badge action, the `LICENSE` action
 (`:skipped` on update), the root `[workspace]` stanza action, the `.gitignore`
-managed-block action, the README logo-title action, the managed
+managed-block action, the `CLAUDE.md` managed-block action, the README
+logo-title action, the managed
 standard-sections action, the `CITATION.cff` action (`:created` or
 `:preserved` — unlike `LICENSE`, `update` seeds this one when absent, #322),
 the org-branding asset action, the per-extension docs pages as a
