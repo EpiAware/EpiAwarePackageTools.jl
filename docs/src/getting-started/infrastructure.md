@@ -165,6 +165,43 @@ Adding the key is therefore the real fix, and
 [`setup_checklist`](@ref) lists it with the `DocumenterTools.genkeys` call that
 generates the pair.
 
+### [Adding the deploy key](@id documenter-key)
+
+Do this once per package, when the repository is created.
+It needs admin on the repository, so it cannot be scripted into `scaffold`.
+
+```bash
+repo=EpiAware/YourPackage.jl
+ssh-keygen -t rsa -b 4096 -m PEM -N "" -C documenter -f /tmp/dk
+gh repo deploy-key add /tmp/dk.pub --repo "$repo" \
+  --title documenter --allow-write
+gh secret set DOCUMENTER_KEY --repo "$repo" --body "$(base64 -w0 < /tmp/dk)"
+shred -u /tmp/dk /tmp/dk.pub
+```
+
+`DocumenterTools.genkeys` does the same thing and prints both halves to paste
+by hand.
+Either way four details matter, and each one silently breaks the deploy if it
+is wrong.
+
+- The deploy key needs **write** access.
+  A read-only key passes the `git push` handshake and fails the push.
+- The secret holds the **private** half, **base64-encoded on one line**.
+  `base64 -w0` matters: a wrapped blob does not survive the round trip.
+- Generate **one keypair per repository**.
+  GitHub binds a deploy key to a single repository and refuses to register the
+  same public half anywhere else, so there is no org-wide version of this.
+- Use RSA in PEM form.
+  It matches what `DocumenterTools` emits, which is what both consumers of the
+  secret are known to read.
+
+That single secret does two jobs.
+TagBot reads it as `ssh:` to push the tag, and Documenter reads it as
+`DOCUMENTER_KEY` to push to `gh-pages`.
+Only the first needs the key, since `deploydocs` also works from
+`GITHUB_TOKEN`, which is why a package with no key still publishes `dev` docs
+and never a versioned copy.
+
 The managed `TagBot.yaml` carries a safety net for a package that has no key
 yet.
 A `ReleaseDocs` job runs after TagBot, and when the latest release has no
