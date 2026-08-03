@@ -65,9 +65,12 @@ jobs:
           # A package that DOES have the deploy key gets its tag over SSH, and
           # the resulting push run appears about two seconds later. Settle
           # first so that run is visible: dispatching a second build at the
-          # same ref would land in `document.yaml`'s
-          # `${{ github.workflow }}-${{ github.ref }}` concurrency group, which
-          # is `cancel-in-progress`, and cancel the push run it was racing.
+          # same ref would land in the same concurrency group as the push run
+          # (document.yaml keys its group on workflow + ref, and cancels in
+          # progress), and cancel the run it was racing. Written without an
+          # Actions expression on purpose -- those are substituted throughout
+          # a run block, comments included, so naming the group literally here
+          # would render expanded in the job log.
           sleep 30
           # A run at a tag reports the tag name as its `branch`. Guarded like
           # the call above: a repo whose docs workflow is not `document.yaml`

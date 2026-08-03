@@ -180,6 +180,20 @@
                 @test occursin("needs: TagBot", tagbot)
                 @test occursin("actions: write", tagbot)
                 @test occursin("gh workflow run document.yaml", tagbot)
+                # Both guards on the dispatch path, which read as dead weight
+                # to a later tidy-up and are not. The settle keeps a
+                # deploy-key package's push run visible before the query, so
+                # a second build at the same ref cannot cancel it through the
+                # docs workflow's concurrency group; the guarded assignment
+                # keeps a repo with no `document.yaml` from redding TagBot on
+                # every release (`gh api` exits non-zero on the 404).
+                @test occursin("sleep 30", tagbot)
+                @test occursin("if ! runs=\$(gh api", tagbot)
+                # No Actions expression in the `run` block: they are
+                # substituted throughout it, comments included, so one there
+                # would render expanded in the job log.
+                run_block = split(tagbot, "        run: |")[end]
+                @test !occursin("\${{", run_block)
                 @test !occursin("{{ORG}}", tagbot)
                 # The registrability caller invokes the org reusable, pins it
                 # by SHA (like the other callers, so Dependabot can bump it),
