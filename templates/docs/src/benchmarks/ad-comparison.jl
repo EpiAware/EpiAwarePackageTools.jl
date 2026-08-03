@@ -56,14 +56,18 @@ end
 Base.show(io::IO, ::MIME"text/markdown", t::MarkdownTable) = print(io, t.text)
 
 ## Render `df` as a markdown pipe table: first column left-aligned (the
-## label), the rest right-aligned (the numbers).
+## label), the rest right-aligned (the numbers). A `|` inside a cell would
+## otherwise split it into two columns, so escape it -- registry backend
+## names are free text.
+_cell(x) = replace(string(x), "|" => "\\|")
+
 function markdown_table(df)
     cols = string.(names(df))
     io = IOBuffer()
-    println(io, "| ", join(cols, " | "), " |")
+    println(io, "| ", join(_cell.(cols), " | "), " |")
     println(io, "|:---|", repeat("---:|", max(length(cols) - 1, 0)))
     for row in eachrow(df)
-        println(io, "| ", join((string(row[c]) for c in cols), " | "), " |")
+        println(io, "| ", join((_cell(row[c]) for c in cols), " | "), " |")
     end
     return MarkdownTable(String(take!(io)))
 end

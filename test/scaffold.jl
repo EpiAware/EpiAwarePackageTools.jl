@@ -1420,6 +1420,15 @@
                 # index column, no column-type row, no inline styles.
                 @test !occursin("DataFrame", probe.text)
                 @test !occursin("style =", probe.text)
+                # A `|` in a cell is escaped, so a registry backend name
+                # carrying one cannot split the row into extra columns.
+                piped = Core.eval(sandbox,
+                    quote
+                        t = markdown_table(MockFrame(
+                            ["Backend"], [Any["Enzyme|reverse"]]))
+                        sprint(show, MIME("text/markdown"), t)
+                    end)
+                @test occursin("| Enzyme\\|reverse |", piped)
 
                 # Registered in the package-owned docs seeds: its own
                 # `docs/src/benchmarks/` Literate pipeline (heavy + stub,
@@ -1623,6 +1632,51 @@
                 scaffold(dir; ad = false)
                 res = update(dir; ad = false)
                 @test isempty(res.warnings)
+            end
+        end
+
+        @testset "update warns when docs/Project.toml keeps a dropped AD dep" begin
+            # `docs/Project.toml` is package-owned and write-once, so dropping
+            # AlgebraOfGraphics from `_ad_docs_deps` only lands on a fresh
+            # scaffold. An adopter who synced before the AD-comparison split
+            # keeps it, and with it the DimensionalData/FlexiChains resolver
+            # conflict it was removed to fix (kit#283), now with nothing in
+            # the build using it.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "StaleDeps")
+                scaffold(dir)
+                proj = _dest(dir, "docs/Project.toml")
+                txt = read(proj, String)
+                @test !occursin("AlgebraOfGraphics", txt)
+                # Reinstate the dep the way a pre-split adopter still carries
+                # it, in both [deps] and [compat].
+                txt = replace(txt,
+                    "[deps]" =>
+                        "[deps]\nAlgebraOfGraphics = " *
+                        "\"cbdf2221-f076-402e-a563-3d30da359d67\"")
+                txt = replace(txt, "[compat]" => "[compat]\nAlgebraOfGraphics = \"0.13\"")
+                write(proj, txt)
+                local res
+                @test_logs (:warn, r"AlgebraOfGraphics"i) match_mode=:any begin
+                    res = update(dir)
+                end
+                @test any(w -> occursin("AlgebraOfGraphics", w), res.warnings)
+                @test any(w -> occursin("docs/Project.toml", w), res.warnings)
+                # The dep is not removed for them: docs/Project.toml is
+                # package-owned, so the warning is the whole remedy.
+                @test occursin("AlgebraOfGraphics", read(proj, String))
+            end
+            # A fresh scaffold never carries the dep, so no warning fires.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "FreshDeps")
+                scaffold(dir)
+                @test isempty(update(dir).warnings)
+            end
+            # `ad = false` has no AD docs env to be stale.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "NoADDeps")
+                scaffold(dir; ad = false)
+                @test isempty(update(dir; ad = false).warnings)
             end
         end
 

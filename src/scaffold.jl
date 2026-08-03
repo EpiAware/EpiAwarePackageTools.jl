@@ -2084,6 +2084,34 @@ function _ad_benchmarks_config_gap(target_dir::AbstractString, ad::Bool)
         "both, mirroring HEAVY_TUTORIALS/TUTORIAL_STUBS above them).")
 end
 
+# `docs/Project.toml` is package-owned and write-once, so dropping a dep from
+# `_ad_docs_deps`/`_ad_docs_compat` only takes effect on a fresh scaffold
+# (#299/#305). `AlgebraOfGraphics` is the case that matters: the AD-comparison
+# page's plots were rewritten in plain CairoMakie precisely because AoG's
+# `mapping`/`visual` calls pull `DimensionalData` in via Makie, which
+# conflicts with FlexiChains' compat range in any package that hard-deps both
+# (kit#283). An existing adopter keeps AoG in `[deps]`/`[compat]` after this
+# sync, so they keep the exact resolver conflict the removal exists to fix,
+# now with nothing in the docs build using it. Warn like the two other
+# write-once gaps rather than leaving it to be found as an unrelated-looking
+# resolver failure.
+const _STALE_AD_DOCS_DEPS = ("AlgebraOfGraphics",)
+
+function _ad_docs_deps_gap(target_dir::AbstractString, ad::Bool)
+    ad || return nothing
+    proj = joinpath(target_dir, "docs", "Project.toml")
+    isfile(proj) || return nothing
+    txt = read(proj, String)
+    stale = filter(d -> occursin(d, txt), collect(_STALE_AD_DOCS_DEPS))
+    isempty(stale) && return nothing
+    return string(
+        "docs/Project.toml still lists ", join(stale, ", "),
+        ": the AD-comparison page no longer uses it, and it pulls ",
+        "DimensionalData in via Makie, which conflicts with FlexiChains in ",
+        "a package that hard-deps both (kit#283). Remove it from [deps] and ",
+        "[compat] in docs/Project.toml.")
+end
+
 # The docs-env `[deps]` fragment the benchmark page's combined trend plot
 # needs (`EpiAwarePackageTools.DocsBuild._write_overall_trend_plot`): `Plots`
 # (GR backend), lazily loaded kit-side so it is only required once a package
@@ -3400,6 +3428,14 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     if nav_gap !== nothing
         push!(warnings, nav_gap)
         @warn nav_gap
+    end
+    # `docs/Project.toml` is write-once too, so a dep this kit version drops
+    # from `_ad_docs_deps` stays in an existing adopter's env — see
+    # `_ad_docs_deps_gap`.
+    deps_gap = _ad_docs_deps_gap(target_dir, ad)
+    if deps_gap !== nothing
+        push!(warnings, deps_gap)
+        @warn deps_gap
     end
     # `.gitignore` is managed between markers so package-owned additions below
     # the block survive `update` (#65). Reported separately for the same
