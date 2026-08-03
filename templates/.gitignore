@@ -22,6 +22,9 @@ docs/src/{{TUTORIALS_SUBDIR}}/*.md
 # The benchmark pages (performance-over-time + AD comparison, #299/#305):
 # their own top-level nav folder, not under TUTORIALS_SUBDIR.
 docs/src/benchmarks/*.md
+# The performance-history page's Plots.jl chart (#114) is regenerated on
+# every docs build and sits beside that page, so it moved with it (#299/#305).
+docs/src/benchmarks/overall_trend.png
 
 # Coverage artefacts.
 *.cov
