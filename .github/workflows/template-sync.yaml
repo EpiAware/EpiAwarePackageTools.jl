@@ -145,6 +145,10 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `gh` otherwise infers the repo from the checked-out git remote,
+          # which is not there yet if the run failed at or before checkout —
+          # exactly a failure this step has to survive to report.
+          GH_REPO: ${{ github.repository }}
         run: |
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           run_url="$run_url/actions/runs/$GITHUB_RUN_ID"
@@ -164,6 +168,10 @@ jobs:
         if: ${{ failure() && github.event_name != 'pull_request' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `gh` otherwise infers the repo from the checked-out git remote,
+          # which is not there yet if the run failed at or before checkout —
+          # exactly a failure this step has to survive to report.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
