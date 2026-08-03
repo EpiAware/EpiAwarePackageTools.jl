@@ -39,9 +39,9 @@ template-sync entry point), leaving package-owned tests, AD scenarios, and QA
 config values untouched.
 
 [`setup_checklist`](@ref) prints the handful of manual, dashboard-only setup
-steps `scaffold`/`scaffold_generate` cannot do for us (Codecov, GitHub Pages, branch
-protection, the first registry registration), plus a ready-to-paste tracking
-issue body.
+steps `scaffold`/`scaffold_generate` cannot do for us (Codecov, GitHub Pages,
+the `DOCUMENTER_KEY` deploy key, branch protection, the first registry
+registration), plus a ready-to-paste tracking issue body.
 
 The AD harness + AD CI are opt-in: `scaffold`/`scaffold_generate`/`update` take an
 `ad::Bool` keyword (default `true`). A numerical package keeps `ad = true`; a
