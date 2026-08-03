@@ -57,6 +57,15 @@ using Pkg
 Pkg.add("EpiAwarePackageTools")
 ```
 
+## Related packages
+
+- [EpiAwareADTools.jl](https://epiawareadtools.epiaware.org/dev/) hosts the
+  org's AD-safety machinery, which the AD-gradient harness scaffolded from here
+  exercises across ForwardDiff, ReverseDiff, Enzyme, and Mooncake.
+- Every package in the [EpiAware](https://github.com/EpiAware) org adopts this
+  kit for its CI, documentation build, and quality checks, so a change made
+  here reaches all of them through the scheduled template sync.
+
 ## Where to learn more
 
 - Want to get started? See the

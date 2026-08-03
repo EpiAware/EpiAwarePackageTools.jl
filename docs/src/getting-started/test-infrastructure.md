@@ -6,7 +6,8 @@ This page describes what it writes, how the pieces fit together, and how to run
 and configure them.
 See [Infrastructure and template sync](@ref infrastructure) for the
 managed-versus-package-owned split that governs which of these files a sync
-rewrites.
+rewrites, and [Package standards](@ref standards) for the standards these checks
+hold a package to (and the ones no check covers).
 
 ## The test tree
 
@@ -79,6 +80,38 @@ checks without editing the managed file.
 paths, per-check Aqua relaxations, ExplicitImports ignore lists, docstring
 cross-reference ignores, the README requirements, and the list of extensions to
 ambiguity-check.
+
+## Opt-in README wording checks
+
+Three further README checks ship with the kit but are not part of the managed
+quality testset.
+They encode the overview-page design standard, which most adopting READMEs do
+not meet yet, so switching them on for every caller at once would red the whole
+ecosystem.
+A package opts in by calling them from its own tests.
+
+- Placeholders ([`test_readme_placeholders`](@ref)) fails when a README still
+  carries the scaffold's unfilled placeholder text.
+  The patterns come from the seeded skeleton itself, so a placeholder added to
+  the scaffold is checked for without a change here.
+- Prose ([`test_readme_prose`](@ref)) fails on the banned-word list
+  ([`BANNED_README_WORDS`](@ref)) and on sentences over a configurable length.
+  Only prose is read: code fences, tables, inline code, and link URLs are
+  skipped, so a banned word in an identifier or a URL is not a failure.
+- Why-section bullets ([`test_readme_bullets`](@ref)) fails on a bullet that
+  opens with a bold label and a colon (a feature inventory rather than a reason
+  to use the package), on a bullet count outside 3-6, and on a bullet running to
+  more than one sentence.
+
+```julia
+@testitem "README wording" tags=[:readme] begin
+    using EpiAwarePackageTools
+    root = pkgdir(MyPackage)
+    test_readme_placeholders(root)
+    test_readme_prose(root)
+    test_readme_bullets(root)
+end
+```
 
 ## Eager option validation
 

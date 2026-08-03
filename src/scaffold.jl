@@ -652,12 +652,11 @@ const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma
 # EpiAware/.github commit than `_DOWNGRADE_SEED_REF` because
 # `registrability.yml` post-dates the shared seed (added in EpiAware/.github
 # #31), so the caller cannot pin the older seed and still resolve the
-# reusable. The two refs converge once that PR merges and Dependabot bumps the
-# pins across adopters. UPDATE this to the squash-merge SHA of
-# EpiAware/.github#31 once it lands (the current value is that PR's branch
-# head, which resolves pre-merge but may be garbage-collected after a
-# squash-merge deletes the branch).
-const _REGISTRABILITY_SEED_REF = "0c1b4ec28e30933f3ea50513d0aca40592cf512f"  # pragma: allowlist secret
+# reusable. The two refs converge once Dependabot bumps the pins across
+# adopters. This is the squash-merge SHA of EpiAware/.github#31 on that
+# repo's default branch (not a branch-head SHA, so it is not
+# garbage-collectable).
+const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # pragma: allowlist secret
 
 # The seed reusable-workflow ref for the release-nudge caller
 # (`templates/.github/workflows/release-nudge.yaml`). Like
@@ -1369,6 +1368,47 @@ end
 # `_preserve_caller_with_inputs`.
 const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
 
+# A `uses:` line repointed at a repo-local reusable *workflow* (`./.github/
+# workflows/<file>.yml(aml)` or the `../` equivalent) rather than the org's
+# shared `.github` reusable, plus whatever follows it (#325). The
+# `.github/workflows/` segment is deliberate, not merely cosmetic: several
+# bundled templates (`auto-version-increment.yaml`,
+# `version-on-demand.yaml`) call a repo-local *composite action* from a
+# step, `uses: ./.github/actions/<name>` with its own `with:` block — a
+# routine, unrelated shape that must not be mistaken for the caller-job
+# override this warns about. Requiring the workflow-file path (and
+# excluding the actions path) tells the two apart without having to
+# distinguish a job-level `uses:` from a step-level one.
+#
+# Deliberately mirrors `_CALLER_JOB`'s shape — match `uses:` directly rather
+# than scanning forward from a job-name line, since a free-form "skip N
+# lines to find uses:" prefix is exactly what caused catastrophic
+# backtracking here in practice (this regex tried and reverted; see git
+# history) when run against a multi-job file: false candidate starts (e.g.
+# `concurrency:`'s nested `group:`/`cancel-in-progress:` lines, which also
+# match a bare `^  <word>:` line) sent the lazy line-skip hunting to the end
+# of the file on every attempt. `_warn_local_caller_override!` recovers the
+# job name separately, by searching backward from the match for the nearest
+# preceding `^  <name>:` line — a plain per-line scan, not a
+# backtracking-prone in-regex skip. Group 2 is the optional `with:` block
+# (empty when the job has none); group 3 (the `with:` line's own indent) is
+# used internally via the `\3` backreference, the same trick `_CALLER_JOB`
+# uses, so the block stops at the next line indented no deeper than `with:`
+# (a sibling `secrets:` key or the next job) instead of swallowing it.
+const _LOCAL_CALLER_JOB = r"(uses:[ \t]*\.{1,2}/\.github/workflows/[^@\s]+\.ya?ml\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\3[ \t]+\S.*\r?\n?)*)?)"
+
+# A non-empty `with:` block: `with:` followed by at least one indented,
+# non-blank line. Used to tell a local caller that genuinely carries
+# package-owned inputs (about to be lost, #325) from one whose `with:` (if
+# any) is empty and so has nothing a resync could drop.
+const _LOCAL_CALLER_HAS_INPUTS = r"with:\r?\n[ \t]+\S"
+
+# A job's name: a bare `^  <name>:` line (2-space indent, no value on the
+# line). Used to recover which job a `_LOCAL_CALLER_JOB` match belongs to by
+# searching backward from the match for the nearest preceding line of this
+# shape — see `_warn_local_caller_override!`.
+const _JOB_NAME_LINE = r"(?m)^  ([\w-]+):[ \t]*\r?$"
+
 # Keep a package-owned `with:` block on a managed CI caller job across
 # `update()` (#73). A package can deliberately override a reusable workflow's
 # defaults on a managed caller (e.g. a Julia version floor/matrix on
@@ -1602,6 +1642,63 @@ function _preserve_caller_with_inputs(
             return prefix * replacement * suffix
         end,
     )
+end
+
+"""
+    _warn_local_caller_override!(warnings, to, dest)
+
+Warn when the committed `to` (the managed workflow at relative path `dest`)
+carries a caller job repointed at a repo-local reusable workflow with its
+own `with:` inputs — a shape `_preserve_caller_with_inputs` cannot see, so
+the resync about to happen silently drops those inputs and reverts the job
+to the shared reusable (#325).
+
+`_CALLER_JOB`, which keys `_preserve_caller_with_inputs`, matches only
+`uses: <org>/.github/.github/workflows/<file>@<ref>`. A package that needs
+an input the shared reusable does not expose has one way to add it: point
+the caller at a local copy of the workflow (`uses:
+./.github/workflows/<file>.yaml`) instead. That shape cannot be matched, so
+`_preserve_caller_with_inputs` never sees the job and `_emit` re-renders it
+from the template — the caller flips back to the shared reusable and the
+`with:` inputs it carried are gone, with nothing in the sync output to say
+so. This is exactly what #325 reports: `DistributionsInference.jl`
+repointed `downgrade-compat` at a local `downgrade.yaml` to pass `projects:
+'., test'`, and the very next scheduled sync reverted it silently.
+
+This does not change what gets emitted: the job still resyncs to the
+template's reusable, the same as any managed content the kit does not know
+how to key and preserve. It only makes the loss visible in `warnings` (and
+via `@warn`) so it surfaces in the sync PR rather than as an unrelated-
+looking red check days later. Pushes one message per matching job onto
+`warnings` (mutated in place, mirroring the `test/ad/setup.jl` divergence
+warning in `_apply`).
+"""
+function _warn_local_caller_override!(warnings::Vector{String},
+        to::AbstractString, dest::AbstractString)
+    isfile(to) || return nothing
+    text = read(to, String)
+    for m in eachmatch(_LOCAL_CALLER_JOB, text)
+        block = String(something(m.captures[2], ""))
+        occursin(_LOCAL_CALLER_HAS_INPUTS, block) || continue
+        # The nearest `^  <name>:` line before the match, i.e. the job this
+        # `uses:` line belongs to. A plain backward scan, not a free-form
+        # in-regex skip — see `_LOCAL_CALLER_JOB`'s comment for why the
+        # latter is unsafe here.
+        prefix = SubString(text, 1, m.offset - 1)
+        job = nothing
+        for jm in eachmatch(_JOB_NAME_LINE, prefix)
+            job = String(something(jm.captures[1]))
+        end
+        job === nothing && continue
+        msg = string(dest, " job \"", job, "\" has `uses:` pointing at a ",
+            "repo-local reusable workflow with its own `with:` inputs. ",
+            "`_CALLER_JOB` only keys the org's shared reusable, so this ",
+            "job cannot be preserved — the next resync will silently drop ",
+            "those inputs and revert it to the shared reusable (#325).")
+        push!(warnings, msg)
+        @warn msg
+    end
+    return nothing
 end
 
 # Make an emitted file writable by its owner (#187). A `Pkg.add`ed kit ships its
@@ -2529,13 +2626,21 @@ end
 # where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
 # the file content changed.
 # A starter README body for a package that has none yet, following the standard
-# EpiAware section structure (Why / Getting started / Where to learn more). The
-# managed standard-sections block (`_apply_standard_sections`) then appends
-# Contributing / How to cite / Code of conduct in the order
-# `STANDARD_README_SECTIONS` in `quality.jl` requires. Parameterised from the
-# repo slug, package name, and docs host. Only seeded when no README exists;
-# thereafter this body is package-owned and only the badge block and the managed
-# standard sections are refreshed on update.
+# EpiAware section structure (Why / Getting started / Related packages / Where
+# to learn more). The managed standard-sections block
+# (`_apply_standard_sections`) then appends Contributing / How to cite / Code of
+# conduct in the order `STANDARD_README_SECTIONS` in `quality.jl` requires.
+# Parameterised from the repo slug, package name, and docs host. Only seeded
+# when no README exists; thereafter this body is package-owned and only the
+# badge block and the managed standard sections are refreshed on update.
+#
+# The Related packages bullets are inherently package-specific — one sentence
+# per sibling with a real, verifiable relationship, linked to that sibling's
+# live docs (#292) — so only the heading and a placeholder are seeded.
+# Every italic `_..._` span here is a placeholder
+# `test_readme_placeholders` derives its patterns from, so an unfilled skeleton
+# is reported rather than published; adding a placeholder means writing it in
+# that form.
 function _seed_readme_body(
     repo::AbstractString,
     pkg::AbstractString,
@@ -2555,6 +2660,9 @@ function _seed_readme_body(
         "## Getting started\n\n",
         "See $docs_link for a full walkthrough.\n\n",
         "```julia\nusing $pkg\n```\n\n",
+        "## Related packages\n\n",
+        "- _One bullet per sibling package with a real relationship to " *
+        "$pkg, one sentence each, linked to that package's docs._\n\n",
         "## Where to learn more\n\n",
         "- [GitHub Discussions](https://github.com/$repo/discussions)\n",
         "- [GitHub Repository](https://github.com/$repo)\n",
@@ -3379,7 +3487,8 @@ Shared worker for `scaffold`/`update`.
 paths (`removed` being the retired managed paths cleaned up; see
 `RETIRED_PATHS`; `warnings` a `Vector{String}` of non-fatal issues raised
 while applying, e.g. a diverged-but-unmarked `test/ad/setup.jl` about to be
-overwritten).
+overwritten, or a caller job repointed at a local reusable workflow about
+to be silently reverted (#325, see `_warn_local_caller_override!`)).
 """
 function _apply(
     target_dir::AbstractString;
@@ -3539,6 +3648,13 @@ function _apply(
             push!(preserved, to)
             continue
         end
+        # A managed caller job repointed at a repo-local reusable workflow
+        # cannot be keyed by `_CALLER_JOB`/`_preserve_caller_with_inputs`
+        # (#325), so the `_emit` below is about to silently drop any
+        # `with:` inputs it carries. Warn before that happens rather than
+        # letting the loss ride along unnoticed in the sync output.
+        exists && t.managed &&
+            _warn_local_caller_override!(warnings, to, t.dest)
         _emit(from, to, t.substitute, inputs)
         push!(exists ? updated : created, to)
     end

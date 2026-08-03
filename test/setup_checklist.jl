@@ -23,6 +23,12 @@
             @test occursin("Codecov", text)
             @test occursin("CODECOV_TOKEN", text)
             @test occursin("GitHub Pages", text)
+            # The deploy key TagBot needs to push release tags over SSH; with
+            # no key the tag comes from the Actions app token, which raises no
+            # push event, so the versioned release docs never build.
+            @test occursin("DOCUMENTER_KEY", text)
+            @test occursin("Deploy keys", text)
+            @test occursin("DocumenterTools.genkeys", text)
             @test occursin("main", text)
             @test occursin("/register", text)
             @test occursin("Register", text)
@@ -49,6 +55,10 @@
             text = String(take!(buf))
             @test occursin("OtherPkg", text)
             @test occursin("SomeOrg/OtherPkg.jl", text)
+            # The genkeys call splits the slug, so the override has to reach
+            # both halves rather than only the rendered slug.
+            @test occursin("genkeys(user=\"SomeOrg\", repo=\"OtherPkg.jl\")",
+                text)
         end
     end
 

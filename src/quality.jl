@@ -395,6 +395,13 @@ alternatives. Extend or relax it per package via the `required` keyword of
 const STANDARD_README_SECTIONS = [
     ("Why", "Overview", "Features", "About"),
     ("Getting started", "Usage", "Quickstart", "Quick start"),
+    # One bullet per sibling package, one sentence each (#292). The slot is
+    # after Getting started and before Documentation: each of the six packages
+    # that adopted the design landed it there independently, so a reader meets
+    # the siblings once the package itself makes sense and before the links out.
+    # It replaces the older "What packages work well with X?" heading, which
+    # `STALE_README_HEADINGS` reports as drift.
+    ("Related packages",),
     ("Documentation", "Where to learn more", "Learn more"),
     ("Contributing",),
     # "Cite" accepts the managed standard-sections heading `## How to cite`
@@ -419,6 +426,23 @@ checks when the markers are present (#236).
 const MANAGED_README_SECTIONS = [
     ("Contributing",), ("How to cite",), ("Code of conduct",)
 ]
+
+"""
+    STALE_README_HEADINGS
+
+Retired README headings, each paired with the heading that replaced it, reported
+as drift by [`test_readme_sections`](@ref).
+
+A renamed section would otherwise be caught only as a missing section, which
+says what is absent but not what to rename. Each entry is a
+`Regex => replacement` pair; the regex is matched against every `##`-level (and
+deeper) heading text, so a heading that carries the package name still matches.
+
+The one entry today is the pre-#292 `What packages work well with X?`, replaced
+by `## Related packages`.
+"""
+const STALE_README_HEADINGS = [
+    r"what packages work well with"i => "Related packages"]
 
 # Render one section group as a human-readable label for failure messages.
 _section_label(group::Tuple) = join(group, " / ")
@@ -475,6 +499,18 @@ function _managed_block_headings(body::AbstractString)
     return _readme_headings(body[(last(si) + 1):(first(ei) - 1)])
 end
 
+# The README file a caller's `path` names: `path` itself when it is a file,
+# otherwise the `README.md` inside it. Shared by every README check so they all
+# accept a package root or a direct file path.
+function _readme_file(path::AbstractString)
+    return isdir(path) ? joinpath(path, "README.md") : path
+end
+
+# The name a README check labels its testset with: the directory holding the
+# README (i.e. the package root), which is what a caller recognises in the
+# test output.
+_readme_label(file::AbstractString) = basename(dirname(abspath(file)))
+
 # Extract the ordered `##`-level (or deeper) Markdown heading texts from a
 # README body, ignoring the H1 title and fenced code blocks (so a `#` inside a
 # ```code``` block is not mistaken for a heading).
@@ -500,7 +536,8 @@ function _readme_headings(body::AbstractString)
 end
 
 """
-    test_readme_sections(path; required = STANDARD_README_SECTIONS, order = true)
+    test_readme_sections(path; required = STANDARD_README_SECTIONS,
+        order = true, stale = STALE_README_HEADINGS)
 
 Assert the README at `path` carries the standard EpiAware section structure.
 
@@ -524,17 +561,27 @@ whose own sections it does not move.
 heading texts matched case-insensitively as a substring, so a package may title
 the section to taste (e.g. `("Getting started", "Usage")`). The default is the
 standard structure ([`STANDARD_README_SECTIONS`](@ref)): a Why/Overview section,
-a Getting started / Usage section, a Documentation section, a Contributing
-section, and a Citing / License section. A package overrides or extends the list
-via its `qa_config.jl` (pass its own `required`).
+a Getting started / Usage section, a Related packages section, a Documentation
+section, a Contributing section, and a Citing / License section. A package
+overrides or extends the list via its `qa_config.jl` (pass its own `required`).
+
+A heading retired by a design change is reported as drift, naming the heading
+that replaced it, rather than only as a missing section
+([`STALE_README_HEADINGS`](@ref)) — today the pre-#292
+`What packages work well with X?` against `## Related packages`.
 
 The H1 title and the managed badge block are checked here too: the README must
 open with a single `#` title and contain the badge markers the scaffolder
 manages (see [`scaffold`](@ref)).
 
+The README standards this check exists to hold a package to, and the ones no
+check covers, are listed in [Package standards](@ref standards).
+
 # Keyword Arguments
   - `required`: the ordered heading groups to require; default the standard set.
   - `order`: when `true`, also assert the present sections are in order.
+  - `stale`: `Regex => replacement` pairs for retired headings; default
+    [`STALE_README_HEADINGS`](@ref). Pass `[]` to skip the drift report.
 
 ```julia
 test_readme_sections(pkgdir(MyPackage))
@@ -545,10 +592,11 @@ test_readme_sections(pkgdir(MyPackage);
 ```
 """
 function test_readme_sections(
-    path::AbstractString; required=STANDARD_README_SECTIONS, order::Bool=true
+    path::AbstractString; required=STANDARD_README_SECTIONS, order::Bool=true,
+    stale=STALE_README_HEADINGS
 )
-    file = isdir(path) ? joinpath(path, "README.md") : path
-    return @testset "README sections: $(basename(dirname(abspath(file))))" begin
+    file = _readme_file(path)
+    return @testset "README sections: $(_readme_label(file))" begin
         if !isfile(file)
             @test_skip "no README at $file"
             return nothing
@@ -565,6 +613,18 @@ function test_readme_sections(
         for group in required
             @testset "$(_section_label(group))" begin
                 @test _has_section(headings, group)
+            end
+        end
+        # Drift against a renamed section: report the retired heading and what
+        # replaced it, so the fix is a rename rather than a hunt for what is
+        # missing (#292).
+        @testset "stale headings" begin
+            for (pattern, replacement) in stale
+                found = filter(h -> occursin(pattern, h), headings)
+                for h in found
+                    @error "Retired README heading (#292)" heading=h replacement
+                end
+                @test isempty(found)
             end
         end
         if order
@@ -584,6 +644,489 @@ function test_readme_sections(
                     @test _sections_in_order(managed, MANAGED_README_SECTIONS)
                 end
             end
+        end
+    end
+end
+
+# --- README placeholders, prose, and Why bullets (#292) ---------------------
+#
+# None of the three checks below is wired into the scaffolded quality testset
+# (`templates/test/package/quality.jl`): they encode a design standard most
+# adopting READMEs do not meet yet, so switching them on for every caller at
+# once would red the whole ecosystem. A package opts in from its own
+# package-owned tests until that rollout is decided.
+
+# Characters a regex treats specially, escaped by `_regex_escape`. Base has no
+# regex-escape helper, and the strings escaped here (a fragment of the seeded
+# README skeleton, a banned word) legitimately carry `.`, `(`, `?`, `'`.
+const _REGEX_SPECIAL = Set{Char}("\\^\$.|?*+()[]{}")
+
+# `s` escaped so it matches itself literally inside a `Regex`.
+function _regex_escape(s::AbstractString)
+    io = IOBuffer()
+    for c in s
+        c in _REGEX_SPECIAL && print(io, '\\')
+        print(io, c)
+    end
+    return String(take!(io))
+end
+
+# Stand-in package name (and, with an `EpiAware/` owner and a `.jl` suffix,
+# repo slug) used to render the seeded README skeleton for placeholder
+# extraction. Anything unlikely to appear in the skeleton's own wording will do;
+# the point is that its occurrences are the parts that vary per package.
+const _README_SENTINEL = "PkgNameSentinel"
+
+# The placeholder text the scaffolder seeds into a fresh README, as regexes that
+# match it for any package name. Derived from `_seed_readme_body` itself
+# (`scaffold.jl`, included after this file, so it is called at run time),
+# rendered with a sentinel package name, so the check tracks the template rather
+# than a hardcoded copy of it: every italic `_..._` span in the skeleton is a
+# placeholder, and the sentinel occurrences inside one become `.+` so the seeded
+# text still matches once the package's real name is substituted in.
+function _seed_readme_placeholders()
+    body = _seed_readme_body("EpiAware/" * _README_SENTINEL * ".jl",
+        _README_SENTINEL, nothing)
+    patterns = Regex[]
+    for m in eachmatch(r"_[^_\n]+_", body)
+        parts = split(m.match, _README_SENTINEL)
+        push!(patterns, Regex(join(map(_regex_escape, parts), ".+")))
+    end
+    return unique(patterns)
+end
+
+"""
+    test_readme_placeholders(path; patterns = _seed_readme_placeholders())
+
+Assert the README at `path` carries no unfilled scaffold placeholder text.
+
+`path` is a README file or the directory containing a `README.md`. A freshly
+scaffolded README is a skeleton with the package-specific wording left as
+italic placeholders (`_One-line description of MyPkg._` and friends); shipping
+one unfilled publishes the template rather than the package, which is what
+this check catches.
+
+The patterns are derived from the seeded skeleton itself rather than listed
+here, so adding a placeholder to the scaffold extends the check with it. A
+placeholder must therefore be written as an italic `_..._` span to be tracked.
+
+# Keyword Arguments
+  - `patterns`: the placeholder regexes to search for; default the ones
+    derived from the scaffolded skeleton.
+
+```julia
+test_readme_placeholders(pkgdir(MyPackage))
+```
+"""
+function test_readme_placeholders(path::AbstractString;
+        patterns = _seed_readme_placeholders())
+    file = _readme_file(path)
+    return @testset "README placeholders: $(_readme_label(file))" begin
+        if !isfile(file)
+            @test_skip "no README at $file"
+            return nothing
+        end
+        body = read(file, String)
+        if isempty(patterns)
+            @test_skip "no seeded placeholders to check for"
+            return nothing
+        end
+        for pattern in patterns
+            @testset "$(pattern.pattern)" begin
+                found = [String(m.match) for m in eachmatch(pattern, body)]
+                for text in found
+                    @error "Unfilled README placeholder (#292)" file text
+                end
+                @test isempty(found)
+            end
+        end
+    end
+end
+
+"""
+    BANNED_README_WORDS
+
+Words and phrases the EpiAware writing standard keeps out of prose, used as the
+default `banned` list by [`test_readme_prose`](@ref).
+
+Each entry is matched case-insensitively at a word boundary by stem, with any
+suffix allowed, so listing `leverage` also catches `leverages` and `leveraging`,
+and `practitioner` catches `practitioners`. A few entries carry a hand-written
+stem instead, where the general one either overreaches (`novel` must not match
+`novelist`) or falls short (`synergy` has to reach `synergies` and
+`synergistic`, `current approaches` the singular `current approach`).
+
+`framework` and `harness` are the two context-sensitive entries: both are
+legitimate when they name a specific thing (a test harness, a named framework)
+and padding when they stand in for one. A package that uses either as a domain
+term drops it from its own `banned` list rather than dropping the check.
+"""
+const BANNED_README_WORDS = ["comprehensive", "cornerstone",
+    "current approaches", "facilitate", "foster", "framework", "harness",
+    "landscape", "leverage", "multifaceted", "novel", "nuanced", "overarching",
+    "pivotal", "practitioner", "robust", "streamline", "synergy", "utilise",
+    "utilize"]
+
+# Entries the stem rule below gets wrong, as the body of their own regex.
+# `novel` needs a closed suffix list, since an open one reaches `novelist`.
+# `synergy` and `current approaches` need a shorter stem than trimming a
+# trailing `e` gives, to reach `synergies`, `synergistic`, and the singular
+# `current approach`.
+const _BANNED_WORD_PATTERNS = Dict("novel" => "novel(?:s|ly|ty|ties)?",
+    "synergy" => "synerg(?:y|ies|i[sz]e[sd]?|i[sz]ing|istic(?:ally)?)",
+    "current approaches" => "current\\s+approach(?:es)?")
+
+# A banned word or phrase as a regex: case-insensitive, anchored at a word
+# boundary, any suffix allowed, and tolerant of how a phrase happens to be
+# wrapped across lines (a two-word phrase is one phrase however the author
+# broke the line). A trailing `e` is trimmed off the final word so the `-ing`
+# and `-ed` inflections are caught as well as the `-s` one: `leverage` has to
+# match `leveraging`, which `leverage[a-z]*` alone would miss. The trimmed
+# stems are long enough not to reach an unrelated word, bar the entries in
+# `_BANNED_WORD_PATTERNS`, which carry their own body instead.
+function _banned_word_regex(word::AbstractString)
+    key = String(strip(word))
+    body = get(_BANNED_WORD_PATTERNS, lowercase(key), nothing)
+    if body === nothing
+        stems = map(_regex_escape, split(key))
+        stems[end] = replace(stems[end], r"e$" => "")
+        body = join(stems, "\\s+") * "[a-z]*"
+    end
+    return Regex("\\b" * body * "\\b", "i")
+end
+
+# Markup scrubbed from one prose line: inline code spans, images, link targets
+# (the link text stays, the URL goes), inline HTML tags, and bare URLs. Each is
+# replaced by a space rather than deleted, so two words either side of it do not
+# run together into one.
+function _scrub_markup(line::AbstractString)
+    text = replace(line, r"`[^`]*`" => " ")
+    text = replace(text, r"!\[[^\]]*\]\([^)]*\)" => " ")
+    text = replace(text, r"\[([^\]]*)\]\([^)]*\)" => s"\1")
+    text = replace(text, r"<[^>]*>" => " ")
+    text = replace(text, r"https?://\S+" => " ")
+    return String(text)
+end
+
+# The prose lines of a README as `(line number, text)` pairs: the text a reader
+# reads as sentences, with everything that is not prose removed. Dropped whole:
+# fenced code blocks, HTML comments (which is what the managed badge and
+# standard-section markers are), and table rows — the managed badge table, and
+# any other table, whose cells are labels and links rather than sentences.
+# Scrubbed within a line: see `_scrub_markup`. Line numbers are the README's
+# own, so a failure points at the source line.
+function _readme_prose_lines(body::AbstractString)
+    lines = Tuple{Int, String}[]
+    in_fence = false
+    in_comment = false
+    for (i, raw) in enumerate(split(body, '\n'))
+        line = String(raw)
+        if in_comment
+            closer = findfirst("-->", line)
+            closer === nothing && continue
+            line = line[(last(closer) + 1):end]
+            in_comment = false
+        end
+        if startswith(strip(line), "```")
+            in_fence = !in_fence
+            continue
+        end
+        in_fence && continue
+        line = replace(line, r"<!--.*?-->" => " ")
+        opener = findfirst("<!--", line)
+        if opener !== nothing
+            line = line[1:(first(opener) - 1)]
+            in_comment = true
+        end
+        startswith(strip(line), "|") && continue
+        push!(lines, (i, _scrub_markup(line)))
+    end
+    return lines
+end
+
+# True when `text` (already stripped) starts a new prose block: a Markdown
+# heading, or a list item.
+function _starts_prose_block(text::AbstractString)
+    return occursin(r"^#{1,6}\s", text) || occursin(r"^([-*+]|\d+[.)])\s", text)
+end
+
+# Group prose lines into the blocks a sentence can span: a run of non-blank
+# lines, broken at a blank line, a heading, or the start of a list item. So a
+# sentence wrapped over three lines is measured whole, while two adjacent
+# bullets are never measured as one run-on sentence. Each block is
+# `(first line number, joined text)`.
+function _prose_blocks(lines)
+    blocks = Tuple{Int, String}[]
+    current = String[]
+    start = 0
+    for (i, text) in lines
+        s = strip(text)
+        if (isempty(s) || _starts_prose_block(s)) && !isempty(current)
+            push!(blocks, (start, join(current, " ")))
+            empty!(current)
+        end
+        isempty(s) && continue
+        isempty(current) && (start = i)
+        push!(current, String(s))
+    end
+    isempty(current) || push!(blocks, (start, join(current, " ")))
+    return blocks
+end
+
+# Abbreviations whose full stop never ends a sentence, and which are commonly
+# followed by a capitalised term (`e.g. Gamma`), so the following-capital rule
+# below would break at them. Their dots are swapped for a one-dot leader before
+# splitting and back afterwards. `etc.` is deliberately absent: it does end
+# sentences, and mid-sentence it is followed by a lowercase word, which the
+# capital rule already handles.
+const _PROSE_ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "et al.")
+
+const _DOT_LEADER = '\u2024'
+
+# The end of a sentence: terminal punctuation, then whitespace, then something
+# that can start a sentence. A dot with no whitespace after it is not a break
+# (a version number, `Distributions.jl`), and neither is one followed by a
+# lowercase word (`Gamma, LogNormal, etc. without extra work`).
+const _SENTENCE_BREAK = r"(?<=[.!?])\s+(?=[A-Z0-9(\[\"'])"
+
+# Split prose into sentences. The capital rule breaks at any abbreviation not
+# listed above (`Fig. 1`, `Dr. Smith`), so one sentence can be reported as two:
+# fine for the length check, which then measures fragments and passes, but the
+# one-sentence bullet rule false-positives on it. Tracked in #347.
+function _sentences(text::AbstractString)
+    protected = text
+    for abbrev in _PROSE_ABBREVIATIONS
+        protected = replace(protected, abbrev => replace(abbrev, '.' =>
+            _DOT_LEADER))
+    end
+    sentences = String[]
+    for part in split(protected, _SENTENCE_BREAK)
+        sentence = strip(replace(part, _DOT_LEADER => '.'))
+        isempty(sentence) || push!(sentences, String(sentence))
+    end
+    return sentences
+end
+
+"""
+    test_readme_prose(path; banned = BANNED_README_WORDS,
+        max_sentence_words = 40)
+
+Assert the README at `path` reads as plain prose: no banned word, no
+overlong sentence.
+
+`path` is a README file or the directory containing a `README.md`. Only prose
+is in scope — fenced code blocks, tables (the managed badge table included),
+HTML comments, inline code spans, link URLs, and bare URLs are all removed
+before the check runs, so a banned word inside an identifier or a URL is not a
+failure while the same word in a sentence is. Link text is kept: a reader reads
+it.
+
+Sentence length is measured in words over the prose lines of a block (a run of
+lines a wrapped sentence can span), so a sentence split across three source
+lines is measured once, whole.
+
+# Keyword Arguments
+  - `banned`: the words and phrases to reject; default
+    [`BANNED_README_WORDS`](@ref). Each is matched case-insensitively at a word
+    boundary with any suffix allowed.
+  - `max_sentence_words`: the longest sentence accepted, in words.
+
+```julia
+test_readme_prose(pkgdir(MyPackage))
+# a package whose domain term is on the default list:
+test_readme_prose(pkgdir(MyPackage);
+    banned = filter(!=("harness"), EpiAwarePackageTools.BANNED_README_WORDS))
+```
+"""
+function test_readme_prose(path::AbstractString;
+        banned = BANNED_README_WORDS, max_sentence_words::Integer = 40)
+    file = _readme_file(path)
+    return @testset "README prose: $(_readme_label(file))" begin
+        if !isfile(file)
+            @test_skip "no README at $file"
+            return nothing
+        end
+        lines = _readme_prose_lines(read(file, String))
+        @testset "banned words" begin
+            hits = Tuple{Int, String, String}[]
+            for word in banned
+                pattern = _banned_word_regex(word)
+                for (i, text) in lines
+                    m = match(pattern, text)
+                    m === nothing || push!(hits, (i, word, String(m.match)))
+                end
+            end
+            for (line, word, found) in hits
+                @error "Banned word in README prose" line word found
+            end
+            @test isempty(hits)
+        end
+        @testset "sentence length" begin
+            long = Tuple{Int, Int, String}[]
+            for (i, block) in _prose_blocks(lines)
+                for sentence in _sentences(block)
+                    words = length(split(sentence))
+                    words > max_sentence_words &&
+                        push!(long, (i, words, sentence))
+                end
+            end
+            for (line, words, sentence) in long
+                @error("README sentence over the word limit",
+                    line, words, max_sentence_words, sentence)
+            end
+            @test isempty(long)
+        end
+    end
+end
+
+# The lines of the `##`-level section whose heading matches `group`, as
+# `(line number, text)` pairs. A deeper (`###` or lower) heading inside the
+# section is skipped rather than ending it; the next `##`-or-shallower heading
+# ends it. Lines inside a fenced code block are dropped, so a bullet in a
+# worked example is not read as a section bullet. Empty when the section is
+# absent.
+function _readme_section_lines(body::AbstractString, group::Tuple)
+    lines = Tuple{Int, String}[]
+    in_fence = false
+    inside = false
+    for (i, raw) in enumerate(split(body, '\n'))
+        line = String(raw)
+        stripped = strip(line)
+        if startswith(stripped, "```")
+            in_fence = !in_fence
+            continue
+        end
+        in_fence && continue
+        m = match(r"^(#{1,6})\s+(.+?)\s*$", stripped)
+        if m !== nothing
+            level = length(something(m.captures[1], ""))
+            text = something(m.captures[2], "")
+            if inside
+                level <= 2 && break
+                continue
+            end
+            inside = level == 2 && _matches_section(text, group)
+            continue
+        end
+        inside && push!(lines, (i, line))
+    end
+    return lines
+end
+
+# The top-level bullets of a section as `(line number, text)` pairs, folding
+# each bullet's indented continuation lines (and any nested bullet) into its
+# text, so a wrapped bullet counts once and is measured whole. A blank line, or
+# a non-indented line that is not itself a bullet, closes the bullet being
+# folded, so prose framing the list is never mistaken for part of it.
+function _section_bullets(lines)
+    bullets = Tuple{Int, String}[]
+    folding = false
+    for (i, line) in lines
+        if occursin(r"^[-*+]\s+\S", line)
+            push!(bullets, (i, String(strip(line))))
+            folding = true
+        elseif folding && occursin(r"^\s+\S", line)
+            j, text = bullets[end]
+            bullets[end] = (j, text * " " * String(strip(line)))
+        else
+            folding = false
+        end
+    end
+    return bullets
+end
+
+# A bullet in the disfavoured feature-inventory form: a bold label followed by a
+# colon, in either placement of the colon (`**Label**: does X` or
+# `**Label:** does X`). #292's first requirement rules this out for the Why
+# section in favour of a sentence saying why a reader needs the package.
+const _BULLET_FEATURE_LABEL = r"""
+    ^[-*+]\s+\*\*[^*]+\*\*\s*:   # **Label**: does X
+    |
+    ^[-*+]\s+\*\*[^*]*:\*\*      # **Label:** does X
+    """x
+
+# A bullet's prose: the marker dropped and the markup scrubbed, ready to be
+# split into sentences.
+function _bullet_prose(text::AbstractString)
+    return _scrub_markup(replace(text, r"^[-*+]\s+" => ""))
+end
+
+"""
+    test_readme_bullets(path; heading = first(STANDARD_README_SECTIONS),
+        min_bullets = 3, max_bullets = 6)
+
+Assert the README's Why section is a short list of motivation sentences.
+
+`path` is a README file or the directory containing a `README.md`. The check
+reads the bullets under the Why (or Overview) heading, folding each bullet's
+wrapped continuation lines into it, and asserts three things (#292).
+
+  - No bullet opens with a bold label followed by a colon
+    (`**Primary event censoring**: ...`). That form is a feature inventory; the
+    standard asks for a sentence saying why a reader needs the package.
+  - The bullet count is within `min_bullets:max_bullets`. Too few does not
+    justify the package; too many is a feature list again.
+  - No bullet runs to more than one sentence. Detail beyond the first sentence
+    belongs in the documentation, not the pitch.
+
+When the README has no Why section at all the check skips: that absence is
+[`test_readme_sections`](@ref)' report to make, and failing here too would
+report one drift twice.
+
+# Keyword Arguments
+  - `heading`: the accepted heading texts of the section to read, as a tuple
+    matched case-insensitively by substring; default the standard set's first
+    group (Why / Overview / Features / About).
+  - `min_bullets`, `max_bullets`: the accepted bullet count range.
+
+```julia
+test_readme_bullets(pkgdir(MyPackage))
+```
+"""
+function test_readme_bullets(path::AbstractString;
+        heading::Tuple = first(STANDARD_README_SECTIONS),
+        min_bullets::Integer = 3, max_bullets::Integer = 6)
+    file = _readme_file(path)
+    label = _section_label(heading)
+    return @testset "README bullets: $(_readme_label(file))" begin
+        if !isfile(file)
+            @test_skip "no README at $file"
+            return nothing
+        end
+        section = _readme_section_lines(read(file, String), heading)
+        if isempty(section)
+            @test_skip "no $label section in $file"
+            return nothing
+        end
+        bullets = _section_bullets(section)
+        @testset "bullet count" begin
+            found = length(bullets)
+            in_range = min_bullets <= found <= max_bullets
+            in_range || @error("$label bullet count outside range (#292)",
+                found, min_bullets, max_bullets)
+            @test in_range
+        end
+        @testset "motivation, not a feature inventory" begin
+            labelled = filter(b -> occursin(_BULLET_FEATURE_LABEL, b[2]),
+                bullets)
+            for (line, text) in labelled
+                @error("$label bullet is a bold feature label rather than " *
+                       "a motivation sentence (#292)", line, text)
+            end
+            @test isempty(labelled)
+        end
+        @testset "one sentence per bullet" begin
+            multi = Tuple{Int, Int, String}[]
+            for (i, text) in bullets
+                sentences = _sentences(_bullet_prose(text))
+                length(sentences) > 1 &&
+                    push!(multi, (i, length(sentences), text))
+            end
+            for (line, sentences, text) in multi
+                @error("$label bullet runs to more than one sentence (#292)",
+                    line, sentences, text)
+            end
+            @test isempty(multi)
         end
     end
 end

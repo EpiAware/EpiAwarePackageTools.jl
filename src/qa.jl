@@ -60,6 +60,9 @@ when the subprocess exits zero, and JuliaFormatter need not be a dependency of
 the calling environment — the recommended layout when the test items share an
 environment with JET. `style`/`verbose`/`dirs` are ignored in `env` mode (the
 isolated `runtests.jl` owns that configuration).
+
+The formatting standard, and the org style decision behind it, are in
+[Package standards](@ref standards).
 """
 function test_formatting(
     dirs;
@@ -268,6 +271,9 @@ For each documented symbol with a meaningful docstring the checks are:
 Symbols without a docstring are skipped here (leave existence to Aqua's
 `undocumented_names` check). The cross-reference check warns rather than fails,
 matching the original package-level check.
+
+The documentation standard this check enforces is
+[Package standards](@ref standards).
 """
 function test_docstring_format(
     mod::Module;

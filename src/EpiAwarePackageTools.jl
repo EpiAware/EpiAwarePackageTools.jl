@@ -16,7 +16,11 @@ Two groups are provided.
     docstring conventions ([`test_docstring_format`](@ref)), per-extension
     method ambiguities ([`test_ext_ambiguities`](@ref)), doctests
     ([`test_doctest`](@ref)), and formatting/linting ([`test_formatting`](@ref),
-    [`test_linting`](@ref)).
+    [`test_linting`](@ref)). README structure and wording have their own set:
+    [`test_readme_sections`](@ref) for the standard section structure, plus
+    [`test_readme_placeholders`](@ref), [`test_readme_prose`](@ref), and
+    [`test_readme_bullets`](@ref), which are opt-in (a package calls them from
+    its own tests; the scaffolded quality testset does not).
   - An AD-gradient harness ([`check_broken`](@ref),
     [`test_working_backend`](@ref), [`test_partial_backend`](@ref)) checks a
     package's reverse/forward AD backends against a ForwardDiff reference. It
@@ -35,9 +39,9 @@ template-sync entry point), leaving package-owned tests, AD scenarios, and QA
 config values untouched.
 
 [`setup_checklist`](@ref) prints the handful of manual, dashboard-only setup
-steps `scaffold`/`scaffold_generate` cannot do for us (Codecov, GitHub Pages, branch
-protection, the first registry registration), plus a ready-to-paste tracking
-issue body.
+steps `scaffold`/`scaffold_generate` cannot do for us (Codecov, GitHub Pages,
+the `DOCUMENTER_KEY` deploy key, branch protection, the first registry
+registration), plus a ready-to-paste tracking issue body.
 
 The AD harness + AD CI are opt-in: `scaffold`/`scaffold_generate`/`update` take an
 `ad::Bool` keyword (default `true`). A numerical package keeps `ad = true`; a
@@ -125,6 +129,8 @@ export dynamicppl_model_filter
 export test_docstring_format,
     test_ext_ambiguities, test_doctest, test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
+export STALE_README_HEADINGS, BANNED_README_WORDS
+export test_readme_placeholders, test_readme_prose, test_readme_bullets
 export on_surface_ambiguities, raw_ambiguity_count
 export test_option_validation
 export scaffold, scaffold_generate, scaffold_inputs, setup_checklist

@@ -1,8 +1,8 @@
 # A `usethis`-style manual-setup checklist: `scaffold`/`scaffold_generate` write every
 # file-based standard, but a handful of one-off steps need a human with
-# dashboard access (Codecov, GitHub Pages, branch protection, the first
-# registration) and no file-writer can do them. `setup_checklist` prints that
-# list plus a ready-to-paste tracking-issue body.
+# dashboard access (Codecov, GitHub Pages, the `DOCUMENTER_KEY` deploy key,
+# branch protection, the first registration) and no file-writer can do them.
+# `setup_checklist` prints that list plus a ready-to-paste tracking-issue body.
 #
 # Deliberately dependency-free: unlike the QA helpers (`test_jet`,
 # `test_formatting`, ...), which lazily `Base.require` an optional dependency
@@ -29,6 +29,20 @@ function _setup_checklist_steps(pkg::AbstractString, repo::AbstractString)
             pkg,
             "'s `gh-pages` branch ",
             "(Settings -> Pages) so the docs site deploys.",
+        ),
+        string(
+            "Add a `DOCUMENTER_KEY` deploy key to ",
+            pkg,
+            ", or its ",
+            "releases will publish no versioned docs. Generate the pair with ",
+            "`julia -e 'using DocumenterTools; DocumenterTools.genkeys(user=\"",
+            first(split(repo, '/')),
+            "\", repo=\"",
+            last(split(repo, '/')),
+            "\")'`, add the public half under Settings -> Deploy keys with ",
+            "write access, and the private half as the `DOCUMENTER_KEY` repo ",
+            "secret. Recipe and pitfalls: https://epiawarepackagetools.",
+            "epiaware.org/dev/getting-started/infrastructure#documenter-key",
         ),
         string(
             "If ",
@@ -88,10 +102,12 @@ Print the manual setup steps left after [`scaffold`](@ref)/[`scaffold_generate`]
 `scaffold` writes every file-based standard, but a handful of one-off steps
 need a human with dashboard access and no file-writer can do them for us:
 enabling Codecov and adding its `CODECOV_TOKEN` secret, wiring a docs custom
-domain (when one was chosen), enabling GitHub Pages, protecting `main`, and
-running the first Julia General Registry registration (via the managed
-`Register.yml` workflow — see its docstring in [`scaffold`](@ref)). This
-prints that checklist, followed by a ready-to-paste tracking-issue body.
+domain (when one was chosen), enabling GitHub Pages, adding the
+`DOCUMENTER_KEY` deploy key that lets TagBot push release tags over SSH,
+protecting `main`, and running the first Julia General Registry registration
+(via the managed `Register.yml` workflow — see its docstring in
+[`scaffold`](@ref)). This prints that checklist, followed by a ready-to-paste
+tracking-issue body.
 
 `package`/`repo`/`org` resolve exactly as in [`scaffold_inputs`](@ref)
 (defaulting from `target_dir`'s `Project.toml`), so the checklist reads
