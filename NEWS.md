@@ -53,6 +53,18 @@ far smaller cost than losing the build.
 `update` now warns when either edit is still outstanding, so the gap
 surfaces at sync time rather than only in this note.
 
+A scheduled template-sync run that fails now opens an issue on the adopting
+repository instead of leaving a red run nobody reads (#352).
+It is a single issue, labelled `template-sync`, edited in place on each failing
+run and closed again by the first clean run, so a failure that repeats every
+Monday does not accumulate duplicates.
+The body names the two routes out: re-apply the standard locally and commit the
+result, or open an issue on the kit when `update` throws or overwrites something
+the package legitimately needs to keep.
+Editing the managed file to silence the failure is called out as neither, since
+the next sync reverts it.
+The managed workflow now needs `issues: write`, which arrives with the sync.
+
 The standard README structure now requires a `## Related packages` section, in
 the slot after Getting started and before the Documentation section (#292).
 `test_readme_sections` also reports the retired `What packages work well with
