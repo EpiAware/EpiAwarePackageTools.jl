@@ -106,8 +106,7 @@ md"""
 
 using {{PACKAGE}}
 import DifferentiationInterfaceTest as DIT
-## DIT 0.11 dropped its Chairmarks dependency; `benchmark_differentiation`
-## needs it loaded explicitly to resolve `run_benchmark!`.
+## DIT 0.11 dropped Chairmarks; load it explicitly for `run_benchmark!`.
 using Chairmarks
 using DataFramesMeta
 using Statistics
@@ -120,8 +119,7 @@ set_theme!(theme_latexfonts(); fontsize = 14)
 backend_entries = ADFixtures.backends()
 scenario_list = ADFixtures.scenarios()
 
-## The registry's optional bookkeeping accessors (see the ADRegistry
-## contract): a missing accessor means no broken or skipped scenarios.
+## Optional ADRegistry bookkeeping accessors; missing means no broken/skip.
 function _optional(name, default)
     isdefined(ADFixtures, name) ? getfield(ADFixtures, name)() : default
 end
@@ -202,8 +200,8 @@ bench_long = @chain raw_bench begin
     @select :backend :scenario :time_us :bytes_kb
 end;
 
-## The baseline every cost is divided by: ForwardDiff when the registry has
-## it (the org standard), otherwise the registry's first backend.
+## Baseline every cost divides by: ForwardDiff if present, else the first
+## registered backend.
 baseline = any(e -> e.name == "ForwardDiff", backend_entries) ?
            "ForwardDiff" : first(backend_entries).name
 

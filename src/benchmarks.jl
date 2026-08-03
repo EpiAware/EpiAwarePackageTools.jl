@@ -1,37 +1,7 @@
-# Generic benchmark-reporting harness.
-#
-# This is the package-agnostic core of the EpiAware benchmark tooling: the
-# parts that every package's benchmark CI would otherwise copy. It turns
-# benchmark result data into a legible Markdown PR comment, with no knowledge
-# of which distributions or models a package benchmarks.
-#
-# Two result shapes are handled, matching the two ways EpiAware packages run
-# benchmarks:
-#
-#   - AirspeedVelocity's `results_<pkg>@<rev>.json` files (a nested JSON group
-#     of `times` vectors). [`flatten_asv`] reads one into a flat
-#     `path => median_ns` dict; [`asv_comment`] compares a base/head pair into
-#     a comment.
-#   - A pair of in-process BenchmarkTools result files (e.g. saved by
-#     [`run_suite`]). [`compare_comment`] reads both via BenchmarkTools and
-#     builds a comment with a bucketed summary.
-#
-# The scaffolded benchmark CI uses the BenchmarkTools path: `benchmark.yaml`
-# posts its PR comment via `benchmark/compare.jl` -> [`compare_comment`], and
-# `benchmark-history.yaml` renders the timeline with AirspeedVelocity's own
-# `benchpkgtable`/`benchpkgplot`. The ASV comment path ([`flatten_asv`] +
-# [`asv_comment`]) is a self-contained reporting utility a package can wire up
-# against AirspeedVelocity result JSON, but it is not called by the default
-# scaffolded workflows (#126).
-#
-# The AD-gradients special-casing keys off the `"AD gradients/"` group name
-# that the shared AD harness (`ad_harness.jl`) and every package's benchmark
-# suite use, so the per-(scenario x backend) AD rows stay legible instead of
-# flooding the table. Set `ad_prefix` to retarget or `""` to disable.
-#
-# BenchmarkTools and JSON3 are loaded at call time via `Base.require` (as the
-# quality wrappers do) so they stay out of the main package's dependencies; a
-# caller only needs them in whichever environment runs the benchmark job.
+# Generic benchmark-reporting harness; see the module docstring below for
+# the public contract. `benchmark-history.yaml` renders the timeline via
+# AirspeedVelocity's own `benchpkgtable`/`benchpkgplot`, separately from
+# this module.
 
 """
     EpiAwarePackageTools.Benchmarks
@@ -71,10 +41,8 @@ export git_sources, unregistered_sources, bootstrap_sources_registry
 # ---- lazy dependency loading ----------------------------------------------
 
 # Resolve JSON3 / BenchmarkTools at call time so they are not hard
-# dependencies of EpiAwarePackageTools. Calls into them go through `invokelatest`
-# because the loaded methods live in a newer world age than these functions.
-# `_require_pkg` (defined once in the parent module, #58) is shared with every
-# other lazy-load site in the kit.
+# dependencies. Calls go through `invokelatest` (newer world age); shared
+# `_require_pkg` is defined once in the parent module (#58).
 function _json3()
     return _require_pkg("0f8b85d8-7281-11e9-16c2-39a750bddbf1", "JSON3")
 end
@@ -564,26 +532,14 @@ end
 
 # ---- unregistered `[sources]` bootstrap ------------------------------------
 
-# AirspeedVelocity's `benchpkg` installs the benchmarked package into its own
-# temp project, and Pkg only honours the `[sources]` section of the *active*
-# project. A dependency pinned there by git url/rev because it is not yet in a
-# registry therefore cannot resolve in that temp project, and the benchmark
-# fails with "<Dep> has no known versions!" (#216). The same applies to any
-# environment that installs the package as a dependency rather than activating
-# it.
-#
-# Registries, unlike sources, are depot-level: a registry in
-# `<depot>/registries` is visible to every environment on the machine,
-# including benchpkg's temp projects. So the fix is to give the runner a
-# throwaway registry carrying exactly the pinned revisions, which
-# [`bootstrap_sources_registry`] builds with `LocalRegistry` (lazily loaded, so
-# it stays out of the kit's dependencies). Path sources are not registered:
-# they resolve relative to the environment, or are staged into place (the
-# ADFixtures trick, #125).
-#
-# The bootstrap is a no-op for a package whose `[sources]` are all path pins or
-# already-registered names, which is every package until it adopts an
-# unregistered dependency.
+# benchpkg installs the benchmarked package into its own temp project, and
+# Pkg only honours `[sources]` of the *active* project — so a git-pinned,
+# unregistered dependency fails there with "<Dep> has no known versions!"
+# (#216). Registries are depot-level (visible everywhere), so the fix is a
+# throwaway registry of the pinned revisions, built by
+# [`bootstrap_sources_registry`] via `LocalRegistry` (lazily loaded). Path
+# sources resolve relative to the environment or are staged in place
+# (#125), and are not registered. No-op when `[sources]` has only those.
 
 """
 The scratch registry the benchmark CI bootstraps into the runner's depot.
@@ -667,33 +623,25 @@ end
 Register `project`'s unregistered git-pinned `[sources]` dependencies into a
 scratch registry in `depot`, and return the names registered.
 
-Each pin is cloned at its `rev` and registered with `LocalRegistry` (loaded at
-call time, so it is only needed in the environment that runs this) into
-`<depot>/registries/<registry_name>`, without pushing anywhere. Registries are
-depot-level, so the dependency then resolves *by name* in every environment on
-that machine — including the temp project AirspeedVelocity's `benchpkg` builds,
-which ignores a dependency's own `[sources]` (#216).
+Each pin is cloned at its `rev` and registered with `LocalRegistry` (loaded
+at call time) into `<depot>/registries/<registry_name>`, without pushing
+anywhere. Registries are depot-level, so the dependency then resolves *by
+name* in every environment on that machine, including the temp project
+`benchpkg` builds (#216).
 
-Any existing `<registry_name>` registry in `depot` is removed first, on every
-call, whether or not there is anything to register. A CI runner restores its
-depot from a cache, so an earlier run's scratch registry survives into the next
-one, and it is stale by construction: an unregistered dependency does not bump
-its version when its revision moves, so a reused registry would pin the
-benchmark to whatever revision was registered first. Worse, once the dependency
-reaches a real registry and the package drops its pin, a leftover scratch
-registry still carrying the name fails the whole depot with a registry hash
-mismatch. Removing it unconditionally means this retires itself cleanly.
+Any existing `<registry_name>` registry in `depot` is removed first, every
+call: a scratch registry restored from a CI cache is stale by construction
+(an unregistered pin's version never bumps when its revision moves), and a
+leftover entry for a dependency that has since reached a real registry
+causes a registry hash mismatch. Unconditional removal retires it cleanly.
 
-A project with no unregistered git pins is otherwise a no-op: nothing is cloned,
-no registry is created, and an empty vector is returned. A pin on a name that a
-real registry already knows cannot be honoured (the benchmark environment
-resolves such a dependency from that registry, not from the pin), so it is
-warned about rather than registered.
+A project with no unregistered git pins is a no-op. A pin on a name a real
+registry already knows cannot be honoured (the benchmark environment
+resolves it from the registry, not the pin), so it is warned about instead.
 
-`git` must be on the path. The registration is not transitive: if a pinned
-dependency itself pins an unregistered dependency in *its* `[sources]`,
-registering the outer one is not enough and resolution still fails. Pin both in
-the benchmarked package to fix that.
+`git` must be on the path. Registration is not transitive: a pinned
+dependency that itself pins an unregistered dependency needs both pinned
+in the benchmarked package.
 """
 function bootstrap_sources_registry(project::AbstractString = pwd();
         depot::AbstractString = first(DEPOT_PATH),
@@ -701,16 +649,12 @@ function bootstrap_sources_registry(project::AbstractString = pwd();
         work_dir::AbstractString = mktempdir(),
         gitconfig::AbstractDict = _SCRATCH_GITCONFIG)
     registry = joinpath(depot, "registries", registry_name)
-    # Which pins need registering is decided *before* the scratch registry is
-    # removed, i.e. while a cached one from an earlier run is still reachable:
-    # it is `ignore_registry` that must keep such a registry from making a
-    # moved pin look registered, so that is the code path CI exercises.
+    # Decided before the scratch registry is removed, so `ignore_registry`
+    # (not real absence) is what keeps a stale entry from masking a moved
+    # pin as already registered.
     sources = unregistered_sources(project; ignore_registry = registry_name)
-    # A pin on a name a real registry knows cannot be honoured here: benchpkg
-    # resolves the dependency from the registry, so the benchmark measures the
-    # released version rather than the pinned revision. Registering it into the
-    # scratch registry would put two different tree hashes on one version, so
-    # say so loudly instead of pretending the pin took effect.
+    # A pin a real registry already knows can't be honoured (#216); warn
+    # rather than silently pretend it took effect.
     for s in git_sources(project)
         any(u -> u.name == s.name, sources) && continue
         @warn "the [sources] pin on $(s.name) (a registered package) is " *
@@ -718,13 +662,7 @@ function bootstrap_sources_registry(project::AbstractString = pwd();
               "registered version rather than the pinned revision " *
               "\"$(s.rev)\" at $(s.url) (#216)"
     end
-    # Unconditionally, and before the early return: a scratch registry restored
-    # from the runner's cache is stale by construction, and once the pinned
-    # dependency reaches a real registry and the package drops its pin, a
-    # leftover scratch registry that still carries the name makes Pkg fail the
-    # depot with a registry hash mismatch. Removing it whether or not there is
-    # anything to register means the step cleans up after itself the moment it
-    # stops being needed.
+    # Unconditional, before the early return: see docstring for why.
     rm(registry; recursive = true, force = true)
     isempty(sources) && return String[]
     LR = _localregistry()

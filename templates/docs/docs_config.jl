@@ -1,49 +1,40 @@
 # PACKAGE-OWNED — scaffold writes this once and never overwrites it.
 #
-# Package-specific configuration read by the managed `make.jl`. It drives the
-# Literate.jl tutorial pipeline and the README/index link rewrites, and lists
-# the linkcheck URLs to ignore. The defaults below build a site with no
-# tutorials, so a fresh package needs no edits here; fill these in as the docs
-# grow. CensoredDistributions.jl's `docs/make.jl` is a worked example of the
-# values these consts take.
+# Package-specific configuration read by the managed `make.jl`: the
+# Literate.jl tutorial pipeline, README/index link rewrites, and linkcheck
+# ignore list. Defaults below build a site with no tutorials, so a fresh
+# package needs no edits here; fill these in as the docs grow.
 
 # Tutorial source `.jl` files (Literate scripts) under `TUTORIALS_SUBDIR`.
-#
-# Light tutorials emit `@example` blocks that Documenter runs in-process; keep
+# Light tutorials emit `@example` blocks Documenter runs in-process; keep
 # cheap tutorials here.
 const LIGHT_TUTORIALS = String[]
 
-# Heavy tutorials (live MCMC fits, multi-backend AD, plotting) are each
-# executed once in a fresh subprocess so native/memory state cannot accumulate.
-# The `ad-backends.jl` entry is seeded when the package is scaffolded with
-# `ad = true`: the page itself is kit-managed (re-applied on every sync); only
-# this registration is package-owned.
+# Heavy tutorials (live MCMC fits, multi-backend AD, plotting) each run once
+# in a fresh subprocess so native/memory state cannot accumulate. The
+# `ad-backends.jl` entry is seeded when scaffolded with `ad = true`: the page
+# itself is kit-managed; only this registration is package-owned.
 const HEAVY_TUTORIALS = String[{{AD_HEAVY_TUTORIALS}}]
 
-# Where the tutorial `.jl` sources and rendered `.md` pages live, relative to
+# Where tutorial `.jl` sources and rendered `.md` pages live, relative to
 # `docs/src`.
 const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 
-# Fast-build stubs (`--skip-notebooks`): `"file.md" => "# Heading"` pairs. The
-# heading should preserve the tutorial's `@id` (e.g.
-# `"# [Title](@id my-anchor)"`) so cross-references from other pages still
-# resolve in a fast build.
+# Fast-build stubs (`--skip-notebooks`): `"file.md" => "# Heading"` pairs.
+# Preserve the tutorial's `@id` in the heading (e.g. `"# [Title](@id
+# my-anchor)"`) so cross-references still resolve in a fast build.
 const TUTORIAL_STUBS = Pair{String, String}[{{AD_TUTORIAL_STUBS}}]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a
-# heavy tutorial with a problem of its own (e.g. a model that does not
-# terminate in reasonable time), so it need not block its siblings from
-# running for real. Leave empty; every heavy tutorial with no such problem
-# should execute.
+# tutorial with its own problem (e.g. a model that never terminates). Leave
+# empty; every heavy tutorial without such a problem should execute.
 const FORCE_STUB_TUTORIALS = String[]
 
 # Whether this package advertises itself as part of the EpiAware ecosystem: a
-# "Part of the EpiAware ecosystem" section in the managed README block, and the
-# EpiAware logo + org links in the docs footer. Opt-in and off by default — the
-# kit scaffolds packages outside the org too, and they should carry no EpiAware
-# branding. Set `true` in an EpiAware org package; the content it turns on is
-# kit-managed and re-synced, so only this line is package-owned.
+# "Part of the EpiAware ecosystem" README section, and the EpiAware logo + org
+# links in the docs footer. Opt-in, off by default (the kit also scaffolds
+# non-org packages). Set `true` in an EpiAware org package.
 const ORG_BRANDING = false
 
 # Regexes for URLs to skip during the (full-build) linkcheck, e.g. a page
@@ -51,39 +42,34 @@ const ORG_BRANDING = false
 const LINKCHECK_IGNORE = Regex[]
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,
-# e.g. rewriting an absolute docs URL to an in-site `@ref` so links stay within
-# the built version.
+# e.g. rewriting an absolute docs URL to an in-site `@ref`.
 const INDEX_REWRITES = Pair{String, String}[]
 
-# Whether README ```julia blocks become runnable `@example readme` blocks on the
-# generated home page. Keep `true` when the README's examples are real, runnable
-# code; set `false` when they are illustrative (placeholder names) and must not
-# execute.
+# Whether README ```julia blocks become runnable `@example readme` blocks on
+# the home page. Keep `true` for real, runnable examples; set `false` when
+# they are illustrative (placeholder names) and must not execute.
 const README_EXECUTE = true
 
-# README headings whose whole section (heading + body, up to the next heading
-# of the same or a higher level) is dropped when generating the home page. The
-# managed badge block is always stripped via its `<!-- badges:start/end -->`
-# markers; this list is the package-owned hook for omitting any OTHER named
-# section from the home page (the managed build hardcodes none). Leave empty to
-# keep the whole README — content tables and all.
+# README headings whose whole section (heading + body, to the next heading of
+# the same or higher level) is dropped from the home page. The managed badge
+# block is always stripped via its `<!-- badges:start/end -->` markers; this
+# list is the package-owned hook for omitting any other named section. Leave
+# empty to keep the whole README.
 const INDEX_STRIP_SECTIONS = String[]
 
 # Whether the build generates the benchmark page (`src/benchmarks.md`): the
-# package-owned `docs/benchmarks.md` prose hook plus an overall summary
-# table + combined trend plot and the per-suite detail, both rendered from
-# the timeline published to the repo's `benchmarks` branch. Defaults to the
-# `benchmarks` flag the package was scaffolded with; `false` drops the page
-# and `make.jl` also omits its `pages.jl` nav entry. The trend plot needs
-# `Plots` in `docs/Project.toml` (lazily loaded, so it degrades to a
-# table-only page with an `@info` note when absent rather than failing the
-# build).
+# package-owned `docs/benchmarks.md` prose hook plus a summary table, trend
+# plot, and per-suite detail rendered from the `benchmarks` branch timeline.
+# Defaults to the `benchmarks` scaffold flag; `false` drops the page and its
+# `pages.jl` nav entry. The trend plot needs `Plots` in `docs/Project.toml`
+# (lazily loaded; degrades to a table-only page with an `@info` note when
+# absent).
 const BENCHMARK_PAGE = {{BENCHMARK_PAGE}}
 
-# Headline benchmark suites to keep on the performance-history page. A suite is
-# the first `/`-segment of a benchmark's name (e.g. "AD gradients" in
-# "AD gradients/Convolved Normal+Normal/ForwardDiff"). Empty keeps every suite;
-# name a few here when the full suite list makes the history page too long.
+# Headline benchmark suites to keep on the performance-history page. A suite
+# is the first `/`-segment of a benchmark's name (e.g. "AD gradients" in
+# "AD gradients/Convolved Normal+Normal/ForwardDiff"). Empty keeps every
+# suite; name a few when the full list makes the page too long.
 const HISTORY_SUITES = String[]
 
 # How many of the most-recent revisions (columns) to show in the overall
@@ -92,10 +78,9 @@ const HISTORY_SUITES = String[]
 # stays readable. Columns are relabelled with commit dates.
 const HISTORY_COMMITS = 5
 
-# The overall-summary ratio (a suite's median benchmark value at the most
-# recent shown revision, against its value at the oldest shown revision) at
-# or above which that suite's `Status` flags "⚠ reg". 1.1 == a 10% increase
-# in runtime/memory counts as a regression; raise it for a noisier benchmark
-# suite, lower it for a stricter one. Must be > 1.0 — at or below that, a
-# suite with no change (ratio 1.0) or even an improvement would flag.
+# Ratio (median benchmark value at the most recent shown revision, over its
+# value at the oldest shown revision) at or above which a suite's `Status`
+# flags "⚠ reg". 1.1 == a 10% increase counts as a regression; raise for a
+# noisier suite, lower for a stricter one. Must be > 1.0, or a suite with no
+# change (or an improvement) would flag.
 const HISTORY_REGRESSION_THRESHOLD = 1.1
