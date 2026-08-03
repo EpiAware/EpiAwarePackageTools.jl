@@ -117,6 +117,15 @@ Two workflows keep an adopting package aligned with the kit.
   repository on a schedule and on Dependabot updates, then opens or refreshes a
   pull request whenever the committed infrastructure has drifted from the
   current standard.
+  A scheduled run has nobody watching it, so a run that fails opens an issue on
+  the repository rather than leaving a red mark on the Actions tab.
+  It is one issue, labelled `template-sync`, edited in place on each failing run
+  and closed again by the first clean run.
+  The two routes out are to re-apply the standard locally and commit the result,
+  or, when `update` throws or overwrites something the package needs to keep, to
+  open an issue on the kit asking for the flexibility.
+  Editing the managed file to silence the failure is not one of them, since the
+  next sync reverts it.
 - Dependabot (`.github/dependabot.yml`) keeps the pinned reusable-workflow and
   action references current, so fixes in the shared workflows reach the
   repository without manual edits.
@@ -147,6 +156,45 @@ It runs two read-only checks.
   A breaking release legitimately strands a downstream bound, so this is a
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
+
+## [Release documentation](@id release-docs)
+
+Documenter publishes a versioned `stable` and `vX.Y` copy of the docs only when
+the build runs at a release tag, and only a `push` event at that tag starts one.
+TagBot raises that event when a `DOCUMENTER_KEY` deploy key is set.
+Without the key it tags with the Actions app token, which raises no event, so
+the site keeps serving `dev` alone.
+The same fallback is refused outright when the tagged commit touches a workflow
+file.
+
+### [Adding the deploy key](@id documenter-key)
+
+Once per package, at repository creation.
+It needs repository admin, so `scaffold` cannot do it.
+
+```bash
+repo=EpiAware/YourPackage.jl
+ssh-keygen -t rsa -b 4096 -m PEM -N "" -C documenter -f /tmp/dk
+gh repo deploy-key add /tmp/dk.pub --repo "$repo" \
+  --title documenter --allow-write
+gh secret set DOCUMENTER_KEY --repo "$repo" --body "$(base64 -w0 < /tmp/dk)"
+shred -u /tmp/dk /tmp/dk.pub
+```
+
+`DocumenterTools.genkeys` prints the same two halves to paste by hand.
+Four details each break the deploy silently when wrong.
+
+- The deploy key needs **write** access.
+- The secret holds the **private** half, base64-encoded on one line.
+- One keypair per repository: GitHub refuses to reuse a deploy key, so there is
+  no org-wide version.
+- RSA in PEM form, matching what `DocumenterTools` emits.
+
+The secret does two jobs: TagBot reads it as `ssh:` to push the tag, Documenter
+as `DOCUMENTER_KEY` to push to `gh-pages`.
+Only the tag push needs it, since `deploydocs` also works from `GITHUB_TOKEN`.
+That is why a keyless package still ships `dev` docs and simply never a
+versioned copy.
 
 ## Release nudges
 
