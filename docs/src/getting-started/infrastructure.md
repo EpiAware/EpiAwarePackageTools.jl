@@ -117,6 +117,15 @@ Two workflows keep an adopting package aligned with the kit.
   repository on a schedule and on Dependabot updates, then opens or refreshes a
   pull request whenever the committed infrastructure has drifted from the
   current standard.
+  A scheduled run has nobody watching it, so a run that fails opens an issue on
+  the repository rather than leaving a red mark on the Actions tab.
+  It is one issue, labelled `template-sync`, edited in place on each failing run
+  and closed again by the first clean run.
+  The two routes out are to re-apply the standard locally and commit the result,
+  or, when `update` throws or overwrites something the package needs to keep, to
+  open an issue on the kit asking for the flexibility.
+  Editing the managed file to silence the failure is not one of them, since the
+  next sync reverts it.
 - Dependabot (`.github/dependabot.yml`) keeps the pinned reusable-workflow and
   action references current, so fixes in the shared workflows reach the
   repository without manual edits.
