@@ -51,3 +51,36 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+
+  # The isolated test environments (`test/jet`, `test/formatter`, and with
+  # `ad = true` also `test/ad` and `test/ADFixtures`). These exist precisely so
+  # a heavy QA dependency's own pins cannot clash with the shared test deps, so
+  # they are deliberately NOT `[workspace]` members of the root Project.toml —
+  # which means the `directory: "/"` entry above has never seen them. Left
+  # unwatched, their pins drift away from the compat entries in
+  # `test/Project.toml`: a bump there goes green while the environment that
+  # actually runs the check stays on the old version, so the green tells you
+  # nothing about the new one.
+  #
+  # A glob rather than an explicit list because which of these directories
+  # exist is per-package: a `noad` package has no `test/ad` or
+  # `test/ADFixtures`, and an explicit path that does not exist fails the
+  # Dependabot run.
+  #
+  # Kept as its own entry, and its own group, so these land in a separate PR
+  # from the workspace bumps. That is the point: a JET or JuliaFormatter minor
+  # is a breaking bump under 0.x semver and wants reviewing on its own, not
+  # bundled into a grouped PR alongside routine workspace updates.
+  - package-ecosystem: "julia"
+    directories:
+      - "/test/*"
+    schedule:
+      interval: "daily"
+    groups:
+      julia-isolated:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore"
+      include: "scope"

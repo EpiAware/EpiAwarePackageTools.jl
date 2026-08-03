@@ -1,5 +1,33 @@
 ## Unreleased
 
+**New**: the managed `.github/dependabot.yml` now watches the isolated test
+environments (`test/jet`, `test/formatter`, and with `ad = true` also
+`test/ad` and `test/ADFixtures`) via a second `julia` entry over `/test/*`.
+Those directories are deliberately not `[workspace]` members — that is what
+keeps a heavy QA dependency's own pins from clashing with the shared test
+deps — so the existing `directory: "/"` entry had never seen them, and their
+compat entries drifted away from `test/Project.toml`'s.
+The drift is quiet and it is the bad kind: a bump to `test/Project.toml` goes
+green while the environment that actually runs the check stays on the old
+version, so the green says nothing about the new one. #337 is exactly that
+shape — it widens `test/Project.toml` to admit JET 0.12 while
+`test/jet/Project.toml`, where JET actually runs, stays pinned to `0.11`.
+The isolated bumps land in their own grouped PR (`julia-isolated`) rather than
+joining the workspace group, because a JET or JuliaFormatter minor is a
+breaking bump under 0.x semver and wants reviewing on its own.
+
+The managed `test/jet/Project.toml` pin moves from `JET = "0.11"` to
+`JET = "0.11, 0.12"`, so the isolated runner resolves the version
+`test/Project.toml` already admits. JET 0.12's breaking removals do not reach
+this kit: `test_jet` and the isolated runner both pass a module to
+`report_package`/`test_package` with explicit `target_modules`, and neither
+uses `.JET.toml`, `target_defined_modules`, `fullpath`, nor compiler keywords
+such as `max_methods`. The behavioural change to watch is that 0.12 stops
+treating `Base` as a submodule of `Main` for `target_modules` matching, which
+does not affect a `target_modules = (YourPackage,)` call.
+
+An adopter gets both on their next sync; neither needs a per-repo edit.
+
 The standard README structure now requires a `## Related packages` section, in
 the slot after Getting started and before the Documentation section (#292).
 `test_readme_sections` also reports the retired `What packages work well with
