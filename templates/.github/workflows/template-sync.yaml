@@ -156,7 +156,10 @@ jobs:
             --json number --jq '.[0].number // empty' 2>/dev/null || true)
           if [ -n "$open" ]; then
             msg="Template sync ran cleanly, so this drift is resolved:"
-            gh issue close "$open" --comment "$msg $run_url"
+            # `|| true` because failing to tidy up must not fail the step: the
+            # reporter below is `if: failure()`, so a transient API error here
+            # would red a sync that worked and then file drift against it.
+            gh issue close "$open" --comment "$msg $run_url" || true
           fi
       # A scheduled run has no audience: the failure is a red X on the Actions
       # tab that recurs every week until someone happens to look (#352). Report
@@ -196,7 +199,9 @@ jobs:
              the result:
 
                  julia -e 'using EpiAwarePackageTools;
-                 EpiAwarePackageTools.update(".")'
+                 EpiAwarePackageTools.update("."; ad = {{AD}},
+                 benchmarks = {{BENCHMARKS}},
+                 downgrade_compat = {{DOWNGRADE_COMPAT}})'
 
           2. **Ask the kit for the flexibility.** If \`update\` throws, or it
              overwrites something this package legitimately needs to keep, that

@@ -2894,8 +2894,10 @@
                 # A scheduled run has no audience: a red X on the Actions tab
                 # recurs every week until someone happens to look. The failing
                 # run must tell the maintainer instead, via an issue on their
-                # own repo, so `issues: write` has to be granted.
-                @test occursin("issues: write", sync)
+                # own repo, so `issues: write` has to be granted. Anchored, so
+                # the comment explaining the grant cannot stand in for the
+                # grant itself and leave every `gh issue` call 403-ing.
+                @test occursin(r"^  issues: write$"m, sync)
                 # Exactly one issue: the failure step reuses the open
                 # `template-sync` issue and edits it, and only creates one when
                 # no open issue carries that label. A create-per-run would bury
@@ -2915,6 +2917,13 @@
                 @test occursin(
                     "github.com/EpiAware/EpiAwarePackageTools.jl", sync)
                 @test occursin("issues/new", sync)
+                # The remediation must re-apply the same standard the sync
+                # itself applies, so it carries this package's own options. A
+                # bare `update(".")` defaults `ad` to true, so on an
+                # `ad = false` package the documented fix would seed AD infra
+                # the package does not want and leave it still drifted.
+                @test occursin("update(\".\"; ad = false,", sync)
+                @test !occursin("update(\".\")'", sync)
                 # A clean run closes the issue again, so a stale tracker never
                 # outlives the drift it reported.
                 @test occursin("gh issue close", sync)
