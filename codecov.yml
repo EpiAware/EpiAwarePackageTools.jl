@@ -1,11 +1,9 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
-# Coverage is reported under a single `unit` flag so the package's coverage
-# rolls up into one project total. This is the no-AD variant (the package opted
-# out of the AD harness, so there are no per-backend `ad-*` flags); see
-# `codecov.yml` for the AD-enabled variant with per-backend flags.
+# Coverage rolls up under a single `unit` flag. No-AD variant (no per-backend
+# `ad-*` flags); see `codecov.yml` for the AD-enabled variant.
 #
-# `carryforward: true` keeps the flag's last value when a run does not re-upload
-# it, matching the AD-enabled variant's behaviour.
+# `carryforward: true` keeps the flag's last value when a run doesn't
+# re-upload it, matching the AD-enabled variant.
 flags:
   unit:
     paths:

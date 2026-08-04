@@ -1,15 +1,13 @@
-# A `usethis`-style manual-setup checklist: `scaffold`/`scaffold_generate` write every
-# file-based standard, but a handful of one-off steps need a human with
-# dashboard access (Codecov, GitHub Pages, the `DOCUMENTER_KEY` deploy key,
-# branch protection, the first registration) and no file-writer can do them.
-# `setup_checklist` prints that list plus a ready-to-paste tracking-issue body.
+# A `usethis`-style manual-setup checklist: `scaffold`/`scaffold_generate`
+# write every file-based standard, but a handful of one-off steps need a
+# human with dashboard access (Codecov, GitHub Pages, the `DOCUMENTER_KEY`
+# deploy key, branch protection, the first registration). `setup_checklist`
+# prints that list plus a ready-to-paste tracking-issue body.
 #
-# Deliberately dependency-free: unlike the QA helpers (`test_jet`,
-# `test_formatting`, ...), which lazily `Base.require` an optional dependency
-# at call time to keep it out of every caller's `[deps]`, this needs nothing
-# beyond the standard library — it never shells out to the `gh` CLI or calls
-# the GitHub API, so the printed issue body is meant to be copied into a new
-# issue (or GitHub Discussion) by hand.
+# Deliberately dependency-free: unlike the QA helpers, which lazily
+# `Base.require` an optional dependency, this needs nothing beyond the
+# standard library and never shells out to `gh` or the GitHub API — the
+# issue body is meant to be copied in by hand.
 
 # The checklist steps, parameterised by the resolved package name/repo slug.
 # Kept as a function (not a `const`) so it always reflects the actual target

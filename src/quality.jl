@@ -1,17 +1,11 @@
 # Generic package-quality wrappers: Aqua, JET, and ExplicitImports over a
-# target module. Each EpiAware package previously carried its own copy of these;
-# the only per-package input is the module under test (and an ExplicitImports
-# `ignore` list for unavoidably non-public imports).
+# target module. The only per-package input is the module (and an
+# ExplicitImports `ignore` list for unavoidably non-public imports).
 
-# Validate that `env` looks like a usable isolated project (a `Project.toml`
-# plus a `runtests.jl`), returning the runner path. Raises a plain
-# `ErrorException` directly — NOT wrapped in `@test`/`@testset` — so a
-# malformed `env` surfaces immediately to the caller (matching each site's
-# original behaviour, and what `test/qa.jl`'s
-# `"test_formatting env mode runs a subprocess runner"` asserts via
-# `@test_throws ErrorException`), rather than being swallowed into a
-# `Test.TestSetException`. Shared by `test_jet`'s `env` path and
-# `_test_formatting_env` (in qa.jl) (#58).
+# Validate `env` is a usable isolated project (Project.toml + runtests.jl),
+# returning the runner path. Raises directly (not via @test) so a malformed
+# env fails immediately rather than as a Test.TestSetException. Shared by
+# test_jet's env path and _test_formatting_env in qa.jl (#58).
 function _validate_isolated_env(env::AbstractString, label::AbstractString)
     isdir(env) && isfile(joinpath(env, "Project.toml")) ||
         error("$label env $env has no Project.toml")
@@ -20,21 +14,15 @@ function _validate_isolated_env(env::AbstractString, label::AbstractString)
     return runner
 end
 
-# Instantiate `env` (assumed already `_validate_isolated_env`-checked) and run
-# `runner` in an isolated subprocess, reporting whether it exited zero. Shared
-# by `test_jet`'s `env` path and `_test_formatting_env`, which both isolate a
-# heavy QA dependency (JET / JuliaFormatter) from the rest of the test
-# environment by pinning it in its own project and running it out-of-process,
-# rather than loading it alongside deps it may clash with (#58). Callers wrap
-# the returned `Bool` in their own labelled `@testset`/`@test`.
+# Instantiate `env` (already `_validate_isolated_env`-checked) and run
+# `runner` in a subprocess, returning whether it exited zero. Isolates a
+# heavy QA dependency (JET / JuliaFormatter) from the test environment (#58);
+# callers wrap the result in their own labelled @testset/@test.
 function _run_isolated_env(env::AbstractString, runner::AbstractString)
     Pkg = _require_pkg("44cfe95a-1eb2-52ea-b672-e2afdf69b78f", "Pkg")
     current = Base.active_project()
-    # See `test_aqua` for why this goes through `invokelatest`: `Pkg` is
-    # lazily loaded above, so its methods live in a world age newer than
-    # this function unless a caller happened to load Pkg earlier in the
-    # same process (masking the bug locally while it still reproduces on
-    # a clean process/CI run — see #58's hotfix).
+    # See `test_aqua` for why this goes through `invokelatest`; masks
+    # locally if Pkg was already loaded, but reproduces on a clean CI run.
     Base.invokelatest(Pkg.activate, env)
     Base.invokelatest(Pkg.instantiate)
     Base.invokelatest(Pkg.activate, current)
@@ -104,16 +92,11 @@ function _is_package_extension(EI, sub::Module, mod::Module)
     sub !== mod && Base.get_extension(mod, nameof(sub)) === sub
 end
 
-# Names any currently-loaded extension of `mod` imports in a way ExplicitImports
-# would otherwise flag (non-public / non-owner / stale explicit imports, plus
-# implicit imports). `ExplicitImports.find_submodules` includes an extension
-# only when it happens to be loaded, which depends on what else ran earlier in
-# the same session — so folding these names into every check's `ignore` makes an
-# extension contribute nothing to the verdict whether or not it is loaded,
-# removing the extension-load-order dependence of #189. The nonrecursive
-# analysis functions already apply ExplicitImports' own improper/implicit
-# filters, so we only read the reported `name`s; the pass/fail verdict still
-# comes from the real `check_*` functions below.
+# Names any loaded extension of `mod` imports in a way ExplicitImports would
+# flag. `find_submodules` only sees an extension when it happens to be
+# loaded, so folding these names into every check's `ignore` removes that
+# load-order dependence (#189); the actual pass/fail verdict still comes
+# from the `check_*` functions below.
 function _extension_ignore_names(EI, mod::Module)
     names = Symbol[]
     for (sub, path) in EI.find_submodules(mod)
@@ -178,18 +161,12 @@ function test_explicit_imports(mod::Module; ignore::Tuple = (),
     end
 end
 
-# Track the file's current source line as `_scan_scope!` walks a parsed
-# expression tree, so a flagged `using`/`import` can report where it lives.
-# `expr` shares the file's own top-level (module) scope when it is a bare
-# `using`/`import`, or one of the wrapper forms (`:toplevel`, `:block`,
-# `:if`, `:macrocall`) that do NOT introduce a new Julia scope — a
-# `using`/`import` nested in an `if`/`begin`/`@static` still lands in the
-# enclosing module. A `module`/`baremodule` node DOES start a fresh scope
-# (that submodule's own top-level), so it is left un-recursed: its own
-# `using`/`import` is exempt (that submodule body IS its "module file").
-# Anything else (`function`, `for`, `while`, `let`, `try`, `do`,
-# comprehensions...) cannot lexically contain `using`/`import` at all —
-# Julia rejects that at parse time — so there is nothing left to find there.
+# Walk a parsed expression tree looking for top-level `using`/`import`,
+# tracking the current source line for reporting. Recurses only into forms
+# that do not introduce a new scope (:toplevel, :block, :if, :macrocall);
+# a `module`/`baremodule` node starts its own scope and is left un-recursed,
+# since its own using/import is exempt. Other forms cannot lexically contain
+# using/import (Julia rejects that at parse time).
 function _scan_scope!(violations::Vector{Tuple{Int, String}}, expr,
         line::Base.RefValue{Int})
     if expr isa LineNumberNode
@@ -217,12 +194,9 @@ function _toplevel_import_violations(path::AbstractString)
 end
 
 # `(path, line, statement text)` for every scattered top-level `using`/
-# `import` found by walking every `.jl` file under `root`, treating
-# `main_file` (if given) as exempt — see `_scan_scope!` for what "top-level"
-# means here. A pure filesystem walk (no `Module` involved), so it is
-# directly unit-testable against a synthetic fixture tree, unlike
-# [`test_import_centralisation`](@ref) which resolves `root`/`main_file`
-# from a live `Module` via `pathof`.
+# `import` under `root`, treating `main_file` as exempt (see `_scan_scope!`).
+# A pure filesystem walk, unlike [`test_import_centralisation`](@ref) which
+# resolves `root`/`main_file` from a live `Module` via `pathof`.
 function _import_centralisation_violations(root::AbstractString,
         main_file::Union{Nothing, AbstractString} = nothing)
     violations = Tuple{String, Int, String}[]
@@ -280,14 +254,10 @@ end
 
 # --- Eager option validation (kit#310) --------------------------------------
 
-# A name outside `valid`, matching `valid`'s element flavour (`Symbol` vs
-# `AbstractString`) so it round-trips through the same `string`/`repr`
-# formatting the caller's own error message uses. Exclusion is by
-# construction rather than by retry: the random part is drawn at least as
-# long as the longest entry of `valid`, so the `"fuzz_"` prefix puts the
-# candidate strictly over that length and it cannot equal any entry. A
-# retry loop instead would need a "gave up after N tries" branch that no
-# test can reach — untestable by construction, so permanently uncovered.
+# A name outside `valid`, matching its element flavour (Symbol vs
+# AbstractString) so it round-trips through the caller's own error
+# formatting. Length exceeds every entry of `valid` by construction (the
+# "fuzz_" prefix), so no retry loop is needed to guarantee exclusion.
 function _random_name_excluding(valid, rng::Random.AbstractRNG)
     as_symbol = !isempty(valid) && first(valid) isa Symbol
     width = max(12, maximum(length ∘ string, valid; init = 0))
@@ -301,13 +271,11 @@ end
 Fuzz `f`'s eager validation of a named option.
 
 Calls `f(bad)` with `n` random names outside `valid` and asserts each call
-throws, with an error message that names the rejected value and lists
-every entry of `valid` — the convention `scaffold`'s own licence check
-follows (`unsupported license \$(repr(license)); choose one of ...`,
-backed by `EpiAwarePackageTools.SUPPORTED_LICENSES`): a caller who
-mistypes an option name gets an immediate, self-explaining failure naming
-the mistake and the full valid set, rather than a value silently ignored
-and the mistake surfacing later, far from its cause.
+throws, with an error message naming the rejected value and listing every
+entry of `valid` (the convention `scaffold`'s own licence check follows) —
+so a caller who mistypes an option name gets an immediate, self-explaining
+failure rather than a value silently ignored and the mistake surfacing
+later, far from its cause.
 
 `f` is any single-argument callable performing the validation itself (and
 throwing on rejection). A function that accepts a whole bag of named
@@ -378,19 +346,15 @@ alternatives. Extend or relax it per package via the `required` keyword of
 const STANDARD_README_SECTIONS = [
     ("Why", "Overview", "Features", "About"),
     ("Getting started", "Usage", "Quickstart", "Quick start"),
-    # One bullet per sibling package, one sentence each (#292). The slot is
-    # after Getting started and before Documentation: each of the six packages
-    # that adopted the design landed it there independently, so a reader meets
-    # the siblings once the package itself makes sense and before the links out.
-    # It replaces the older "What packages work well with X?" heading, which
-    # `STALE_README_HEADINGS` reports as drift.
+    # One bullet per sibling package (#292), placed after Getting started
+    # and before Documentation. Replaces "What packages work well with X?",
+    # which `STALE_README_HEADINGS` reports as drift.
     ("Related packages",),
     ("Documentation", "Where to learn more", "Learn more"),
     ("Contributing",),
-    # "Cite" accepts the managed standard-sections heading `## How to cite`
-    # (`_render_standard_sections`), so a freshly scaffolded package passes this
-    # check out of the box rather than needing a hand-authored License/Supporting
-    # section to satisfy it (#201).
+    # "Cite" accepts the managed `## How to cite` heading
+    # (`_render_standard_sections`), so a fresh scaffold passes out of the
+    # box without a hand-authored License/Supporting section (#201).
     ("Citing", "Citation", "Cite", "License", "Supporting")
 ]
 
@@ -449,14 +413,11 @@ function _section_index(headings::Vector{String}, group::Tuple; from::Int = 1)
 end
 
 # True when the `required` groups appear as an ordered *subsequence* of
-# `headings`: each present group matches a distinct heading, and those headings
-# run in the required order. Extra package-owned headings may be interleaved
-# anywhere, including ones that also match a group — a `## License` above the
-# managed block no longer stands in for the managed `## How to cite` below it
-# (#236). A group absent from `headings` is skipped here; its absence is
-# reported by the presence check rather than failing twice. Greedy
-# earliest-match is optimal for subsequence containment: taking the earliest
-# admissible heading never rules out a match for a later group.
+# `headings`. Extra package-owned headings may interleave anywhere, including
+# ones that also match a group — a `## License` above the managed block no
+# longer stands in for `## How to cite` below it (#236). A group absent from
+# `headings` is skipped here (reported by the presence check instead).
+# Greedy earliest-match is optimal for subsequence containment.
 function _sections_in_order(headings::Vector{String}, required)
     from = 1
     for group in required
@@ -468,11 +429,10 @@ function _sections_in_order(headings::Vector{String}, required)
     return true
 end
 
-# The headings inside the managed standard-sections block, or `nothing` when the
-# README carries no markers (a package-owned README the kit does not manage).
-# Headings outside the markers are package-owned and excluded (`scaffold.jl`
-# owns the marker constants; this file is included first, so they are referenced
-# at call time).
+# The headings inside the managed standard-sections block, or `nothing`
+# when the README carries no markers. `scaffold.jl` owns the marker
+# constants; this file is included first, so they are referenced at call
+# time.
 function _managed_block_headings(body::AbstractString)
     si = findfirst(STANDARD_SECTIONS_START, body)
     ei = findlast(STANDARD_SECTIONS_END, body)
@@ -508,9 +468,9 @@ function _readme_headings(body::AbstractString)
         in_fence && continue
         m = match(r"^(#{2,6})\s+(.+?)\s*$", s)
         m === nothing && continue
-        # `(.+?)` always matches when `m !== nothing`, but its capture is typed
-        # `Union{Nothing, SubString}`; the explicit guard keeps that from being
-        # a `String(::Nothing)` call (which JET flags).
+        # The capture is typed Union{Nothing, SubString} even though it
+        # always matches here; the guard avoids a String(::Nothing) call
+        # that JET would flag.
         text = m.captures[2]
         text === nothing || push!(headings, String(text))
     end
@@ -631,11 +591,9 @@ end
 
 # --- README placeholders, prose, and Why bullets (#292) ---------------------
 #
-# None of the three checks below is wired into the scaffolded quality testset
-# (`templates/test/package/quality.jl`): they encode a design standard most
-# adopting READMEs do not meet yet, so switching them on for every caller at
-# once would red the whole ecosystem. A package opts in from its own
-# package-owned tests until that rollout is decided.
+# None of these three checks is wired into the scaffolded quality testset:
+# most adopting READMEs don't meet the standard yet, so a package opts in
+# from its own tests until that rollout is decided.
 
 # Characters a regex treats specially, escaped by `_regex_escape`. Base has no
 # regex-escape helper, and the strings escaped here (a fragment of the seeded
@@ -652,19 +610,15 @@ function _regex_escape(s::AbstractString)
     return String(take!(io))
 end
 
-# Stand-in package name (and, with an `EpiAware/` owner and a `.jl` suffix,
-# repo slug) used to render the seeded README skeleton for placeholder
-# extraction. Anything unlikely to appear in the skeleton's own wording will do;
-# the point is that its occurrences are the parts that vary per package.
+# Stand-in package name (and repo slug, with an `EpiAware/` owner + `.jl`)
+# used to render the seeded README skeleton for placeholder extraction: its
+# occurrences mark the parts that vary per package.
 const _README_SENTINEL = "PkgNameSentinel"
 
-# The placeholder text the scaffolder seeds into a fresh README, as regexes that
-# match it for any package name. Derived from `_seed_readme_body` itself
-# (`scaffold.jl`, included after this file, so it is called at run time),
-# rendered with a sentinel package name, so the check tracks the template rather
-# than a hardcoded copy of it: every italic `_..._` span in the skeleton is a
-# placeholder, and the sentinel occurrences inside one become `.+` so the seeded
-# text still matches once the package's real name is substituted in.
+# The placeholder text the scaffolder seeds into a fresh README, as regexes
+# matching it for any package name. Derived from `_seed_readme_body`
+# (scaffold.jl, called at run time) rendered with a sentinel name, so the
+# check tracks the template: sentinel occurrences become `.+` in the regex.
 function _seed_readme_placeholders()
     body = _seed_readme_body("EpiAware/" * _README_SENTINEL * ".jl",
         _README_SENTINEL, nothing)
@@ -757,14 +711,10 @@ const _BANNED_WORD_PATTERNS = Dict("novel" => "novel(?:s|ly|ty|ties)?",
     "synergy" => "synerg(?:y|ies|i[sz]e[sd]?|i[sz]ing|istic(?:ally)?)",
     "current approaches" => "current\\s+approach(?:es)?")
 
-# A banned word or phrase as a regex: case-insensitive, anchored at a word
-# boundary, any suffix allowed, and tolerant of how a phrase happens to be
-# wrapped across lines (a two-word phrase is one phrase however the author
-# broke the line). A trailing `e` is trimmed off the final word so the `-ing`
-# and `-ed` inflections are caught as well as the `-s` one: `leverage` has to
-# match `leveraging`, which `leverage[a-z]*` alone would miss. The trimmed
-# stems are long enough not to reach an unrelated word, bar the entries in
-# `_BANNED_WORD_PATTERNS`, which carry their own body instead.
+# A banned word/phrase as a regex: case-insensitive, word-boundary anchored,
+# any suffix allowed. A trailing `e` is trimmed off the final word so the
+# `-ing`/`-ed` inflections are caught too (`leverage` must match
+# `leveraging`); entries in `_BANNED_WORD_PATTERNS` carry their own body.
 function _banned_word_regex(word::AbstractString)
     key = String(strip(word))
     body = get(_BANNED_WORD_PATTERNS, lowercase(key), nothing)
@@ -789,13 +739,10 @@ function _scrub_markup(line::AbstractString)
     return String(text)
 end
 
-# The prose lines of a README as `(line number, text)` pairs: the text a reader
-# reads as sentences, with everything that is not prose removed. Dropped whole:
-# fenced code blocks, HTML comments (which is what the managed badge and
-# standard-section markers are), and table rows — the managed badge table, and
-# any other table, whose cells are labels and links rather than sentences.
-# Scrubbed within a line: see `_scrub_markup`. Line numbers are the README's
-# own, so a failure points at the source line.
+# The prose lines of a README as `(line number, text)` pairs. Dropped whole:
+# fenced code blocks, HTML comments (the badge/section markers are HTML
+# comments), and table rows. Scrubbed within a line: see `_scrub_markup`.
+# Line numbers are the README's own, so a failure points at the source line.
 function _readme_prose_lines(body::AbstractString)
     lines = Tuple{Int, String}[]
     in_fence = false
@@ -831,11 +778,10 @@ function _starts_prose_block(text::AbstractString)
     return occursin(r"^#{1,6}\s", text) || occursin(r"^([-*+]|\d+[.)])\s", text)
 end
 
-# Group prose lines into the blocks a sentence can span: a run of non-blank
-# lines, broken at a blank line, a heading, or the start of a list item. So a
-# sentence wrapped over three lines is measured whole, while two adjacent
-# bullets are never measured as one run-on sentence. Each block is
-# `(first line number, joined text)`.
+# Group prose lines into blocks a sentence can span: a run of non-blank
+# lines, broken at a blank line, heading, or list-item start. A sentence
+# wrapped over three lines is measured whole; adjacent bullets never merge.
+# Each block is `(first line number, joined text)`.
 function _prose_blocks(lines)
     blocks = Tuple{Int, String}[]
     current = String[]
@@ -854,12 +800,10 @@ function _prose_blocks(lines)
     return blocks
 end
 
-# Abbreviations whose full stop never ends a sentence, and which are commonly
-# followed by a capitalised term (`e.g. Gamma`), so the following-capital rule
-# below would break at them. Their dots are swapped for a one-dot leader before
-# splitting and back afterwards. `etc.` is deliberately absent: it does end
-# sentences, and mid-sentence it is followed by a lowercase word, which the
-# capital rule already handles.
+# Abbreviations whose full stop never ends a sentence, but are commonly
+# followed by a capital (`e.g. Gamma`), which would trip the capital rule
+# below. Their dots are swapped for a one-dot leader before splitting, and
+# back afterwards. `etc.` is deliberately absent: it does end sentences.
 const _PROSE_ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "et al.")
 
 const _DOT_LEADER = '\u2024'
@@ -1112,14 +1056,8 @@ function test_readme_bullets(path::AbstractString;
     end
 end
 
-# A report is "in a DynamicPPL `@model`-generated method" when its innermost
-# frame's `MethodInstance` takes the DynamicPPL model-evaluator signature
-# `(::Model, ::AbstractVarInfo, ...)`. `@model` lowers each `~`/`:=` line into
-# this evaluator, hiding the assignment from JET's static analysis, so JET emits
-# spurious `UndefVarErrorReport`s for every `~`-assigned local and
-# `MethodErrorReport`s through the `:=` tracking machinery. Matching on the
-# evaluator signature (by type name, so DynamicPPL need not be loaded here)
-# drops exactly those artefacts while keeping every genuine report.
+# Matched by type name (on the innermost frame's MethodInstance) so
+# DynamicPPL need not be loaded here.
 """
     dynamicppl_model_filter(report) -> Bool
 

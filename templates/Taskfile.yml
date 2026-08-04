@@ -1,10 +1,10 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 version: '3'
 
-# Standard EpiAware package development tasks. Generalised from
-# CensoredDistributions.jl; package-specific assumptions (a particular
-# extension, a fixed package name) are kept out so this drops into any package.
-# A package can override `PACKAGE` below, otherwise it is read from Project.toml.
+# Standard EpiAware package development tasks. Package-specific assumptions
+# (a particular extension, a fixed package name) are kept out so this drops
+# into any package. Override `PACKAGE` below, or leave it read from
+# Project.toml.
 
 vars:
   PACKAGE:

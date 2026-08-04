@@ -7,18 +7,14 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      # Daily, so a fix in the shared workflows reaches this repository within a
-      # day rather than waiting up to a week. Grouping (below) is what makes
-      # that affordable: a daily run refreshes the one open grouped PR instead
-      # of opening more, so the open-PR count is unchanged. It is not free —
-      # each refresh is a new commit, and so a new CI run, where a weekly
-      # interval let a week's bumps share one — that is the trade #312 takes
-      # deliberately (#312).
+      # Daily, so a fix in shared workflows arrives within a day rather than
+      # a week. Grouping (below) makes this affordable: a daily run refreshes
+      # the one open grouped PR instead of opening more, at the cost of more
+      # CI runs than a weekly batch — a deliberate trade (#312).
       interval: "daily"
-    # Bundle every github-actions bump (third-party actions + the EpiAware
-    # reusable-workflow SHAs) into a single grouped PR per run, so one
-    # EpiAware/.github change no longer spawns a separate PR per workflow file
-    # that references it (#249).
+    # Bundle every github-actions bump into a single grouped PR per run, so
+    # one EpiAware/.github change doesn't spawn a PR per referencing
+    # workflow file (#249).
     groups:
       github-actions:
         patterns:
@@ -34,17 +30,48 @@ updates:
   - package-ecosystem: "julia"
     directory: "/"
     schedule:
-      # Daily for the same reason as the github-actions ecosystem above: the
-      # grouped PR is refreshed in place, so a shorter interval buys faster
-      # dependency updates without more open PRs. This is the ecosystem where
-      # a refresh costs the most CI (the full test matrix reruns), so a
-      # package that would rather trade update latency for runner time sets
-      # this one back to `weekly` — the grouping is what matters (#312).
+      # Daily, as above (#312). This ecosystem's refresh costs the most CI
+      # (the full test matrix reruns), so a package that would rather trade
+      # latency for runner time can set this back to `weekly` — the grouping
+      # below is what actually matters.
       interval: "daily"
     # One grouped PR per run for all Julia dependency bumps across the
     # workspace environments, rather than a separate PR per package (#249).
     groups:
       julia:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 10
+{{DEPENDABOT_REVIEWERS}}    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # The isolated test environments (`test/jet`, `test/formatter`, and with
+  # `ad = true` also `test/ad` and `test/ADFixtures`). These exist precisely so
+  # a heavy QA dependency's own pins cannot clash with the shared test deps, so
+  # they are deliberately NOT `[workspace]` members of the root Project.toml —
+  # which means the `directory: "/"` entry above has never seen them. Left
+  # unwatched, their pins drift away from the compat entries in
+  # `test/Project.toml`: a bump there goes green while the environment that
+  # actually runs the check stays on the old version, so the green tells you
+  # nothing about the new one.
+  #
+  # A glob rather than an explicit list because which of these directories
+  # exist is per-package: a `noad` package has no `test/ad` or
+  # `test/ADFixtures`, and an explicit path that does not exist fails the
+  # Dependabot run.
+  #
+  # Kept as its own entry, and its own group, so these land in a separate PR
+  # from the workspace bumps. That is the point: a JET or JuliaFormatter minor
+  # is a breaking bump under 0.x semver and wants reviewing on its own, not
+  # bundled into a grouped PR alongside routine workspace updates.
+  - package-ecosystem: "julia"
+    directories:
+      - "/test/*"
+    schedule:
+      interval: "daily"
+    groups:
+      julia-isolated:
         patterns:
           - "*"
     open-pull-requests-limit: 10

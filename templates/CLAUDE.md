@@ -2,8 +2,8 @@
 
 Standards for Claude and other coding agents working in an EpiAware package.
 They apply to human contributors too.
-Contributor practice follows [ColPrac](https://github.com/SciML/ColPrac); this
-file covers how the code itself is written.
+Contributor practice follows [ColPrac](https://github.com/SciML/ColPrac).
+This file covers how the code itself is written.
 
 ## Comments
 
@@ -77,9 +77,7 @@ No whole-file reflows.
 
 Any file whose header reads `MANAGED by EpiAwarePackageTools.scaffold` is
 overwritten by the next template sync.
-Change the template in
-[EpiAwarePackageTools.jl](https://github.com/EpiAware/EpiAwarePackageTools.jl)
-instead.
+Change the template in [EpiAwarePackageTools.jl](https://github.com/EpiAware/EpiAwarePackageTools.jl) instead.
 
 These packages do not track `Manifest.toml`.
 Never commit one.

@@ -65,13 +65,10 @@ supplies the reusable scaffolding.
 """
 module EpiAwarePackageTools
 
-# All genuine module-scope `using`/`import` statements live here, in one
-# place, rather than scattered across the `include`d files below (they all
-# run in this module's namespace, so this is behaviour-preserving). Heavy
-# deps that are only needed at call time (e.g. Aqua, JET, Documenter) are
-# NOT here: they are resolved lazily via `_require_pkg`/`Base.require`
-# inside the functions that use them, so they stay out of the kit's hard
-# dependency set (see `_require_pkg` below).
+# All genuine module-scope `using`/`import` statements live here (the
+# `include`d files below run in this namespace, so this is
+# behaviour-preserving). Heavy call-time-only deps (Aqua, JET, Documenter)
+# are NOT here — see `_require_pkg` below.
 using Test: @testset, @test, @test_skip, @test_broken, detect_ambiguities
 using Markdown: Markdown
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
@@ -89,24 +86,21 @@ import Pkg
 import Test
 
 # Resolve a heavy dependency at call time via `Base.require`, rather than
-# making it a hard dependency of the kit: a package only needs it in the
-# environment that actually runs the check (e.g. JET only in the test env,
-# Documenter only in the docs env). Every lazy-load site across the kit
-# (quality/QA wrappers, the AD harness, the Benchmarks and DocsBuild
-# submodules) shares this one helper instead of repeating the
-# `Base.require(Base.PkgId(Base.UUID(...), ...))` boilerplate each time (#58).
+# making it a hard dependency: a package only needs it in the environment
+# that actually runs the check (e.g. JET only in the test env). Shared by
+# every lazy-load site across the kit instead of repeating the
+# `Base.require(Base.PkgId(...))` boilerplate (#58).
 #
 # The loaded module's methods live in a world age newer than the caller, so
-# every call into it must go through `Base.invokelatest` — that rationale is
-# documented once here rather than restated at each of the 15 call sites.
+# every call must go through `Base.invokelatest` — documented once here
+# rather than restated at each call site.
 function _require_pkg(uuid::AbstractString, name::AbstractString)
     Base.require(Base.PkgId(Base.UUID(uuid), name))
 end
 
-# Register the standard EpiAware docstring conventions before any docstrings are
-# defined, so the kit applies its own `@template` standard to itself, using the
-# same docstrings template it ships to adopting packages (see
-# src/docstrings.jl).
+# Register the standard EpiAware docstring conventions before any
+# docstrings are defined, so the kit applies its own @template standard to
+# itself (see src/docstrings.jl).
 include("docstrings.jl")
 
 include("quality.jl")
@@ -129,22 +123,13 @@ export on_surface_ambiguities, raw_ambiguity_count
 export test_option_validation
 export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
 
-# `update` is `public`, not `export`ed (#294): the kit sits in the same
-# `Main` namespace as every domain package it manages (every scaffolded
-# `docs/make.jl` does `using EpiAwarePackageTools` alongside
-# `using <ThePackage>`), and a bare `export`ed `update` used to collide with
-# a package's own `update`-shaped export, leaving `update` unbound in `Main`
-# (#173) and breaking Documenter `@ref` resolution — fixed at the time by
-# renaming this function to `scaffold_update`. `public` closes that
-# collision a different way: a `public`-not-`export`ed name is never
-# brought into scope by a bare `using`, so it cannot fight another
-# package's export regardless of what either package calls its own verb.
-# That makes the short name safe again, so #294 renamed it back to
-# `update`; `scaffold_update` is kept `public` too, as a transitional
-# alias (`const scaffold_update = update` in `scaffold.jl`) so an existing
-# qualified caller is unaffected by the rename. See
-# ComposedDistributions#221 for the same export→public reasoning applied
-# to that package's own `update`.
+# `update` is `public`, not `export`ed (#294): a scaffolded `docs/make.jl`
+# does `using EpiAwarePackageTools` alongside `using <ThePackage>`, so a
+# bare `export`ed `update` could collide with a package's own `update`
+# export and leave the name unbound in `Main` (#173). `public` avoids this
+# — a `public`-not-`export`ed name is never brought into scope by a bare
+# `using`. `scaffold_update` remains a `public` alias
+# (`const scaffold_update = update` in scaffold.jl) for existing callers.
 public update, scaffold_update
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
