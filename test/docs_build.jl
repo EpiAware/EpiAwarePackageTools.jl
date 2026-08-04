@@ -459,6 +459,47 @@
               nothing
     end
 
+    # A `file://` URL for a fixed body, so the `Downloads.download` + `JSON`
+    # decode path in `_fetch_releases` runs against a real response without
+    # depending on the network. `api` plus the fixed `/repos/$repo/releases`
+    # suffix `_fetch_releases` builds must resolve to the file on disk.
+    _file_url(path) = "file://" * (Sys.iswindows() ? "/" : "") *
+                      replace(abspath(path), "\\" => "/")
+
+    @testset "_fetch_releases: decodes a well-formed response" begin
+        dir = mktempdir()
+        endpoint = joinpath(dir, "repos", "Org", "Pkg.jl")
+        mkpath(endpoint)
+        write(joinpath(endpoint, "releases"),
+            "[{\"tag_name\": \"v1.0.0\", \"draft\": false}]")
+        releases = DB._fetch_releases("Org/Pkg.jl"; api = _file_url(dir),
+            token = nothing)
+        @test releases isa AbstractVector
+        @test length(releases) == 1
+        @test releases[1]["tag_name"] == "v1.0.0"
+    end
+
+    @testset "_fetch_releases: a non-array response is not an error" begin
+        dir = mktempdir()
+        endpoint = joinpath(dir, "repos", "Org", "Pkg.jl")
+        mkpath(endpoint)
+        write(joinpath(endpoint, "releases"), "{\"message\": \"nope\"}")
+        @test DB._fetch_releases("Org/Pkg.jl"; api = _file_url(dir),
+            token = nothing) === nothing
+    end
+
+    @testset "_github_token: GITHUB_TOKEN, then GH_TOKEN, else nothing" begin
+        withenv("GITHUB_TOKEN" => nothing, "GH_TOKEN" => nothing) do
+            @test DB._github_token() === nothing
+        end
+        withenv("GITHUB_TOKEN" => "ghtok", "GH_TOKEN" => nothing) do
+            @test DB._github_token() == "ghtok"
+        end
+        withenv("GITHUB_TOKEN" => nothing, "GH_TOKEN" => "ghcli") do
+            @test DB._github_token() == "ghcli"
+        end
+    end
+
     @testset "build_benchmark_page: tight skeleton + fallback" begin
         dir = mktempdir()
         run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
