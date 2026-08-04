@@ -19,9 +19,9 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 {{PACKAGE}} = "{{UUID}}"
 
-# Bounded compat for the seeded QA + AD deps (mirrors CensoredDistributions.jl).
-# The package under test and EpiAwarePackageTools are pinned by `[sources]`, so
-# they carry no compat entry. Add a bound for each test-only dep you add.
+# Bounded compat for the seeded QA + AD deps. The package under test and
+# EpiAwarePackageTools are pinned by `[sources]`, so carry no compat entry.
+# Add a bound for each test-only dep you add.
 [compat]
 ADTypes = "1"
 Aqua = "0.8"

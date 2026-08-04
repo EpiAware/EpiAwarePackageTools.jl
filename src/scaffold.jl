@@ -1,48 +1,30 @@
 # Scaffolder for the standard EpiAware package tooling. Writes/updates the
-# shipped standard configuration and test infrastructure into a package so it
-# adopts (and stays in sync with) the kit in one call. The templates live in
-# `templates/` at this package's root and are the single source of truth.
+# shipped configuration and test infrastructure into a package so it adopts
+# (and stays in sync with) the kit in one call. The templates live in
+# `templates/` and are the single source of truth.
 #
-# Each template is either managed (the standard infra: re-applied on update,
-# overwritten to remove drift) or package-owned (a starting skeleton written
-# once and never touched again — the package's unit tests, AD scenarios, and
-# QA config values live here). `scaffold` adopts; `update` re-applies only the
-# managed files. Both return a manifest distinguishing what was created,
-# updated, preserved, or removed (a managed file the kit has retired).
+# Each template is either managed (re-applied on update, overwritten to remove
+# drift) or package-owned (a skeleton written once and never touched again).
+# `scaffold` adopts; `update` re-applies only the managed files. Both return a
+# manifest of what was created, updated, preserved or removed.
 #
-# No person, org, or repository name is baked into a template. Every such value
+# No person, org or repository name is baked into a template. Every such value
 # is a `{{PLACEHOLDER}}` filled from `scaffold`/`update` inputs, which default
-# to reading the target package's `Project.toml` (name, authors) and a sensible
-# org default. A caller can override any of them by keyword.
+# to the target's `Project.toml` and an org default, and are overridable.
 
 # A template entry. `src` is the path under `templates/`; `dest` the path under
 # the target package root (usually equal). `managed = true` means standard
 # infra (overwritten on update); `false` a package-owned skeleton (write once).
 # `substitute = true` runs placeholder substitution on copy.
 #
-# `ad` selects whether a template is emitted for the AD-enabled or AD-disabled
-# standard, so a numerical package opts into the AD CI caller + AD test infra
-# while a tooling/non-numerical package opts out:
+# `ad` gates a template on the `ad` flag, so a numerical package opts into the
+# AD CI caller and test harness while a tooling package opts out: `:always`,
+# `:ad_only` (`ad = true`), or `:noad_only` (`ad = false`). A file whose
+# content depends on AD ships as an `:ad_only` + `:noad_only` pair writing to
+# the same `dest`, so exactly one is emitted.
 #
-#   - `:always`    — emitted regardless of the `ad` flag.
-#   - `:ad_only`   — emitted only when `ad = true` (the AD CI caller, the
-#                    `test/ad` and `test/ADFixtures` harness, and the AD-flavoured
-#                    variant of a file that differs by AD content).
-#   - `:noad_only` — emitted only when `ad = false` (the no-AD-flavoured variant
-#                    of a file that differs by AD content, e.g. a `codecov.yml`
-#                    without the per-backend flags).
-#
-# A file whose content depends on AD ships as a pair (`:ad_only` + `:noad_only`)
-# writing to the same `dest`; exactly one is emitted for a given `ad` value.
-#
-# `bench` gates a template on the `benchmarks` flag, mirroring `ad` (benchmarks
-# are opt-in: a package with a real performance suite opts in, everything else
-# skips the benchmark CI, suite skeleton, and docs page):
-#
-#   - `:always`     — emitted regardless of the `benchmarks` flag.
-#   - `:bench_only` — emitted only when `benchmarks = true` (the benchmark CI
-#                     callers, the `benchmark/` suite + compare script, and the
-#                     package-owned benchmark docs prose hook).
+# `bench` mirrors that for the opt-in `benchmarks` flag: `:always` or
+# `:bench_only`.
 struct Template
     src::String
     dest::String
@@ -87,10 +69,8 @@ const SCAFFOLD_TEMPLATES = Template[
 
     # --- CI caller workflows + dependabot (managed) ---
     Template(".github/dependabot.yml", ".github/dependabot.yml", true, true),
-    # CODEOWNERS is managed and parameterised by the `reviewer` handle
-    # (`* @{{REVIEWER}}`). GitHub serves no org-default CODEOWNERS, so it is
-    # repo-specific, but the content is fully derived from the handle so it is
-    # re-applied like any other managed file.
+    # Repo-specific (GitHub serves no org-default CODEOWNERS) but fully
+    # derived from the `reviewer` handle, so managed like any other file.
     Template(".github/CODEOWNERS", ".github/CODEOWNERS", true, true),
     Template(".github/workflows/test.yaml",
         ".github/workflows/test.yaml", true, true),
@@ -107,58 +87,44 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/docpreviewcleanup.yaml", true, true),
     Template(".github/workflows/TagBot.yaml",
         ".github/workflows/TagBot.yaml", true, true),
-    # Triggers Julia General Registry registration: a `/register` issue/PR
-    # comment or a manual `workflow_dispatch` both post the
-    # `@JuliaRegistrator register` comment on `main`'s HEAD commit (gated on
-    # the actor having write access). No `{{PLACEHOLDER}}`s — every value it
-    # needs comes from the GitHub Actions context, so it ships unsubstituted.
+    # Triggers General Registry registration from a `/register` comment or a
+    # `workflow_dispatch`. Every value comes from the Actions context, so it
+    # ships unsubstituted.
     Template(".github/workflows/Register.yml",
         ".github/workflows/Register.yml", true, false),
     Template(".github/workflows/downstream.yaml",
         ".github/workflows/downstream.yaml", true, true),
-    # Registration-safety caller (thin caller of the EpiAware/.github
-    # reusable): fails when a dependency is unregistrable (unregistered or
-    # compat-unsatisfiable) so a version cannot be published unregistrable
-    # (the ConvolvedDistributions 0.2.0 failure), and warns when an org
-    # reverse-dep's compat is stranded by the version under test.
+    # Fails when a dependency is unregistrable (unregistered or
+    # compat-unsatisfiable), and warns when an org reverse-dep's compat is
+    # stranded by the version under test.
     Template(".github/workflows/registrability.yaml",
         ".github/workflows/registrability.yaml", true, true),
-    # Weekly + on-demand nudge (thin caller of the EpiAware/.github
-    # reusable): opens/refreshes a single issue when Project.toml/main
-    # has unreleased changes, telling a maintainer whether a version
-    # bump or only registration is outstanding, and closes it once
-    # everything is released.
+    # Opens/refreshes one issue when main has unreleased changes, saying
+    # whether a version bump or only registration is outstanding.
     Template(".github/workflows/release-nudge.yaml",
         ".github/workflows/release-nudge.yaml", true, true),
-    # Cancel a PR's in-flight runs on close/merge (thin caller of the
-    # EpiAware/.github reusable), freeing runners that concurrency groups miss.
+    # Cancel a PR's in-flight runs on close/merge, freeing runners that
+    # concurrency groups miss.
     Template(".github/workflows/cancel-on-close.yaml",
         ".github/workflows/cancel-on-close.yaml", true, true),
-    # The generic org "Try this PR!" helper: comments install instructions for
-    # the PR branch. Parameterised by repo slug + package name.
+    # "Try this PR!": comments install instructions for the PR branch.
     Template(".github/workflows/try-this-pr.yaml",
         ".github/workflows/try-this-pr.yaml", true, true),
-    # The Claude Code review bot integration (org-standard; the OAuth token is a
-    # per-repo secret). Gated on the `reviewer` handle so only that user's
-    # comments/PRs trigger it.
+    # The Claude Code review bot, gated on the `reviewer` handle so only that
+    # user's comments/PRs trigger it.
     Template(".github/workflows/claude.yml",
         ".github/workflows/claude.yml", true, true),
     Template(".github/workflows/claude-code-review.yml",
         ".github/workflows/claude-code-review.yml", true, true),
-    # Scheduled template-sync: re-applies the managed standard on a schedule
-    # (and on Dependabot updates) and opens a PR / refreshes the branch when the
-    # committed infra has drifted from the kit. The auto-refresh half of the
-    # dogfooding loop (the `self-drift` check guards it the rest of the time).
+    # Scheduled template-sync: re-applies the managed standard and opens a PR
+    # when the committed infra has drifted from the kit.
     Template(".github/workflows/template-sync.yaml",
         ".github/workflows/template-sync.yaml", true, true),
 
     # --- benchmark CI (managed, opt-in via `benchmarks = true`) ---
-    # The PR base-vs-head comparison comment (`benchmark.yaml`) and the
-    # persistent history timeline (`benchmark-history.yaml`), reproducing the
-    # CensoredDistributions.jl benchmark CI. `benchmark.yaml` builds its PR
-    # comment from `benchmark/compare.jl` (the BenchmarkTools `compare_comment`
-    # path); `benchmark-history.yaml` renders the timeline with
-    # AirspeedVelocity's `benchpkgtable`/`benchpkgplot`.
+    # `benchmark.yaml` builds the PR base-vs-head comment from
+    # `benchmark/compare.jl`; `benchmark-history.yaml` renders the persistent
+    # timeline with AirspeedVelocity's `benchpkgtable`/`benchpkgplot`.
     Template(".github/workflows/benchmark.yaml",
         ".github/workflows/benchmark.yaml", true, true, :always, :bench_only),
     Template(".github/workflows/benchmark-history.yaml",
@@ -166,10 +132,9 @@ const SCAFFOLD_TEMPLATES = Template[
         :bench_only),
 
     # --- version automation (managed) ---
-    # Auto-increment the patch version on a merge to main when it was not bumped
-    # (`auto-version-increment.yaml`), and an on-demand `/version major|minor|
-    # patch` PR comment command (`version-on-demand.yaml`), both driven by the
-    # bundled `increment-version` composite action.
+    # Auto-increment the patch version on an unbumped merge to main, plus an
+    # on-demand `/version major|minor|patch` PR comment command. Both are
+    # driven by the bundled `increment-version` composite action.
     Template(".github/workflows/auto-version-increment.yaml",
         ".github/workflows/auto-version-increment.yaml", true, false),
     Template(".github/workflows/version-on-demand.yaml",
@@ -177,12 +142,9 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(".github/actions/increment-version/action.yaml",
         ".github/actions/increment-version/action.yaml", true, true),
 
-    # NOTE: the org-level community health files (ISSUE_TEMPLATE/, the
-    # PULL_REQUEST_TEMPLATE, CONTRIBUTING/CODE_OF_CONDUCT/SUPPORT) are not
-    # scaffolded. GitHub serves them org-wide from EpiAware/.github to any repo
-    # that lacks its own copy, so shipping them here would only shadow the org
-    # defaults and cause drift. Only the repo-specific CODEOWNERS is seeded
-    # below (GitHub has no org-default CODEOWNERS).
+    # NOTE: the org-level community health files are not scaffolded. GitHub
+    # serves them org-wide from EpiAware/.github to any repo lacking its own
+    # copy, so shipping them here would shadow the org defaults and drift.
 
     # --- shipped test infrastructure (managed) ---
     Template("test/package/quality.jl",
@@ -206,10 +168,9 @@ const SCAFFOLD_TEMPLATES = Template[
         :always, :bench_only),
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
-    # The standard org docs build (mirrors CensoredDistributions.jl). `make.jl`
-    # (the build logic), the VitePress site config/theme/components, the node
-    # deps, and the version stub are managed; `Project.toml` (doc deps) and
-    # `pages.jl` (the nav tree) are package-owned so a package extends them.
+    # `make.jl`, the VitePress site config/theme/components, the node deps and
+    # the version stub are managed; `Project.toml` and `pages.jl` are
+    # package-owned so a package extends them.
     Template("docs/make.jl", "docs/make.jl", true, true),
     # The per-subprocess heavy-tutorial runner `make.jl` shells out to.
     Template("docs/run_literate_tutorial.jl",
@@ -230,19 +191,14 @@ const SCAFFOLD_TEMPLATES = Template[
         "docs/src/components/StarUs.vue", true, true),
     Template("docs/src/components/stargazers.data.ts",
         "docs/src/components/stargazers.data.ts", true, true),
-    # The AD-backends tutorial page (generalised from CensoredDistributions.jl,
-    # the org model page). Managed so the page body stays kit-current across
-    # syncs; everything package-specific it reports — scenarios, backends, and
-    # broken/skip declarations — is read at docs-build time from the
-    # package-owned `test/ADFixtures` registry (the `ADRegistry` contract), so
-    # a package never edits this file to declare a broken scenario. Its
-    # registration (docs_config's Literate pipeline, the pages.jl nav) and the
-    # docs-env deps it needs live in the package-owned docs seeds below, filled
-    # via the `AD_*` docs fragments (see `_ad_heavy_tutorials` etc.); an
-    # adopter that predates those seeds wires them by hand once. Its
+    # The AD-backends tutorial page. Managed so the body stays kit-current;
+    # everything package-specific it reports (scenarios, backends, broken/skip
+    # declarations) is read at docs-build time from the package-owned
+    # `test/ADFixtures` registry, so a package never edits this file. Its
+    # registration and docs-env deps live in the package-owned docs seeds,
+    # filled via the `AD_*` fragments (see `_ad_heavy_tutorials`). Its
     # backend-comparison benchmark lives on the sibling `ad-comparison.jl`
-    # page below, under `docs/src/benchmarks/` with its own top-level
-    # "Benchmarks" nav group rather than Tutorials (#299/#305).
+    # page under `docs/src/benchmarks/`.
     Template("docs/src/getting-started/tutorials/ad-backends.jl",
         "docs/src/getting-started/tutorials/ad-backends.jl", true, true,
         :ad_only),
@@ -262,40 +218,32 @@ const SCAFFOLD_TEMPLATES = Template[
     # --- package-owned skeletons (written once, never overwritten) ---
     # The standard DocStringExtensions `@template` conventions. Package-owned
     # because it lives in `src/` and must be `include`d by the package module
-    # before its docstrings are defined for the templates to take effect (see
-    # CensoredDistributions.jl `src/docstrings.jl`).
+    # before its docstrings are defined for the templates to take effect.
     Template("src/docstrings.jl", "src/docstrings.jl", false, false),
     # No NEWS.md seed: release notes are written on the GitHub release itself
-    # and the docs page fetches them at build time (see
-    # `docs/release_notes_header.jl` and `build_release_notes`), so there is no
-    # changelog file to seed or to keep in step with the tags. A package that
-    # already has a NEWS.md keeps it — the kit no longer reads it.
+    # and fetched at build time (see `docs/release_notes_header.jl` and
+    # `build_release_notes`), so there is no changelog file to keep in step
+    # with the tags. A package with an existing NEWS.md keeps it — the kit no
+    # longer reads it.
     Template("docs/Project.toml", "docs/Project.toml", false, true),
-    # A placeholder logo, seeded once at this exact path so a package can drop
-    # in a real logo without any further wiring: `docs/make.jl`'s README ->
-    # index.md step already strips an `<img ... assets/logo.svg ...>` tag from
-    # the generated docs home page (see `_apply_logo_title` for the managed
-    # README title tag). Package-owned like LICENSE — replace the file, never
-    # regenerated.
+    # A placeholder logo, seeded at this exact path so a package can drop in a
+    # real one without further wiring: the README -> index.md step already
+    # strips an `<img ... assets/logo.svg ...>` tag from the generated home
+    # page. Package-owned like LICENSE — replace the file, never regenerated.
     Template("docs/src/assets/logo.svg",
         "docs/src/assets/logo.svg", false, true),
-    # Substituted so the top-level "Benchmarks" nav group
-    # (`{{BENCHMARKS_NAV}}`) is present when `benchmarks = true`, `ad = true`,
-    # or both (see `_benchmarks_nav`, #299/#305); package-owned so a package
+    # Substituted so the "Benchmarks" nav group is present when `benchmarks`
+    # or `ad` is enabled (see `_benchmarks_nav`); package-owned so a package
     # extends the tree.
     Template("docs/pages.jl", "docs/pages.jl", false, true),
     # The authored quickstart, distinct from the README-derived home page.
-    # Package-owned (write-once) so a package grows its own content without a
-    # sync reverting it; the nav entry lives in the package-owned `pages.jl`.
-    # Docs about the kit (customising the site, infrastructure and template
-    # sync) are not seeded here: they describe the kit, not the adopting
-    # package, so they live on the kit's own site (#194).
+    # Docs about the kit itself are not seeded here: they describe the kit,
+    # not the adopting package, so they live on the kit's own site (#194).
     Template("docs/src/getting-started/index.md",
         "docs/src/getting-started/index.md", false, true),
-    # The optional Literate/tutorial + README-rewrite config `make.jl` reads
-    # (empty by default), and the release-notes page header (printed above the
-    # fetched releases).
-    # Substituted so `BENCHMARK_PAGE` defaults to the `benchmarks` flag.
+    # The optional Literate/tutorial + README-rewrite config `make.jl` reads,
+    # and the release-notes page header. Substituted so `BENCHMARK_PAGE`
+    # defaults to the `benchmarks` flag.
     Template("docs/docs_config.jl", "docs/docs_config.jl", false, true),
     Template("docs/release_notes_header.jl",
         "docs/release_notes_header.jl", false, true),
@@ -303,10 +251,8 @@ const SCAFFOLD_TEMPLATES = Template[
     # Opt-in: only written when `benchmarks = true` (no page, no hook otherwise).
     Template("docs/benchmarks.md", "docs/benchmarks.md", false, true, :always,
         :bench_only),
-    # The package-owned "Skipped & broken benchmarks" notes hook, spliced
-    # near the top of the benchmark page (below the overall trend plot,
-    # above the collapsed detail). Same write-once/opt-in lifecycle as the
-    # narrative prose hook above.
+    # The "Skipped & broken benchmarks" notes hook, spliced below the overall
+    # trend plot. Same write-once/opt-in lifecycle as the prose hook above.
     Template("docs/benchmarks_notes.md", "docs/benchmarks_notes.md", false,
         true, :always, :bench_only),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
@@ -335,25 +281,20 @@ const SCAFFOLD_TEMPLATES = Template[
         :always, :bench_only)
 ]
 
-# Managed paths the kit has retired (#185). `update` writes the current
-# standard but used to leave a dropped one behind, so an adopter kept dead infra
-# no workflow invokes: `benchmark/comment/` (the unwired `asv_comment` env) went
-# with #126/#157 and survived on every package that had already adopted it.
-# Retiring is one-way: a path listed here is removed on sync and never written
-# again, so it must not be (or contain) a live template destination — enforced
-# by the scaffold tests. An entry may be a file or a directory.
+# Managed paths the kit has retired (#185): `update` used to leave a dropped
+# template behind, so adopters kept dead infra no workflow invokes. Retiring is
+# one-way — a path listed here is removed on sync and never written again, so
+# it must not be (or contain) a live template destination, which the scaffold
+# tests enforce. An entry may be a file or a directory.
 const RETIRED_PATHS = String[
     "benchmark/comment"
 ]
 
-# Absolute native path of a template destination. Every `dest`/`RETIRED_PATHS`
-# entry is written posix-style (`docs/make.jl`), so a plain
-# `joinpath(target_dir, dest)` leaves the inner `/` untouched and yields a mixed
-# separator path on Windows (`C:\pkg\docs/make.jl`). Windows accepts that for
-# io, but the scaffold results (`created`/`updated`/`preserved`/`removed`) are
-# public API that callers compare against their own `joinpath(dir, "docs",
-# "make.jl")`, which is backslash-separated and would never match. Splitting on
-# `/` and re-joining gives the platform's own separator on both.
+# Absolute native path of a template destination. Every `dest` is written
+# posix-style, so a plain `joinpath` yields a mixed-separator path on Windows.
+# Windows accepts that for io, but the scaffold results are public API that
+# callers compare against their own backslash-separated `joinpath`, which would
+# never match. Splitting on `/` and re-joining gives the native separator.
 function _dest_path(target_dir::AbstractString, dest::AbstractString)
     joinpath(target_dir, split(dest, '/')...)
 end
@@ -376,95 +317,70 @@ end
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
 
-# The single source of truth for the pinned JuliaFormatter version (#114). It
-# feeds three managed files via `{{JULIAFORMATTER_VERSION}}`: the
-# `.pre-commit-config.yaml` hook `rev`, the `test/formatter/Project.toml` exact
-# compat pin, and the `juliaformatter_version` input the `pre-commit.yaml`
-# caller passes to the shared `format-check.yml`. Without that input the shared
-# workflow installs its own (older) default, so CI reformats code the pinned
-# local formatter left intact and the check fails; pinning all three from here
-# keeps the local hook, the isolated formatter env, and CI on one version.
+# The single source of truth for the pinned JuliaFormatter version (#114),
+# feeding the `.pre-commit-config.yaml` hook `rev`, the
+# `test/formatter/Project.toml` compat pin, and the `juliaformatter_version`
+# input `pre-commit.yaml` passes to the shared `format-check.yml`. Without that
+# input the shared workflow installs its own older default and CI reformats
+# code the local hook left intact.
 const _JULIAFORMATTER_VERSION = "2.10.1"
 
 # --- the Julia floor (#246) -------------------------------------------------
 #
-# The managed standard requires Julia 1.11. `[sources]` — how `test/Project.toml`
-# pins the kit to `main` — is a Pkg 1.11 feature. On 1.10 it is not an error but
-# is *silently ignored*, so Pkg falls back to the registry and resolves whatever
-# EpiAwarePackageTools version General happens to carry, instead of the pinned
-# rev. That is worse than a hard failure: an LTS job then exercises a stale kit
-# while appearing to test the current one, and it only surfaces as a crash once
-# the templates use a binding the registered version predates (`run_package_tests`,
-# added in #191, giving the `UndefVarError` in #246).
-#
-# So the whole dev-`[sources]` workflow the kit is built on genuinely needs
-# 1.11, and the standard says so rather than pretending 1.10 works. The org
-# reusable workflows default to a matrix including `lts` (1.10) and a downgrade
-# job pinned to 1.10, so both callers are given the floor explicitly — a default
-# is not the same as a promise.
+# The managed standard requires Julia 1.11 because `[sources]` — how
+# `test/Project.toml` pins the kit to `main` — is a Pkg 1.11 feature. On 1.10
+# it is silently ignored rather than an error, so Pkg resolves whatever the
+# registry carries instead of the pinned rev: an LTS job then exercises a stale
+# kit while appearing to test the current one, surfacing only once a template
+# uses a binding the registered version predates. The org reusables default to
+# a matrix including `lts`, so both callers are given the floor explicitly.
 const _JULIA_FLOOR = v"1.11"
 
-# Compat for a newly generated package: the floor and the current release. Only
-# `scaffold_generate` seeds a Project.toml, so this cannot rewrite an adopter's
-# own compat — `_julia_compat_below_floor` warns about that instead.
+# Compat for a newly generated package. Only `scaffold_generate` seeds a
+# Project.toml, so this cannot rewrite an adopter's own compat;
+# `_julia_compat_below_floor` warns about that instead.
 const _JULIA_COMPAT = "1.11, 1.12"
 
-# The `julia_versions` matrix passed to the `tests.yml` caller: the current
-# release and the pre-release, with the `lts` entry the reusable defaults to
-# dropped. Managed (the template renders the key), so an adopter's resync moves
-# off 1.10 rather than silently resolving the registry there forever (#183: a
-# key the template renders is the kit's, and wins on merge).
+# The `julia_versions` matrix for the `tests.yml` caller, dropping the `lts`
+# entry the reusable defaults to. Managed, so an adopter's resync moves off
+# 1.10 rather than resolving the registry there forever (#183).
 const _JULIA_TEST_VERSIONS = "'[\"1\", \"pre\"]'"
 
-# The `julia_version` passed to the `downgrade.yml` caller, whose own default is
-# `'1.10'` — the exact version where `[sources]` is ignored. Left unset, every
-# adopter's downgrade job resolves the registered kit rather than the pinned rev
-# (the downgrade half of #115).
+# The `julia_version` for the `downgrade.yml` caller, whose own default `'1.10'`
+# is the exact version where `[sources]` is ignored (#115).
 #
-# The current release (`'1'`), not the floor. The floor is what `[sources]`
-# needs, and any version at or above it satisfies that; the job additionally has
-# to be a version the *test environment* can resolve on, and 1.11 is not one:
-# JET publishes no release for 1.11 beyond 0.9.19/0.9.20, and those require
-# JuliaSyntax 0.4, which cannot coexist with the pinned JuliaFormatter 2.10.1
-# (JuliaSyntax 1). So the standard's test env is unresolvable on 1.11 whatever
-# the downgrade job does, and pinning the job to the floor would only make CI
-# red on a conflict that has nothing to do with the package under test.
+# The current release, not the floor: the job must also be a version the test
+# environment resolves on, and 1.11 is not one. JET publishes nothing for 1.11
+# beyond 0.9.19/0.9.20, which need JuliaSyntax 0.4 and cannot coexist with the
+# pinned JuliaFormatter 2.10.1. Pinning to the floor would only make CI red on
+# a conflict unrelated to the package under test.
 const _JULIA_DOWNGRADE_VERSION = "'1'"
 
-# Whether a package's `[compat] julia` admits a version below the floor, i.e. it
-# claims support for a Julia on which the managed test infrastructure cannot
-# work. `Pkg` is not available for a full semver parse here, and a compat entry
-# is a comma-separated list of ranges, so read the lowest bound each range names
-# and compare that: `"1.10, 1.11"` → 1.10 (below), `"1.11, 1.12"` → 1.11 (fine),
-# `"1"` → 1.0 (below). Returns `nothing` when there is no julia compat at all
-# (nothing claimed, nothing to warn about).
 # The Julia versions a `test.yaml` caller names that sit below the floor: an
-# `lts` entry (1.10 today) or an explicit `1.10`/older. A package may pick its
-# own matrix (#73), but a leg below the floor silently resolves the registered
-# kit rather than the pinned rev, so it is never left unremarked (#246).
-#
-# `"1"` and `"pre"` mean "current release" and "pre-release", both above the
-# floor; `"lts"` is the long-term-support line, which is what the floor excludes.
+# `lts` entry or an explicit `1.10`/older. A package may pick its own matrix
+# (#73), but such a leg silently resolves the registered kit rather than the
+# pinned rev, so it is never left unremarked (#246).
 function _julia_versions_below_floor(content::AbstractString)
     below = String[]
     for m in eachmatch(r"(?m)^[ \t]*julia_versions?:[ \t]*(\S.*?)[ \t]*$", content)
-        # Drop a trailing inline comment before scanning: a note explaining
-        # which leg was dropped (`julia_versions: '["1"]'  # was ["1","lts"]`)
-        # would otherwise be read as the value and warn about a leg that is not
-        # there.
+        # Drop a trailing inline comment first: a note explaining which leg was
+        # dropped would otherwise be read as the value.
         value = replace(String(something(m.captures[1])), r"\s+#.*$" => "")
         occursin("lts", value) && push!(below, "lts")
         for v in eachmatch(r"(\d+\.\d+)", value)
             text = String(something(v.captures[1]))
-            # Report the version as the workflow names it ("1.10"), not as a
-            # normalised VersionNumber ("1.10.0") — the point of the warning is
-            # to name the leg the maintainer has to go and delete.
+            # Reported as the workflow names it ("1.10"), not normalised, so
+            # the warning names the leg the maintainer has to delete.
             VersionNumber(text) < _JULIA_FLOOR && push!(below, text)
         end
     end
     return unique(below)
 end
 
+# Whether a package's `[compat] julia` admits a version below the floor. `Pkg`
+# is unavailable for a full semver parse here, so read the lowest bound each
+# comma-separated range names: `"1.10, 1.11"` → 1.10 (below), `"1"` → 1.0
+# (below). `nothing` when there is no julia compat at all.
 function _julia_compat_below_floor(compat::AbstractString)
     lowest = nothing
     for range in split(compat, ',')
@@ -480,36 +396,24 @@ function _julia_compat_below_floor(compat::AbstractString)
 end
 
 # The seed reusable-workflow ref for the opt-in `downgrade-compat` caller job
-# built by `_downgrade_compat_job` (#121). Dependabot bumps the live pin in each
-# adopting repo, and `_preserve_reusable_refs` keeps that bumped ref across
-# `update`, so this seed is only what a first scaffold commits. Kept in step
-# with the `test` job's pin in `templates/.github/workflows/test.yaml`.
+# (#121). Dependabot bumps the live pin in each adopting repo and
+# `_preserve_reusable_refs` keeps it across `update`, so this seed is only what
+# a first scaffold commits. Kept in step with the `test` job's pin.
 const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma: allowlist secret
 
-# The seed reusable-workflow ref for the registrability caller
-# (`templates/.github/workflows/registrability.yaml`). It pins a NEWER
-# EpiAware/.github commit than `_DOWNGRADE_SEED_REF` because
-# `registrability.yml` post-dates the shared seed (added in EpiAware/.github
-# #31), so the caller cannot pin the older seed and still resolve the
-# reusable. The two refs converge once Dependabot bumps the pins across
-# adopters. This is the squash-merge SHA of EpiAware/.github#31 on that
-# repo's default branch (not a branch-head SHA, so it is not
-# garbage-collectable).
+# The seed ref for the registrability caller: the squash-merge SHA of
+# EpiAware/.github#31, which is newer than `_DOWNGRADE_SEED_REF` because
+# `registrability.yml` does not exist on that shared seed. The refs converge
+# once Dependabot bumps the pins.
 const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # pragma: allowlist secret
 
-# The seed reusable-workflow ref for the release-nudge caller
-# (`templates/.github/workflows/release-nudge.yaml`). Like
-# `_REGISTRABILITY_SEED_REF`, this pins a commit newer than the shared
-# `_DOWNGRADE_SEED_REF` because `release-nudge.yml` does not exist on
-# `_DOWNGRADE_SEED_REF` at all -- it is a workflow this PR is adding to
-# EpiAware/.github, so the caller cannot resolve against the older
-# shared seed. PLACEHOLDER: the value below is EpiAware/.github's
-# current `main` HEAD at the time this caller was written, which does
-# NOT yet contain `release-nudge.yml` and so will not actually resolve
-# until that repo's own release-nudge PR merges. UPDATE this to the
-# squash-merge SHA of that PR before this caller is scaffolded anywhere
-# for real; the two refs converge once Dependabot bumps the pins across
-# adopters afterwards.
+# The seed ref for the release-nudge caller, newer than `_DOWNGRADE_SEED_REF`
+# for the same reason as `_REGISTRABILITY_SEED_REF`.
+#
+# PLACEHOLDER: this is EpiAware/.github's `main` HEAD at the time the caller
+# was written, which does NOT yet contain `release-nudge.yml` and so will not
+# resolve. Update it to the squash-merge SHA of that repo's release-nudge PR
+# before this caller is scaffolded anywhere for real.
 const _RELEASE_NUDGE_SEED_REF = "4ade02869137af2a1799c704df8a0256ef5b5de6"  # pragma: allowlist secret
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
@@ -523,13 +427,11 @@ const KIT_UUID = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
 const DEFAULT_LICENSE = "MIT"
 
-# Eager validation of a named option (kit#310): reject an unsupported
-# `license` immediately, naming the offending value and listing the valid
-# set, rather than letting it propagate into a template substitution that
-# fails later with no reference back to the bad input. This is the
-# reference implementation `test_option_validation` (`quality.jl`) fuzzes
-# against in `test/scaffold.jl` — extend a new option-accepting entry
-# point the same way rather than silently accepting an unrecognised value.
+# Reject an unsupported `license` eagerly, naming the value and the valid set,
+# rather than letting it propagate into a substitution that fails later with no
+# reference back to the bad input (#310). The reference implementation
+# `test_option_validation` fuzzes against; extend a new option-accepting entry
+# point the same way.
 function _validate_license(license::AbstractString)
     license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
@@ -577,10 +479,8 @@ _author_name(a::AbstractString) = strip(replace(a, r"<[^>]*>" => ""))
 
 The single glyph shown on the placeholder logo
 (`templates/docs/src/assets/logo.svg`): the package's first letter,
-uppercased, or `"?"` when the package name is unknown (a
-`scaffold_generate`d/`scaffold`ed target always has one, but this keeps
-`scaffold_inputs` total). Purely cosmetic — replacing the placeholder
-SVG with a real logo makes this irrelevant.
+uppercased, or `"?"` when the package name is unknown, which keeps
+`scaffold_inputs` total.
 """
 function _logo_initial(pkg::Union{Nothing, AbstractString})
     (pkg === nothing || isempty(pkg)) && return "?"
@@ -594,17 +494,14 @@ const _DEFAULT_TUTORIALS_SUBDIR = "getting-started/tutorials"
 """
     _tutorials_subdir(target_dir)
 
-Read `TUTORIALS_SUBDIR` from the package-owned `docs/docs_config.jl`:
-the subdir (relative to `docs/src`) holding the Literate tutorial
-sources and their rendered `.md` pages.
+Read `TUTORIALS_SUBDIR` from the package-owned `docs/docs_config.jl`: the
+subdir (relative to `docs/src`) holding the Literate tutorial sources and
+their rendered `.md` pages.
 
-The managed `.gitignore` ignores those rendered pages, so the ignore
-must track whatever path the package configures rather than hardcode
-one. The const is written as a quoted string or a
-`joinpath("a", "b")` of quoted segments; every quoted segment is
-joined with `/` (the gitignore separator). Falls back to the template
-default when the config is absent (e.g. at first scaffold) or omits
-the const.
+The managed `.gitignore` ignores those rendered pages, so it must track
+whatever path the package configures. The const is written as a quoted string
+or a `joinpath` of quoted segments; every quoted segment is joined with `/`.
+Falls back to the template default when the config is absent or omits it.
 """
 function _tutorials_subdir(target_dir::AbstractString)
     cfg = joinpath(target_dir, "docs", "docs_config.jl")
@@ -621,20 +518,16 @@ end
 """
     _detect_reviewer(target_dir)
 
-Recover a persisted reviewer handle from an already-scaffolded repo so
-a resync (`update` with no `reviewer` kwarg) keeps it instead of
-reverting to the org placeholder (#72).
+Recover a persisted reviewer handle from an already-scaffolded repo so a
+resync (`update` with no `reviewer` kwarg) keeps it instead of reverting to
+the org placeholder (#72).
 
-CODEOWNERS and the Dependabot `reviewers` block are managed
-(re-emitted on every sync), and the scheduled template-sync never
-re-passes `reviewer`, so the handle must be read back from the
-destination — exactly as `_preserve_reusable_refs` reads existing
-reusable-workflow refs to stay idempotent against Dependabot SHA
-bumps. Reads the active (uncommented) CODEOWNERS owner line the kit
-renders from the handle and returns its first `@handle` (the leading
-`@` stripped, an `org/team` slug kept whole), or `nothing` when
-CODEOWNERS is absent or carries only the commented placeholder (so a
-never-configured repo stays unconfigured).
+CODEOWNERS is managed and the scheduled template-sync never re-passes
+`reviewer`, so the handle is read back from the destination, as
+`_preserve_reusable_refs` does for reusable-workflow refs. Returns the first
+`@handle` on the active CODEOWNERS owner line (leading `@` stripped, an
+`org/team` slug kept whole), or `nothing` when CODEOWNERS is absent or carries
+only the commented placeholder.
 """
 function _detect_reviewer(target_dir::AbstractString)
     co = joinpath(target_dir, ".github", "CODEOWNERS")
@@ -652,29 +545,21 @@ end
 """
     _detect_docs_subdomain(target_dir)
 
-Recover the docs-hosting choice from an already-scaffolded repo so a
-resync (`update` with no `docs_subdomain` kwarg) keeps it instead of
-silently reverting a subdomain-hosted package to project-pages (#123).
+Recover the docs-hosting choice from an already-scaffolded repo so a resync
+(`update` with no `docs_subdomain` kwarg) keeps it instead of silently
+reverting a subdomain-hosted package to project-pages (#123).
 
-The managed `docs/make.jl` carries the resolved `deploy_url` literal,
-which is the source of truth: a quoted host means the custom-subdomain
-path, a bare `nothing` means project-pages. Returns the host string,
-`nothing` (explicit project-pages), or `:missing` when `docs/make.jl`
-is absent or carries no `deploy_url` (a never-scaffolded target, so
-the caller falls back to the scaffold default). Mirrors
-`_detect_reviewer`/`_detect_benchmarks`: the destination is read back
-so a scheduled sync — which never re-passes `docs_subdomain` — stays
-idempotent, and a package that has drifted to the wrong base self-heals
-on the next `update`.
+The managed `docs/make.jl` carries the resolved `deploy_url` literal: a quoted
+host means the custom-subdomain path, a bare `nothing` means project-pages.
+Returns the host string, `nothing` (explicit project-pages), or `:missing`
+when `docs/make.jl` is absent or carries no `deploy_url`, so the caller falls
+back to the scaffold default.
 
-When `docs/make.jl` says `deploy_url = nothing` but the repo has a
-gh-pages `CNAME` (a Pages custom domain set out of band), the two
-disagree: the site is served from the CNAME root while the build uses
-the `/<Repo>.jl/` project-pages base, so every asset 404s and the docs
-render unstyled. That mismatch is invisible to CI (the deploy passes),
-so the deploy_url alone cannot detect it. The CNAME is consulted in that
-one case and, when present, its host is recovered as the subdomain so
-the drift heals — the concrete case #123's self-heal promise was missing.
+When `deploy_url = nothing` but the repo has a gh-pages `CNAME` (a Pages
+custom domain set out of band) the two disagree: the site is served from the
+CNAME root while the build uses the `/<Repo>.jl/` base, so every asset 404s
+and the docs render unstyled. CI cannot see it — the deploy passes — so the
+CNAME is consulted in that one case and its host recovered as the subdomain.
 """
 function _detect_docs_subdomain(target_dir::AbstractString)
     mk = joinpath(target_dir, "docs", "make.jl")
@@ -682,16 +567,8 @@ function _detect_docs_subdomain(target_dir::AbstractString)
     m = match(r"deploy_url\s*=\s*(nothing|\"([^\"]*)\")", read(mk, String))
     m === nothing && return :missing
     if m.captures[2] === nothing  # `deploy_url = nothing` (project-pages)
-        # make.jl says project-pages, but a committed gh-pages `CNAME` is the
-        # custom domain the site is actually served from — at its root. With
-        # both, DocumenterVitepress builds the base as `/<Repo>.jl/` while the
-        # site loads at the CNAME root, so every CSS/JS asset 404s and the docs
-        # render unstyled. CI cannot catch it: the Documenter deploy succeeds;
-        # the base mismatch is browser-only. Recover the subdomain from the
-        # CNAME so the drift self-heals on the next `update` (the
-        # behaviour this docstring already promises), rather than shipping a
-        # CSS-less site indefinitely. `deploy_url = nothing` with no CNAME is a
-        # genuine project-pages repo and is left unchanged.
+        # No CNAME is a genuine project-pages repo, left unchanged; a CNAME is
+        # the base mismatch described above, healed on the next `update`.
         cname = _gh_pages_cname(target_dir)
         cname === nothing && return nothing
         @warn "docs/make.jl has `deploy_url = nothing` (project-pages) but " *
@@ -704,11 +581,10 @@ function _detect_docs_subdomain(target_dir::AbstractString)
         return cname
     end
     # Strip any scheme so the recovered value is always a bare host, matching
-    # the CNAME path and what the README badges (`_docs_url`) expect. The
-    # managed `deploy_url` literal carries an `https://` scheme (required by
-    # DocumenterVitepress to build a root base — see `_docs_deploy_url`), but
-    # an older bare-host literal must read back to the same host so a resync
-    # re-emits the scheme form (drift → self-heal) rather than churning.
+    # the CNAME path and what the README badges expect. The managed literal
+    # carries `https://` (DocumenterVitepress needs it to build a root base),
+    # but an older bare-host literal must read back to the same host so a
+    # resync re-emits the scheme form rather than churning.
     host = replace(String(something(m.captures[2])), r"^https?://" => "")
     return isempty(host) ? nothing : host
 end
@@ -767,18 +643,14 @@ Recover an already-scaffolded repo's licence so a resync (`update`
 with no `license` kwarg) keeps it instead of resetting the README badge to
 `$(repr(DEFAULT_LICENSE))` (#235).
 
-The README "License & DOI" badge cell is managed and re-rendered on every
-sync, but `license` defaults to `$(repr(DEFAULT_LICENSE))` and the scheduled
-template-sync never re-passes it, so a non-MIT adopter's badge was flipped to
-MIT on every automated sync — a licensing-correctness regression, and the
-same failure mode `_detect_doi` fixed for the DOI badge (#161). The value is
-therefore read back from the destination: first the managed License badge the
-kit renders, then the `Project.toml` `license` field for a repo whose README
-has no badge block yet. Returns the SPDX id, or `nothing` when neither
-carries one (so a never-configured repo takes the scaffold default). Only a
-`SUPPORTED_LICENSES` id is recovered, since that is what `scaffold_inputs`
-accepts; an explicit `license` keyword still wins, so a deliberate change is
-never blocked.
+The README badge cell is managed, but `license` defaults to
+`$(repr(DEFAULT_LICENSE))` and the scheduled template-sync never re-passes it,
+so a non-MIT adopter's badge was flipped to MIT on every sync — the same
+failure mode `_detect_doi` fixed for the DOI badge (#161). The value is read
+back from the destination: first the managed License badge, then the
+`Project.toml` `license` field. Returns the SPDX id, or `nothing` when neither
+carries one. Only a `SUPPORTED_LICENSES` id is recovered; an explicit
+`license` keyword still wins.
 """
 function _detect_license(target_dir::AbstractString)
     readme = joinpath(target_dir, "README.md")
@@ -825,25 +697,19 @@ into a template:
   - `license` — the SPDX licence identifier (one of
     `$(join(SUPPORTED_LICENSES, ", "))`) selecting which `LICENSE` text
     [`scaffold`](@ref) writes and which README badge is rendered. Default
-    `nothing`, in which case the licence already committed to the repo (its
-    README badge, else its `Project.toml` `license` field) is recovered and
-    kept (`#235`), falling back to `$(repr(DEFAULT_LICENSE))` for a
-    never-configured target — so a bare `update`/template-sync does
-    not flip a non-MIT adopter's badge to MIT. The `LICENSE` text itself is
-    written once and never overwritten by [`update`](@ref) so a deliberate
-    licence is never reverted.
+    `nothing`, in which case the licence already committed to the repo is
+    recovered and kept (`#235`), falling back to `$(repr(DEFAULT_LICENSE))`.
+    The `LICENSE` text itself is written once and never overwritten by
+    [`update`](@ref).
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
-    given a DOI badge is added to the README "License & DOI" cell (mirroring
-    CensoredDistributions.jl). Both default to `nothing`, in which case any DOI
-    badge already committed to the README is recovered and preserved (`#161`),
-    so a bare `update`/template-sync keeps an adopter's DOI instead of stripping
-    it. Passing either explicitly supplies or overrides the DOI on demand.
+    given a DOI badge is added to the README "License & DOI" cell. Both default
+    to `nothing`, in which case any DOI badge already committed to the README is
+    recovered and preserved (`#161`). Passing either supplies or overrides it.
   - `docs_timeout` — an optional docs-build job timeout in minutes for the
-    managed `document.yaml` Documenter caller. Default `nothing`, which renders
-    no `with:` block so the reusable `documentation.yml`'s own default (45 min)
-    applies; pass a positive integer to cap a slow docs build. A package-owned
-    `with:` block hand-added to `document.yaml` is preserved across `update()`
-    (see `_preserve_caller_with_inputs`), so a set timeout survives a resync.
+    managed `document.yaml` caller. Default `nothing`, which renders no `with:`
+    block so the reusable's own default (45 min) applies. A package-owned
+    `with:` block hand-added to `document.yaml` survives a resync (see
+    `_preserve_caller_with_inputs`).
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -861,12 +727,8 @@ function scaffold_inputs(target_dir::AbstractString;
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
         docs_timeout::Union{Nothing, Integer} = nothing)
-    # When no `license` is passed, recover the one the repo already committed
-    # (its README badge, else its `Project.toml` `license` field) so a bare
-    # `update`/template-sync keeps a non-MIT adopter's badge instead of
-    # resetting it to the default (#235) — the same read-back-the-destination
-    # idempotency `_detect_doi` provides. A never-configured target falls back
-    # to the scaffold default.
+    # Recover the committed licence so a bare sync keeps a non-MIT adopter's
+    # badge instead of resetting it to the default (#235).
     license = license === nothing ?
               something(_detect_license(target_dir), DEFAULT_LICENSE) : license
     _validate_license(license)
@@ -879,64 +741,46 @@ function scaffold_inputs(target_dir::AbstractString;
     hold = holder === nothing ? auth : holder
     rp = repo === nothing ?
          (pkg === nothing ? nothing : string(org, "/", pkg, ".jl")) : repo
-    # The `reviewer` handle drives every place a real reviewer/code-owner is
-    # needed: the CODEOWNERS line, the Dependabot `reviewers`, the version
-    # bump's assignee, and the Claude bot's actor gate. A GitHub username (or an
-    # `org/team` slug) is required — GitHub cannot assign a bare org, so when no
-    # handle is given those owners are left empty (with a note) rather than
-    # producing PRs that error with "can't assign <org> as a reviewer".
-    # When no `reviewer` is passed, recover any handle a previous scaffold/update
-    # persisted in the destination, so a scheduled resync stays idempotent rather
-    # than reverting CODEOWNERS / Dependabot reviewers / the assignee to the org
-    # placeholder (#72). An explicit `reviewer = ""` still omits owners.
+    # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
+    # `reviewers`, the version bump's assignee and the Claude bot's actor gate.
+    # It must be a username or `org/team` slug: GitHub cannot assign a bare
+    # org, so with no handle those owners are left empty rather than producing
+    # PRs that error with "can't assign <org> as a reviewer". With no
+    # `reviewer` passed, any handle persisted in the destination is recovered
+    # so a scheduled resync stays idempotent (#72); `reviewer = ""` still omits.
     resolved_reviewer = reviewer === nothing ? _detect_reviewer(target_dir) :
                         reviewer
     has_reviewer = resolved_reviewer !== nothing && !isempty(resolved_reviewer)
     rev = resolved_reviewer === nothing ? org : resolved_reviewer
-    # The CODEOWNERS rule (active when a handle is given; otherwise a commented
-    # placeholder so a bare org is never written as a code owner).
+    # Active when a handle is given, else a commented placeholder.
     codeowners_line = has_reviewer ? string("* @", resolved_reviewer) :
                       string("# * @", org, "/maintainers  # set the `reviewer` ",
         "input to a GitHub handle to enable")
-    # The per-entry Dependabot `reviewers:` block (empty when no handle). The
-    # template carries the 4-space indent before the following `commit-message:`
-    # key, so this fragment only supplies the reviewers lines themselves.
+    # The template carries the indent before the following `commit-message:`
+    # key, so this fragment supplies only the reviewers lines themselves.
     dependabot_reviewers = has_reviewer ?
                            string("    reviewers:\n      - \"", resolved_reviewer,
         "\"\n") : ""
-    # The increment-version composite action's `assignee` default. It must be a
-    # user/bot handle (or empty), never the bare org: GitHub rejects assigning
-    # an org, and the update-existing-PR path fails hard with
-    # `replaceActorsForAssignable` (#122). So it mirrors CODEOWNERS/Dependabot —
-    # the handle when one is set, empty otherwise (the action then skips the
-    # `--assignee` flag) — rather than falling back to `{{REVIEWER}}`, which is
-    # the org placeholder when no reviewer was given.
+    # A user/bot handle or empty, never the bare org: assigning an org fails
+    # the update-existing-PR path with `replaceActorsForAssignable` (#122). So
+    # not `{{REVIEWER}}`, which is the org placeholder when none was given.
     assignee_default = has_reviewer ? resolved_reviewer : ""
     yr = year === nothing ? Dates.year(Dates.now()) : year
     uuid = _project_string(proj, "uuid")
     # A fresh UUID for the seeded ADFixtures registry skeleton (a new path
     # package). Generated once per call; the author keeps it thereafter.
     adfix_uuid = string(UUIDs.uuid4())
-    # How the docs site is hosted. The default (`docs_subdomain = nothing`) is
-    # a GitHub project-pages deploy: `deploy_url = nothing`, so
-    # DocumenterVitepress derives the VitePress base from the repo name and the
-    # site renders at `epiaware.org/<Repo>.jl/` with no DNS to wire. Opting into
-    # a custom subdomain (`docs_subdomain = true` for the conventional
-    # `<pkg>.epiaware.org`, or a string for a bespoke host) sets `deploy_url` to
-    # that host, which then needs a DNS record and the repo's GitHub Pages
-    # custom domain (see the `docs_subdomain` note in `scaffold`).
-    # `DOCS_DEPLOY_URL` is the `deploy_url` Julia literal substituted into
-    # `docs/make.jl`; `DOCS_URL` is the bare host(+path) for the README badges.
+    # How the docs site is hosted. The default is a project-pages deploy
+    # (`deploy_url = nothing`), so DocumenterVitepress derives the base from
+    # the repo name and no DNS is wired. A custom subdomain (`true` for
+    # `<pkg>.epiaware.org`, or a bespoke host string) needs a DNS record and
+    # the repo's Pages custom domain. `DOCS_DEPLOY_URL` is the literal
+    # substituted into `docs/make.jl`; `DOCS_URL` is the bare host for badges.
     #
-    # When no explicit `docs_subdomain` is passed, recover the choice the repo
-    # already committed (its `docs/make.jl` `deploy_url`) so a resync keeps a
-    # subdomain-hosted package instead of silently reverting it to project-pages
-    # and serving a CSS-less site (#123) — the same read-back-the-destination
-    # idempotency `_detect_reviewer`/`_detect_benchmarks` provide. Only a
-    # never-scaffolded target (`:missing`) falls back to the scaffold default:
-    # the kit dogfoods its DNS-wired custom subdomain
-    # (`epiawarepackagetools.epiaware.org`), so it defaults to the subdomain and
-    # every other package to project-pages.
+    # With no explicit value the committed choice is recovered so a resync
+    # never reverts a subdomain-hosted package and serves a CSS-less site
+    # (#123). Only a never-scaffolded target falls back to the default: the kit
+    # dogfoods its own subdomain, every other package gets project-pages.
     ds = if docs_subdomain !== nothing
         docs_subdomain
     else
@@ -946,23 +790,16 @@ function scaffold_inputs(target_dir::AbstractString;
     docs_sub = _resolve_docs_subdomain(ds, pkg)
     docs_deploy_url = _docs_deploy_url(docs_sub)
     docs_url = _docs_url(rp, docs_sub)
-    # When neither `doi` nor `zenodo_badge` is passed, recover any Zenodo DOI a
-    # previous scaffold/update persisted in the README badge block, so a
-    # scheduled resync keeps an adopter's DOI badge instead of stripping it
-    # (#161) — the same read-back-the-destination idempotency `_detect_reviewer`
-    # provides. Passing either explicitly skips detection, so a caller can still
-    # supply or override a DOI on demand.
+    # Recover any DOI persisted in the README badge block so a scheduled
+    # resync keeps it instead of stripping it (#161).
     resolved_doi, resolved_zenodo = if doi === nothing && zenodo_badge === nothing
         _detect_doi(target_dir)
     else
         (doi, zenodo_badge)
     end
-    # The managed JET env depends on EpiAwarePackageTools (for its report
-    # filter). The kit dogfoods itself, so when the adopting package is the kit
-    # the `{{PACKAGE}}` dep/source already cover it — adding a second
-    # EpiAwarePackageTools dep (and a git source clashing with the path source)
-    # would make a duplicate/invalid env. These placeholders emit the kit dep +
-    # git source for every other package, and nothing for the kit itself.
+    # The managed JET env depends on the kit for its report filter. When the
+    # adopting package *is* the kit, `{{PACKAGE}}`'s own dep/source already
+    # cover it and a second one would make a duplicate/invalid env.
     is_kit = pkg == KIT_NAME
     kit_dep = is_kit ? "" : string(KIT_NAME, " = \"", KIT_UUID, "\"\n")
     kit_source = is_kit ? "" :
@@ -972,12 +809,10 @@ function scaffold_inputs(target_dir::AbstractString;
         "# develop the kit alongside this package.\n",
         KIT_NAME, " = {url = \"https://github.com/", org, "/",
         KIT_NAME, ".jl\", rev = \"main\"}")
-    # How the scheduled template-sync workflow loads the kit before calling
-    # `update(".")`. The kit dogfoods itself, so when the adopting package is
-    # the kit it syncs from its own checked-out project; every other package
-    # pulls the kit's newest `main` into a throwaway env so a sync vendors the
-    # latest standard. Kept here (not in the template) because it depends on the
-    # same `is_kit` split as the JET kit source line.
+    # How the scheduled template-sync loads the kit before `update(".")`: the
+    # kit syncs from its own checked-out project, every other package pulls the
+    # kit's newest `main` into a throwaway env. Here rather than in the
+    # template because it shares the `is_kit` split above.
     sync_install = is_kit ?
                    "Pkg.activate(\".\"); Pkg.instantiate()" :
                    string("Pkg.activate(; temp = true); Pkg.add(url = ",
@@ -1029,9 +864,8 @@ function _substitute(content::AbstractString, inputs::NamedTuple,
 end
 
 # A reusable-workflow `uses:` line in a managed CI caller, capturing the prefix
-# up to and including the `@`, the workflow filename, and the pinned ref. The
-# EpiAware/.github reusables are pinned by ref (a SHA), which Dependabot bumps in
-# each adopting repo. See `_preserve_reusable_refs`.
+# up to and including the `@`, the workflow filename, and the pinned ref, which
+# Dependabot bumps in each adopting repo. See `_preserve_reusable_refs`.
 const _REUSABLE_USES = r"(uses:\s*\S+/\.github/\.github/workflows/([^@\s]+)@)(\S+)"
 
 """
@@ -1040,14 +874,11 @@ const _REUSABLE_USES = r"(uses:\s*\S+/\.github/\.github/workflows/([^@\s]+)@)(\S
 Keep the destination's existing reusable-workflow refs when
 re-emitting a managed CI caller.
 
-Dependabot owns the EpiAware/.github reusable SHAs in every adopting
-repo, so a template that hard-pinned one SHA would report drift (and
-fail self-drift / churn the scheduled sync) every time Dependabot
-moved the live pin. When the destination already pins a ref for the
-same reusable workflow, that ref wins and only the rest of the caller
-body is re-applied from the template; on first adoption (no
-destination yet) the template's seed ref is used. This makes `update`
-idempotent against Dependabot's bumps.
+Dependabot owns the EpiAware/.github reusable SHAs in every adopting repo, so
+a hard-pinned template would report drift every time Dependabot moved the live
+pin. When the destination already pins a ref for the same reusable, that ref
+wins and only the rest of the caller body is re-applied; on first adoption the
+template's seed ref is used.
 """
 function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
     occursin(_REUSABLE_USES, content) || return content
@@ -1056,8 +887,6 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
     for line in eachline(dest)
         m = match(_REUSABLE_USES, line)
         m === nothing && continue
-        # `something` strips the `Union{Nothing, SubString}` the capture API
-        # returns; the three groups always match when `m` is non-nothing.
         existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
     end
     isempty(existing) && return content
@@ -1085,15 +914,12 @@ const _ACTION_USES = r"(uses:[ \t]*)([A-Za-z0-9][A-Za-z0-9._/-]*)@(\S+)"
 Keep the destination's existing third-party action pins when re-emitting a
 managed workflow.
 
-Dependabot owns the github-actions pins in every adopting repo (the managed
-`dependabot.yml` enables the github-actions ecosystem), so a template that
-hard-pins `actions/checkout@v7` would revert a Dependabot bump on every resync.
-When template-sync re-applies on a branch it did not open (a Dependabot PR),
-that revert rides along silently into the merge (#215). When the destination
-already pins a version for an action, that pin wins and only the rest of the
-workflow is re-applied from the template; on first adoption (no destination yet)
-the template's seed pin is used. Mirrors `_preserve_reusable_refs`, which does
-the same for the org reusable-workflow callers (those lines are left to it).
+Dependabot owns the github-actions pins in every adopting repo, so a template
+that hard-pins `actions/checkout@v7` would revert a Dependabot bump on every
+resync — and when template-sync re-applies on a branch it did not open, that
+revert rides silently into the merge (#215). The destination's pin wins and
+only the rest of the workflow is re-applied. Mirrors
+`_preserve_reusable_refs`, which owns the org reusable-caller lines.
 """
 function _preserve_action_pins(content::AbstractString, dest::AbstractString)
     occursin(_ACTION_USES, content) || return content
@@ -1119,98 +945,59 @@ function _preserve_action_pins(content::AbstractString, dest::AbstractString)
         end)
 end
 
-# A managed CI caller job's reusable `uses:` line, any interspersed blank/comment
-# lines documenting an override, its optional `with:` block, and the following
-# `secrets:` key. Reuses the same workflow-filename capture as `_REUSABLE_USES`
-# to key the block; group 3 is the preserved region — the interspersed
-# blank/comment lines plus the `with:` block (empty when the job has neither).
-# Group 4 (the `with:` line's own indent) is only used internally, via the `\4`
-# backreference, to require the block's input lines be indented DEEPER than
-# `with:` — which is what stops the match from swallowing the sibling `secrets:`
-# line (indented the same as `with:`). The leading `(?:...comment/blank...)*?`
-# lets a documented override survive even when a rationale comment sits between
-# `uses:` and `with:` (#117): those comment lines fall inside group 3 and are
-# re-emitted with the block, rather than breaking the `uses:`→`with:` adjacency
-# and silently dropping the override. It is lazy so it consumes only as far as
-# the `with:` block / `secrets:` key, never a following job. See
+# A managed CI caller job's reusable `uses:` line, any interspersed
+# blank/comment lines, its optional `with:` block, and the following `secrets:`
+# key. Group 3 is the preserved region; group 4 (the `with:` indent) is used
+# only via the `\4` backreference, requiring input lines to be indented deeper
+# than `with:` so the match does not swallow the sibling `secrets:` line. The
+# lazy leading comment/blank run lets a documented override survive when a
+# rationale comment sits between `uses:` and `with:` (#117). See
 # `_preserve_caller_with_inputs`.
 const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
 
-# A `uses:` line repointed at a repo-local reusable *workflow* (`./.github/
-# workflows/<file>.yml(aml)` or the `../` equivalent) rather than the org's
-# shared `.github` reusable, plus whatever follows it (#325). The
-# `.github/workflows/` segment is deliberate, not merely cosmetic: several
-# bundled templates (`auto-version-increment.yaml`,
-# `version-on-demand.yaml`) call a repo-local *composite action* from a
-# step, `uses: ./.github/actions/<name>` with its own `with:` block — a
-# routine, unrelated shape that must not be mistaken for the caller-job
-# override this warns about. Requiring the workflow-file path (and
-# excluding the actions path) tells the two apart without having to
-# distinguish a job-level `uses:` from a step-level one.
+# A `uses:` line repointed at a repo-local reusable *workflow* rather than the
+# org's shared `.github` reusable (#325). The `.github/workflows/` segment is
+# load-bearing: several bundled templates call a repo-local *composite action*
+# (`uses: ./.github/actions/<name>`) with its own `with:` block, a routine
+# shape that must not be mistaken for the caller-job override this warns about.
 #
-# Deliberately mirrors `_CALLER_JOB`'s shape — match `uses:` directly rather
-# than scanning forward from a job-name line, since a free-form "skip N
-# lines to find uses:" prefix is exactly what caused catastrophic
-# backtracking here in practice (this regex tried and reverted; see git
-# history) when run against a multi-job file: false candidate starts (e.g.
-# `concurrency:`'s nested `group:`/`cancel-in-progress:` lines, which also
-# match a bare `^  <word>:` line) sent the lazy line-skip hunting to the end
-# of the file on every attempt. `_warn_local_caller_override!` recovers the
-# job name separately, by searching backward from the match for the nearest
-# preceding `^  <name>:` line — a plain per-line scan, not a
-# backtracking-prone in-regex skip. Group 2 is the optional `with:` block
-# (empty when the job has none); group 3 (the `with:` line's own indent) is
-# used internally via the `\3` backreference, the same trick `_CALLER_JOB`
-# uses, so the block stops at the next line indented no deeper than `with:`
-# (a sibling `secrets:` key or the next job) instead of swallowing it.
+# Matches `uses:` directly rather than scanning forward from a job-name line: a
+# free-form line-skip prefix caused catastrophic backtracking on multi-job
+# files, because false candidate starts (e.g. `concurrency:`'s nested keys)
+# sent the lazy skip hunting to end-of-file on every attempt.
+# `_warn_local_caller_override!` recovers the job name by a plain backward
+# scan instead. Group 3 is the `with:` indent, used via `\3` exactly as in
+# `_CALLER_JOB`.
 const _LOCAL_CALLER_JOB = r"(uses:[ \t]*\.{1,2}/\.github/workflows/[^@\s]+\.ya?ml\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\3[ \t]+\S.*\r?\n?)*)?)"
 
-# A non-empty `with:` block: `with:` followed by at least one indented,
-# non-blank line. Used to tell a local caller that genuinely carries
-# package-owned inputs (about to be lost, #325) from one whose `with:` (if
-# any) is empty and so has nothing a resync could drop.
+# A non-empty `with:` block, telling a local caller that carries package-owned
+# inputs (about to be lost, #325) from one a resync would drop nothing from.
 const _LOCAL_CALLER_HAS_INPUTS = r"with:\r?\n[ \t]+\S"
 
-# A job's name: a bare `^  <name>:` line (2-space indent, no value on the
-# line). Used to recover which job a `_LOCAL_CALLER_JOB` match belongs to by
-# searching backward from the match for the nearest preceding line of this
-# shape — see `_warn_local_caller_override!`.
+# A job's name: a bare `^  <name>:` line. Used to recover which job a
+# `_LOCAL_CALLER_JOB` match belongs to by searching backward from the match.
 const _JOB_NAME_LINE = r"(?m)^  ([\w-]+):[ \t]*\r?$"
 
-# Keep a package-owned `with:` block on a managed CI caller job across
-# `update()` (#73). A package can deliberately override a reusable workflow's
-# defaults on a managed caller (e.g. a Julia version floor/matrix on
-# `test.yaml`'s `test`/`downgrade-compat` jobs) by adding a `with:` block; the
-# template itself carries no `with:` block for these jobs, so re-emitting it
-# verbatim would silently drop the override on every sync. Mirrors
-# `_preserve_reusable_refs`: the destination is the source of truth, so when
-# it already carries a `with:` block for a job, that block is kept and only
-# the rest of the caller (the `uses:` ref, `secrets:`, etc.) is re-applied
-# from the template; on first adoption (no destination yet) the template's
-# with-less form is used untouched.
+# Keeping a package-owned `with:` block across `update()` (#73). A package can
+# override a reusable's defaults by adding a `with:` block to a managed caller;
+# the template carries none for those jobs, so re-emitting it verbatim would
+# drop the override. As in `_preserve_reusable_refs` the destination wins, and
+# only the rest of the caller is re-applied.
 #
-# A job whose template renders its own non-empty `with:` block (e.g. `ad.yaml`'s
-# `backends:` passthrough, generated from `_AD_BACKENDS`) carries managed values,
-# not package overrides, so the two blocks are merged per key (#183): the
-# template wins on a key it renders (a `_AD_BACKENDS` change keeps reaching an
-# adopted package rather than freezing at whatever was first scaffolded), while
-# a key only the package carries (e.g. `coverage_directories`, counting a package
-# extension) is kept. Before #183 the template's block replaced the whole of the
-# destination's, silently dropping such a key on every sync.
+# Where the template does render its own `with:` block (e.g. `ad.yaml`'s
+# `backends:` passthrough from `_AD_BACKENDS`) those are managed values, so the
+# blocks are merged per key (#183): the template wins on a key it renders, and
+# a key only the package carries is kept.
 
-# The lines of a caller's preserved region, split into the leading blank/comment
+# The lines of a caller's preserved region, split into leading blank/comment
 # lines and the `with:` inputs. `indent` is the `with:` line's indent, or
-# `nothing` when the region carries no `with:` block. Each input is
-# `key => lines`, keeping any deeper continuation lines with their key so a
-# block/list value survives intact. A comment/blank line is buffered and
-# attached to the key it *precedes* (a rationale comment documents the key
-# below it, by convention — e.g. `# guard comment` / `coverage_directories:
-# 'src,ext'`), not the key above; `trailing` catches any such lines left
-# over with no following key (dangling at the end of the block). Before
-# #212 a comment was attached to the preceding key instead, which silently
-# dropped it when that key was seeded (replaced wholesale by the template)
-# and duplicated it when the *next* real template key happened to carry the
-# same trailing comment.
+# `nothing` when there is no block. Each input is `key => lines`, keeping
+# deeper continuation lines with their key so a block/list value survives. A
+# comment/blank line is buffered and attached to the key it *precedes*, by the
+# convention that a rationale comment documents the key below it; `trailing`
+# catches any left dangling at the end. Attaching to the preceding key instead
+# dropped the comment when that key was seeded and duplicated it onto the next
+# template key (#212).
 function _parse_with_block(chunk::AbstractString)
     head = String[]
     inputs = Pair{String, Vector{String}}[]
@@ -1243,9 +1030,7 @@ function _parse_with_block(chunk::AbstractString)
 end
 
 # Render a caller's preserved region back from its parts. `trailing` has no
-# default: the sole call site (`_merge_with_blocks`) always supplies it
-# explicitly, and a default here would generate an unreachable, uncovered
-# 3-arg method (caught by codecov's patch-coverage check on #218).
+# default: a default would generate an unreachable, uncovered 3-arg method.
 function _render_with_block(head::Vector{String}, indent::AbstractString,
         inputs::Vector{Pair{String, Vector{String}}},
         trailing::Vector{String})
@@ -1258,26 +1043,17 @@ function _render_with_block(head::Vector{String}, indent::AbstractString,
     return join(lines, "\n") * "\n"
 end
 
-# Inputs the template *seeds* rather than manages: the kit supplies a default,
-# and a destination that names the key keeps its own value (#246).
+# Inputs the template *seeds* rather than manages: the kit supplies a default
+# and a destination naming the key keeps its own value (#246). Every other
+# template-rendered key is managed and wins on merge (#183). The Julia matrix
+# differs in kind: which versions to test is a package's call (#73/#117), and
+# the kit's stake is only that the floor is not below 1.11. So it seeds a
+# floor-respecting default and `_julia_versions_below_floor` warns when an
+# override reaches back below the floor.
 #
-# Every other template-rendered key is managed and wins on merge (#183) — that
-# is what keeps e.g. an `_AD_BACKENDS` change reaching an adopted package rather
-# than freezing at whatever it was first scaffolded with. The Julia matrix is
-# different in kind: choosing which versions to test is a package's call (#73/
-# #117 exist precisely so a package can pin its own floor/matrix and have it
-# survive a sync), while the kit's stake is only that the floor is not *below*
-# 1.11, where `[sources]` stops working. So the kit seeds a floor-respecting
-# default — which is what moves every adopter off the silent 1.10 leg on their
-# next sync — and `_julia_versions_below_floor` warns if a package's own
-# override reaches back below the floor, rather than the kit overwriting a
-# deliberate choice.
-# Scoped to the reusable workflow that renders the key, not global by name:
-# `codecoverage.yaml`'s `coverage.yml` caller renders a `julia_version` of its
-# own, which is *managed* (the kit moves the whole fleet's coverage job when it
-# moves), and a set keyed on the bare name would quietly un-manage that too —
-# freezing every adopter's coverage version and, worse, letting one sit on 1.10,
-# the exact version this floor exists to keep them off.
+# Scoped to the reusable that renders the key, not global by name:
+# `codecoverage.yaml`'s caller renders a `julia_version` of its own which IS
+# managed, and a bare-name set would un-manage that too.
 const _WITH_SEED_DEFAULT_KEYS = Dict(
     "tests.yml" => Set(["julia_versions"]),
     "downgrade.yml" => Set(["julia_version"]))
@@ -1315,11 +1091,10 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString,
     # package-owned unmatched content, exactly like an extra key — keep it
     # alongside the seed's own trailing lines (if any) rather than dropping it.
     trailing = isempty(e.trailing) ? s.trailing : vcat(s.trailing, e.trailing)
-    # The destination's leading comments (between `uses:` and `with:`) are its
-    # rationale for the block (#117) and are not the template's to drop. Only
-    # the lines the template does not itself emit are the package's, though:
-    # appending the destination's head wholesale would re-append the template's
-    # own comments on every sync, growing the file without bound.
+    # The destination's leading comments are its rationale for the block
+    # (#117). Only the lines the template does not emit itself are kept:
+    # appending the head wholesale would re-append the template's own comments
+    # on every sync, growing the file without bound.
     extra_head = [l for l in e.head if !(l in s.head)]
     head = vcat(s.head, extra_head)
     isempty(extra) && isempty(e.trailing) && isempty(overridden) &&
@@ -1340,21 +1115,15 @@ Keep the destination's reverse-dependency list when re-emitting the managed
 `downstream.yaml`.
 
 Which packages depend on this one is a fact about the adopting package, not a
-standard the kit sets: the template seeds `downstreams: '[]'` with a worked
-example, and re-applying that seed on every sync silently reset an adopter's
-list (#234). So the committed value wins and only the rest of the workflow is
-re-applied from the template — the same read-back-the-destination shape as
-`_preserve_reusable_refs`/`_preserve_action_pins`, and preferable to marking the
-whole file package-owned (`EPIAWARE_MANAGED_OVERRIDE`, see
-`_detect_managed_override`), which would stop the workflow tracking the standard
-for the sake of one line.
+standard the kit sets, but re-applying the template's `downstreams: '[]'` seed
+reset an adopter's list on every sync (#234). So the committed value wins, as
+in `_preserve_reusable_refs`. Preferable to marking the whole file
+package-owned, which would stop it tracking the standard for one line.
 
-A bespoke pass rather than a `_preserve_caller_with_inputs` case. That
-machinery keys off the `uses:`→`with:`→`secrets:` shape, which this caller
-does not have (it puts `secrets:` first), and the key is one the template
-itself renders, so `_merge_with_blocks` would let the template's seed win on
-it (#183). On first adoption, or when the committed workflow sets no list,
-the template's seed stands.
+A bespoke pass rather than a `_preserve_caller_with_inputs` case: that keys
+off the `uses:`→`with:`→`secrets:` shape, which this caller does not have (it
+puts `secrets:` first), and the template renders the key itself so
+`_merge_with_blocks` would let the seed win (#183).
 """
 function _preserve_downstreams(content::AbstractString, dest::AbstractString)
     occursin(_DOWNSTREAMS_INPUT, content) || return content
@@ -1400,30 +1169,19 @@ end
     _warn_local_caller_override!(warnings, to, dest)
 
 Warn when the committed `to` (the managed workflow at relative path `dest`)
-carries a caller job repointed at a repo-local reusable workflow with its
-own `with:` inputs — a shape `_preserve_caller_with_inputs` cannot see, so
-the resync about to happen silently drops those inputs and reverts the job
-to the shared reusable (#325).
+carries a caller job repointed at a repo-local reusable workflow with its own
+`with:` inputs — a shape `_preserve_caller_with_inputs` cannot see, so the
+resync silently drops those inputs and reverts the job to the shared reusable
+(#325).
 
-`_CALLER_JOB`, which keys `_preserve_caller_with_inputs`, matches only
-`uses: <org>/.github/.github/workflows/<file>@<ref>`. A package that needs
-an input the shared reusable does not expose has one way to add it: point
-the caller at a local copy of the workflow (`uses:
-./.github/workflows/<file>.yaml`) instead. That shape cannot be matched, so
-`_preserve_caller_with_inputs` never sees the job and `_emit` re-renders it
-from the template — the caller flips back to the shared reusable and the
-`with:` inputs it carried are gone, with nothing in the sync output to say
-so. This is exactly what #325 reports: `DistributionsInference.jl`
-repointed `downgrade-compat` at a local `downgrade.yaml` to pass `projects:
-'., test'`, and the very next scheduled sync reverted it silently.
+`_CALLER_JOB` matches only `uses: <org>/.github/.github/workflows/<file>@<ref>`.
+A package needing an input the shared reusable does not expose points the
+caller at a local copy instead, which never matches, so `_emit` re-renders the
+job from the template and the inputs are gone with nothing to say so.
 
-This does not change what gets emitted: the job still resyncs to the
-template's reusable, the same as any managed content the kit does not know
-how to key and preserve. It only makes the loss visible in `warnings` (and
-via `@warn`) so it surfaces in the sync PR rather than as an unrelated-
-looking red check days later. Pushes one message per matching job onto
-`warnings` (mutated in place, mirroring the `test/ad/setup.jl` divergence
-warning in `_apply`).
+This does not change what is emitted; it only makes the loss visible in
+`warnings` (and via `@warn`), one message per matching job, so it surfaces in
+the sync PR rather than as an unrelated-looking red check days later.
 """
 function _warn_local_caller_override!(warnings::Vector{String},
         to::AbstractString, dest::AbstractString)
@@ -1432,10 +1190,8 @@ function _warn_local_caller_override!(warnings::Vector{String},
     for m in eachmatch(_LOCAL_CALLER_JOB, text)
         block = String(something(m.captures[2], ""))
         occursin(_LOCAL_CALLER_HAS_INPUTS, block) || continue
-        # The nearest `^  <name>:` line before the match, i.e. the job this
-        # `uses:` line belongs to. A plain backward scan, not a free-form
-        # in-regex skip — see `_LOCAL_CALLER_JOB`'s comment for why the
-        # latter is unsafe here.
+        # The nearest `^  <name>:` line before the match: a plain backward
+        # scan, not a free-form in-regex skip (see `_LOCAL_CALLER_JOB`).
         prefix = SubString(text, 1, m.offset - 1)
         job = nothing
         for jm in eachmatch(_JOB_NAME_LINE, prefix)
@@ -1453,10 +1209,9 @@ function _warn_local_caller_override!(warnings::Vector{String},
     return nothing
 end
 
-# Make an emitted file writable by its owner (#187). A `Pkg.add`ed kit ships its
-# templates in the read-only depot, so `cp` hands the destination mode 444 and
-# the adopting repo cannot edit or `pre-commit` its own managed files. A
-# `Pkg.develop`ed kit never showed this, which is why it went unnoticed.
+# Make an emitted file writable by its owner (#187). A `Pkg.add`ed kit ships
+# its templates in the read-only depot, so `cp` hands the destination mode 444
+# and the adopting repo cannot edit its own managed files.
 function _make_writable(path::AbstractString)
     isfile(path) || return nothing
     mode = filemode(path)
@@ -1464,25 +1219,21 @@ function _make_writable(path::AbstractString)
     return nothing
 end
 
-# The template's text as the kit would render it: placeholders substituted when
-# the template takes substitution, verbatim otherwise. The
-# destination-preserving passes `_emit` runs (`_preserve_*`) are deliberately
-# not applied — they merge the destination's own pins and inputs back in, so
-# they say nothing about what the kit's own template contains, which is what
-# the callers here ask about (does the template ship the override marker; has
-# the committed file diverged from the standard).
+# The template's text as the kit would render it: placeholders substituted
+# when the template takes substitution, verbatim otherwise. `_emit`'s
+# `_preserve_*` passes are not applied — they merge the destination's own pins
+# back in, so they say nothing about what the template itself contains, which
+# is what the callers here ask about.
 function _render(from::AbstractString, substitute::Bool, inputs::NamedTuple)
     text = read(from, String)
     return substitute ? _substitute(text, inputs, from) : text
 end
 
 # Copy one template to `to`, substituting placeholders when requested. Managed
-# workflows additionally keep any reusable-workflow ref (see
-# `_preserve_reusable_refs`) and any third-party action pin (see
-# `_preserve_action_pins`) the destination already carries, plus any
-# package-owned `with:` input it holds (see `_preserve_caller_with_inputs`) and
-# its reverse-dependency list (see `_preserve_downstreams`), so neither a
-# Dependabot bump nor a deliberate caller override is reverted.
+# workflows additionally keep the destination's reusable-workflow refs, action
+# pins, package-owned `with:` inputs and reverse-dependency list (see the
+# `_preserve_*` passes), so neither a Dependabot bump nor a deliberate caller
+# override is reverted.
 function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         inputs::NamedTuple)
     mkpath(dirname(to))
@@ -1505,11 +1256,9 @@ end
 
 # --- package-owned LICENSE (write-once) -----------------------------------
 #
-# LICENSE is package-owned: the `license` input selects a bundled
-# `templates/LICENSE.<spdx>`, which `scaffold`/`scaffold_generate` write once with
-# `{{YEAR}}`/`{{HOLDER}}` filled. `update` never touches it, so a package that
-# deliberately switches licence is not silently reverted on a sync. This mirrors
-# the managed-vs-owned split used for unit tests and AD scenarios.
+# The `license` input selects a bundled `templates/LICENSE.<spdx>`, written
+# once with `{{YEAR}}`/`{{HOLDER}}` filled. `update` never touches it, so a
+# package that deliberately switches licence is not reverted on a sync.
 
 # Write the selected LICENSE to `target_dir` if absent (write-once). `inputs`
 # supplies `LICENSE` (the SPDX id) plus the `{{YEAR}}`/`{{HOLDER}}` values.
@@ -1535,27 +1284,19 @@ const BADGES_START = "<!-- badges:start -->"
 const BADGES_END = "<!-- badges:end -->"
 
 # The single source of truth for the kit's per-backend AD infra: the README
-# coverage-flag badge table (`_render_badges`), the `codecov.yml` `ad-*` flags
-# and `AD_BUILD_COUNT` gate (`scaffold_inputs`), and the `backends` input the
-# kit's `ad.yaml` caller passes to the org `ad.yml` reusable workflow (so the
-# ACTUAL CI matrix is driven from here too, rather than silently trusting the
-# reusable's own default to match). Add, remove, or reorder a backend here and
-# every one of those regenerates consistently on the next `scaffold`/`update`
-# (#821 AD-backend-configurability gap).
+# coverage-flag badge table, the `codecov.yml` `ad-*` flags and
+# `AD_BUILD_COUNT` gate, and the `backends` input the `ad.yaml` caller passes
+# to the org reusable, so the actual CI matrix is driven from here too. Add,
+# remove or reorder a backend and all of those regenerate on the next sync.
 #
 #   - `alt`: the `cov <alt>` badge alt text.
-#   - `header`: the coverage-flag table column heading (matching
-#     CensoredDistributions.jl, which labels the tape-based ReverseDiff column
-#     explicitly) and the `name` the reusable workflow shows as the AD job's
-#     display name.
+#   - `header`: the coverage-flag table column heading, and the AD job's
+#     display name in the reusable workflow.
 #   - `slug`: the `ad-*` codecov flag / reusable-workflow `flag`.
-#   - `tag`: the `@testitem` tag `test/ad/runtests.jl` filters on to run just
-#     this backend (see `test/ad/scenarios.jl`), and the reusable workflow's
-#     `tag` (passed as the CLI argument selecting which backend to test).
-#   - `pkg`: the Julia package the backend is loaded from (several backends
-#     share one package, e.g. Enzyme forward/reverse both come from
-#     `Enzyme`), used to derive the scaffolded `test/ad/setup.jl` `using`
-#     line without repeating a package name.
+#   - `tag`: the `@testitem` tag `test/ad/runtests.jl` filters on, and the
+#     reusable's `tag` selecting which backend to test.
+#   - `pkg`: the package the backend loads from (Enzyme forward/reverse share
+#     one), used to derive `test/ad/setup.jl`'s `using` line.
 const _AD_BACKENDS = [
     (alt = "ForwardDiff", header = "ForwardDiff",
         slug = "ad-forwarddiff", tag = "forwarddiff", pkg = "ForwardDiff"),
@@ -1574,28 +1315,22 @@ const _AD_BACKENDS = [
 ]
 
 # The managed `codecov.yml` `flags:` entries for every AD backend, generated
-# from `_AD_BACKENDS` (one `carryforward` flag block per backend, matching the
-# `unit` flag already in the template) so the flags list can never drift from
-# `AD_BUILD_COUNT` — see `_AD_BACKENDS`.
+# from `_AD_BACKENDS` so the list can never drift from `AD_BUILD_COUNT`.
 #
 # `src` only: an AD job runs without the package's weakdeps loaded, so no
-# extension file executes under an `ad-*` flag. Listing `ext` here made every
-# AD upload report the extension at 0%, which dragged the cross-flag aggregate
-# down and redded codecov/patch even when the unit suite covered it fully
-# (#180). `ext` belongs to the `unit` flag alone (the job that loads them).
+# extension file executes under an `ad-*` flag. Listing `ext` made every AD
+# upload report the extension at 0%, redding codecov/patch even when the unit
+# suite covered it fully (#180). `ext` belongs to the `unit` flag alone.
 function _ad_codecov_flags()
     blocks = [string("  ", b.slug, ":\n", "    paths:\n", "      - src\n",
                   "    carryforward: true") for b in _AD_BACKENDS]
     return join(blocks, "\n")
 end
 
-# The `backends` JSON array the kit's `ad.yaml` caller passes to the org
-# `ad.yml` reusable workflow, generated from `_AD_BACKENDS`, so the ACTUAL CI
-# matrix is pinned to the same single source as the badges/codecov flags
-# rather than silently trusting the reusable's own default to match. Emitted
-# compact (one line) and wrapped in single quotes by the template, which is
-# valid YAML (no characters here need escaping) and avoids any risk of a
-# multi-line block scalar being mis-indented by the substitution.
+# The `backends` JSON array the `ad.yaml` caller passes to the org reusable,
+# pinning the CI matrix to the same source as the badges and codecov flags.
+# Emitted on one line and single-quoted by the template, so no block scalar
+# can be mis-indented by the substitution.
 function _ad_backends_json()
     entries = [string(
                    "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
@@ -1603,11 +1338,9 @@ function _ad_backends_json()
     return "[" * join(entries, ",") * "]"
 end
 
-# The comma-joined list of Julia packages the scaffolded `test/ad/setup.jl`
-# `using` line loads, derived from `_AD_BACKENDS` (deduplicated, first-seen
-# order) so adding a backend that needs a new package — or dropping the last
-# backend that needed one — can never leave `setup.jl` over- or
-# under-loading relative to `_AD_BACKENDS`.
+# The packages the scaffolded `test/ad/setup.jl` `using` line loads, derived
+# from `_AD_BACKENDS` (deduplicated, first-seen order) so `setup.jl` can never
+# over- or under-load relative to it.
 function _ad_backend_packages()
     pkgs = String[]
     for b in _AD_BACKENDS
@@ -1617,8 +1350,7 @@ function _ad_backend_packages()
 end
 
 # The `ADTypes` constructor call for each `_AD_BACKENDS` tag, matching what
-# every real adopter (ConvolvedDistributions, ModifiedDistributions, ...)
-# ends up hand-writing in its own `ADFixtures.backends()`.
+# adopters hand-write in their own `ADFixtures.backends()`.
 const _AD_BACKEND_CTORS = Dict(
     "forwarddiff" => "AutoForwardDiff()",
     "reversediff" => "AutoReverseDiff(compile = false)",
@@ -1627,20 +1359,11 @@ const _AD_BACKEND_CTORS = Dict(
     "mooncake_reverse" => "AutoMooncake(config = nothing)",
     "mooncake_forward" => "AutoMooncakeForward()")
 
-# The seeded `ADFixtures.backends()` body, one `(; name, backend)` entry per
-# `_AD_BACKENDS` entry, so a fresh package's AD registry always matches every
-# backend `test/ad/scenarios.jl` emits a testitem for (#217). Before this the
-# seed only ever registered ForwardDiff, so a fresh `ad = true` scaffold
-# errored (`ArgumentError: Collection is empty...`) on 5 of 6 backends out of
-# the box, and every real adopter had to hand-copy the full list from a
-# sibling package to get a passing AD suite.
-#
-# A tag with no known constructor (e.g. a newly added `_AD_BACKENDS` entry
-# ahead of this being updated, or a test round-trip backend) gets `nothing`
-# with an inline TODO rather than erroring, so `scaffold`/`update`
-# still succeeds — the same graceful-degradation the other `_AD_BACKENDS`
-# generators (`_ad_codecov_flags`, `_ad_backends_json`, ...) already offer,
-# since they need no such lookup at all.
+# The seeded `ADFixtures.backends()` body, one entry per `_AD_BACKENDS` entry,
+# so a fresh package's AD registry matches every backend
+# `test/ad/scenarios.jl` emits a testitem for (#217). A tag with no known
+# constructor gets `nothing` with an inline TODO rather than erroring, so
+# `scaffold`/`update` still succeeds.
 function _ad_backend_entries()
     entries = map(_AD_BACKENDS) do b
         ctor = get(_AD_BACKEND_CTORS, b.tag) do
@@ -1660,9 +1383,7 @@ function _ad_scenario_family(tag::AbstractString)
 end
 
 # The scaffolded `test/ad/scenarios.jl` starter `@testitem` blocks, one per
-# `_AD_BACKENDS` entry, so the package-owned starter seed covers every
-# backend the kit currently knows about rather than a hand-picked subset
-# that silently falls behind as backends are added.
+# `_AD_BACKENDS` entry, so the seed never falls behind as backends are added.
 function _ad_scenario_testitems()
     blocks = map(_AD_BACKENDS) do b
         family = _ad_scenario_family(b.tag)
@@ -1676,11 +1397,9 @@ function _ad_scenario_testitems()
     return join(blocks, "\n\n")
 end
 
-# The per-backend coverage-flag markdown table (header line, separator line,
-# badge line), generated from `_AD_BACKENDS` so it can never drift from the
-# codecov flags / CI matrix derived from the same source. Shared by the
-# managed README badge block (`_render_badges`) and the AD-backends tutorial
-# page (`{{AD_COV_TABLE}}`), so the two always show the same table.
+# The per-backend coverage-flag markdown table (header, separator, badge
+# lines) from `_AD_BACKENDS`. Shared by the README badge block and the
+# AD-backends tutorial page, so the two always show the same table.
 function _ad_cov_flag_table(repo::AbstractString)
     cov = "https://codecov.io/gh/" * repo
     headers = "| " * join((b.header for b in _AD_BACKENDS), " | ") * " |"
@@ -1704,26 +1423,18 @@ _ad_cov_table(repo::AbstractString) = join(_ad_cov_flag_table(repo), "\n")
 # --- the ad=true docs surface -----------------------------------------------
 #
 # The managed AD-backends tutorial page and its AD-comparison benchmark
-# sibling (#299) each need registering into their own Literate pipeline --
-# `ad-backends.jl` under `HEAVY_TUTORIALS`/`TUTORIAL_STUBS`
-# (`TUTORIALS_SUBDIR`), `ad-comparison.jl` under the sibling
-# `HEAVY_BENCHMARKS`/`BENCHMARK_STUBS` (fixed `docs/src/benchmarks/`) so the
-# cost report gets its own top-level "Benchmarks" nav group rather than
-# nesting under Tutorials (#305, the shape EpiAwareADTools#28 asked for) --
-# plus `docs/pages.jl` (`ad-backends.md` under Tutorials via
-# `_ad_tutorials_nav`, `ad-comparison.md` under Benchmarks via
-# `_benchmarks_nav`), and `docs/Project.toml` must reach the `ADFixtures`
-# registry by path and carry both pages' execution deps (shared, since
-# `ad-comparison.jl` is the one that actually uses the DIT/plotting stack, but
-# a single fragment is simpler than splitting it further). Each helper below
-# renders the fragment substituted into those seeds — empty for `ad = false`
-# — so a single template serves both standards, mirroring the `BENCHMARKS_NAV`
-# pattern.
+# sibling need three package-owned docs seeds: `docs/docs_config.jl`
+# registers each with its own Literate pipeline (`HEAVY_TUTORIALS` for
+# `ad-backends.jl`, `HEAVY_BENCHMARKS` for `ad-comparison.jl`),
+# `docs/pages.jl` adds their nav entries, and `docs/Project.toml` reaches the
+# `ADFixtures` registry by path and carries both pages' execution deps. Each
+# helper below renders the fragment substituted into those seeds, empty for
+# `ad = false`, mirroring the `BENCHMARKS_NAV` pattern.
 
 # The `HEAVY_TUTORIALS` entry: `ad-backends.jl`'s support-table setup gets
 # fresh-subprocess isolation like every other heavy tutorial. Its
 # `ad-comparison.jl` sibling is a `HEAVY_BENCHMARKS` entry instead (see
-# `_ad_heavy_benchmarks` below), not listed here (#305).
+# `_ad_heavy_benchmarks`).
 function _ad_heavy_tutorials(ad::Bool)
     ad || return ""
     return "\n    \"ad-backends.jl\"\n"
@@ -1786,17 +1497,14 @@ end
 
 # --- the extensions docs surface --------------------------------------------
 #
-# A package that ships `[extensions]` gets an "Extensions" nav group in its
-# docs, one entry per extension, each pointing at a package-owned page under
-# `docs/src/extensions/`. This mirrors the `BENCHMARKS_NAV` /
-# `AD_TUTORIALS_NAV` substitution pattern rather than adding a mechanism: the
-# nav block is rendered into the package-owned `docs/pages.jl` at scaffold
-# time, and `DocsBuild._strip_extensions_nav` keeps a built site honest when a
-# page named there no longer exists (#319).
+# A package that ships `[extensions]` gets an "Extensions" nav group, one entry
+# per extension, each pointing at a package-owned page under
+# `docs/src/extensions/`. The nav block is rendered into `docs/pages.jl` at
+# scaffold time and `DocsBuild._strip_extensions_nav` keeps the built site
+# honest when a page named there no longer exists (#319).
 #
 # Detected from the target's Project.toml, not gated by a kwarg: an extension
-# is a fact about the package, unlike the benchmark and AD opt-ins, which
-# choose whether to run CI a package could equally do without.
+# is a fact about the package, unlike the benchmark and AD opt-ins.
 
 # One extension's docs page: the `[extensions]` key (the extension module
 # name), the nav label, and the page basename under `docs/src/extensions`.
@@ -1806,17 +1514,11 @@ struct ExtensionPage
     slug::String
 end
 
-# The part of an extension module name that identifies it: the package name
-# prefix and the conventional `Ext` suffix carry no information
-# (`DistributionsPlotComposedDistributionsExt` -> `ComposedDistributions`).
-# Falls back to the full name when stripping would leave nothing (an extension
-# named exactly `<Package>Ext`).
-#
-# Stripping is not injective: only the prefixed name carries the package, so
-# `WombatPlotsExt` and a bare `PlotsExt` in the same package both stem to
-# `Plots`. `_package_extensions` resolves the resulting slug collision, since
-# two nav entries pointing at one page would silently document one extension
-# under both labels.
+# The part of an extension module name that identifies it: the package prefix
+# and the `Ext` suffix carry no information. Falls back to the full name when
+# stripping would leave nothing. Not injective — `WombatPlotsExt` and a bare
+# `PlotsExt` both stem to `Plots` — so `_package_extensions` resolves the
+# resulting slug collision.
 function _extension_stem(name::AbstractString, package::AbstractString)
     stem = String(name)
     startswith(stem, package) && (stem = stem[(ncodeunits(package) + 1):end])
@@ -1867,16 +1569,10 @@ function _package_extensions(target_dir::AbstractString)
         push!(pages, ExtensionPage(String(name), title, _extension_slug(stem)))
     end
     sort!(pages, by = p -> (p.title, p.name))
-    # Stemming can map two distinct extensions onto one slug (a prefixed
-    # `WombatPlotsExt` and a bare `PlotsExt`), which would point two nav
-    # entries at one page and leave one extension documented under the other's
-    # label. Falling back to the full extension name fixes that pair, but is
-    # not itself a guarantee: a fallback can land on a slug that was unique in
-    # the first pass (`WombatPlotsExtExt` stems to the same `PlotsExt` a bare
-    # `PlotsExt` slugs to). So uniqueness is *enforced* rather than assumed —
-    # each page takes the first free slug from its stem, then its full name,
-    # then numbered variants. Assignment walks the already-sorted pages, so
-    # the result depends on the extension set alone, not on TOML order.
+    # Stemming can map two extensions onto one slug, and the full-name
+    # fallback can itself collide, so uniqueness is enforced rather than
+    # assumed. Assignment walks the already-sorted pages, so the result
+    # depends on the extension set alone, not on TOML order.
     return _uniquify_slugs(pages)
 end
 
@@ -1919,24 +1615,17 @@ function _extensions_nav(target_dir::AbstractString)
         "\n    ]")
 end
 
-# The seeded page for one extension. Package-owned: it carries the scope prose
-# the package authors write, so the kit seeds a stub and never returns to it.
+# The seeded page for one extension. Package-owned: it carries scope prose the
+# authors write, so the kit seeds a stub and never returns to it.
 #
-# The public-API block is seeded inert, as the body of an outer ````markdown
-# fence. An extension module only exists once its weakdeps are loaded, so a
-# live `@autodocs` block over `Base.get_extension` kills the docs build of a
-# docs environment that does not yet carry them — which is every
-# freshly-scaffolded package: the expression evaluates to `nothing`, and
-# Documenter's `DocSystem.getmeta(nothing)` `MethodError`s outside the `try`
-# that `warnonly = [:autodocs_block]` catches, so it is fatal rather than a
-# warning.
-#
-# An HTML comment cannot do this job. Documenter parses pages with the
-# `Markdown` stdlib, which has no CommonMark HTML-block handling, so a
-# ```@autodocs fence inside `<!-- -->` is still a live code block to it (the
-# same parser quirk that made `build_index` strip README comments by hand in
-# #301/#304). The nested fence renders as a visible, inert code sample, which
-# also reads better: the adopter sees exactly what to paste.
+# The public-API block is seeded inert, inside an outer ````markdown fence. An
+# extension module only exists once its weakdeps are loaded, so a live
+# `@autodocs` over `Base.get_extension` kills the build of any docs env that
+# lacks them — `nothing` makes Documenter's `DocSystem.getmeta` `MethodError`
+# outside the `try` that `warnonly = [:autodocs_block]` catches. An HTML
+# comment cannot do this job: Documenter parses with the `Markdown` stdlib,
+# which has no HTML-block handling, so a fence inside `<!-- -->` is still live
+# (the quirk behind #301/#304).
 function _render_extension_page(page::ExtensionPage, package::AbstractString)
     return string(
         "# [", page.title, " extension](@id extension-", page.slug, ")\n",
@@ -1991,22 +1680,15 @@ end
 
 # The extension pages a package has on disk that nothing in its nav points at.
 #
-# `docs/pages.jl` is package-owned and write-once, so the `EXTENSIONS_NAV`
-# group only ever reflects the `[extensions]` declared at first scaffold. A
-# package that declares an extension later and re-runs an unforced `scaffold`
-# gets the page seeded (it is absent, so write-once writes it) but no nav
-# entry, leaving a file nothing links to and the build-time strip nothing to
-# strip. Name it, with the entry to add, rather than leaving it to be noticed
-# on a published site (#319). Returns a `warnings` message, or `nothing` when
-# every page is reachable.
+# `docs/pages.jl` is package-owned and write-once, so `EXTENSIONS_NAV` only
+# reflects the `[extensions]` declared at first scaffold. A package declaring
+# one later gets the page seeded but no nav entry, so nothing links to it.
+# Name it, with the entry to add, rather than leaving it to be noticed on a
+# published site (#319). Returns a message, or `nothing` when all are reachable.
 #
-# Only pages that exist on disk count. `update` (`managed_only = true`) never
-# seeds them, so a package that declares an extension and then syncs has no
-# page and nothing to link: warning there would claim a file is "built but
-# unreachable" when it was never written, and the remedy — a nav entry — would
-# be inert, since `_strip_extensions_nav` drops entries whose page is missing.
-# That state breaks nothing, so it stays silent; it is the seeded-but-unlinked
-# page that misleads.
+# Only pages on disk count: `update` never seeds them, so warning there would
+# claim a file is unreachable when it was never written, and the remedy would
+# be inert anyway since `_strip_extensions_nav` drops entries with no page.
 function _extension_pages_unlinked(target_dir::AbstractString)
     pages = _package_extensions(target_dir)
     isempty(pages) && return nothing
@@ -2112,13 +1794,9 @@ function _ad_docs_deps_gap(target_dir::AbstractString, ad::Bool)
         "[compat] in docs/Project.toml.")
 end
 
-# The docs-env `[deps]` fragment the benchmark page's combined trend plot
-# needs (`EpiAwarePackageTools.DocsBuild._write_overall_trend_plot`): `Plots`
-# (GR backend), lazily loaded kit-side so it is only required once a package
-# opts into `BENCHMARK_PAGE = true`. Empty for `benchmarks = false`,
-# mirroring `_ad_docs_deps`. Without this, the trend plot silently degrades
-# to an `@info` note (never fails the docs build), but a freshly scaffolded
-# benchmark page would otherwise never render it at all.
+# The docs-env `[deps]` fragment the benchmark page's trend plot needs
+# (`DocsBuild._write_overall_trend_plot`). Without it the plot degrades to an
+# `@info` note, so a freshly scaffolded benchmark page would never render it.
 function _bench_docs_deps(benchmarks::Bool)
     benchmarks || return ""
     return "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n"
@@ -2205,12 +1883,10 @@ const DOCS_PAGES_APEX = "epiaware.org"
 Resolve the `docs_subdomain` input to either `nothing` (project-pages,
 the default) or a concrete host string.
 
-`true` selects the conventional `<pkg>.epiaware.org`; a string is
-taken verbatim; `nothing`/`false` opt out. The `Bool` and `Nothing`
-cases dispatch to their own methods so the `String` conversion only
-ever runs on a genuine string input (keeps JET type-stable —
-`String(::Bool)` has no method and would otherwise show as a possible
-error).
+`true` selects the conventional `<pkg>.epiaware.org`; a string is taken
+verbatim; `nothing`/`false` opt out. The `Bool` and `Nothing` cases dispatch
+to their own methods so the `String` conversion only runs on a genuine string
+input, which keeps JET type-stable.
 """
 _resolve_docs_subdomain(::Nothing, pkg) = nothing
 function _resolve_docs_subdomain(spec::Bool, pkg)
@@ -2222,15 +1898,12 @@ function _resolve_docs_subdomain(spec, pkg)
     return isempty(s) ? nothing : s
 end
 
-# The `deploy_url` Julia literal for `docs/make.jl`. On the default
-# project-pages path this is the bare `nothing` (DocumenterVitepress then
-# derives the base from the repo name); on the subdomain path it is the quoted
-# host with an `https://` scheme. The scheme is required: DocumenterVitepress
-# (`vitepress_config.jl`) only strips the host to build a root VitePress base
-# when `deploy_url` starts with `https?://`. A scheme-less host is treated as a
-# path and baked into the base (`base: '/<host>/dev/'`), so every CSS/JS asset
-# 404s against a custom domain served at its root. Returned as source text so
-# the template substitutes a real literal.
+# The `deploy_url` Julia literal for `docs/make.jl`: a bare `nothing` on the
+# project-pages path, else the quoted host with an `https://` scheme. The
+# scheme is required — DocumenterVitepress only strips the host to build a
+# root base when `deploy_url` starts with `https?://`, and a scheme-less host
+# is baked into the base as a path, 404ing every asset. Returned as source
+# text so the template substitutes a real literal.
 _docs_deploy_url(sub::Nothing) = "nothing"
 function _docs_deploy_url(sub::AbstractString)
     host = replace(String(sub), r"^https?://" => "")
@@ -2247,12 +1920,9 @@ function _docs_url(repo::AbstractString, sub)
 end
 
 # The optional `with: timeout_minutes:` override on the managed `document.yaml`
-# Documenter caller (#154), spliced via `{{DOCS_TIMEOUT_WITH}}`. Empty by
-# default, so the reusable `documentation.yml` applies its own default (45 min);
-# a set `docs_timeout` renders the block to cap a slow docs build. A package can
-# equally hand-add the block and `_preserve_caller_with_inputs` keeps it across
-# `update()` (#73), so the scheduled sync — which never re-passes `docs_timeout`
-# — never reverts a package-owned timeout.
+# caller (#154). Empty by default, so the reusable applies its own 45 min. A
+# package can equally hand-add the block, which `_preserve_caller_with_inputs`
+# keeps across `update()` (#73).
 function _docs_timeout_with(docs_timeout::Union{Nothing, Integer})
     docs_timeout === nothing && return ""
     docs_timeout > 0 || error(
@@ -2277,9 +1947,8 @@ function _license_badge(spdx::AbstractString)
            "$label-$colour.svg)]($url)"
 end
 
-# The two juliapkgstats download badges for a package (total + monthly), keyed
-# only on the package name. They render once the package is in the General
-# registry and are harmless before then. Mirrors CensoredDistributions.jl.
+# The two juliapkgstats download badges (total + monthly). They render once the
+# package is in the General registry and are harmless before then.
 function _downloads_badges(pkg::AbstractString)
     base = "https://img.shields.io/badge/dynamic/json?url=" *
            "http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2F"
@@ -2299,13 +1968,12 @@ end
 Render the standard badge block (without the markers) from resolved
 inputs.
 
-`repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds
-the per-backend AD CI + coverage badge table; `license` is the SPDX id
-whose badge is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when
-both are given. The layout matches CensoredDistributions.jl: a
-five-column header table (Documentation, Build Status, Code Quality,
-License & DOI, Downloads) plus the per-backend AD table. No owner/repo
-is hardcoded — every URL is built from `repo`/`pkg`.
+`repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds the
+per-backend AD CI + coverage badge table; `license` is the SPDX id whose badge
+is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when both are given. The
+layout is a five-column header table (Documentation, Build Status, Code
+Quality, License & DOI, Downloads) plus the per-backend AD table. Every URL is
+built from `repo`/`pkg`, so no owner/repo is hardcoded.
 """
 function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
@@ -2324,9 +1992,8 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
     ci = "[![Test](" * gh * "/actions/workflows/test.yaml/badge.svg" *
          "?branch=main)](" * gh * "/actions/workflows/test.yaml) " *
          "[![codecov](" * cov * "/graph/badge.svg)](" * cov * ")"
-    # We ship one aggregate `ad.yaml` (not six per-backend workflows), so the
-    # Build Status cell carries a single AD status badge; the per-backend detail
-    # lives in the AD coverage-flag table below.
+    # One aggregate `ad.yaml`, so one AD status badge; the per-backend detail
+    # lives in the coverage-flag table below.
     if ad
         ci *= " [![AD](" * gh * "/actions/workflows/ad.yaml/badge.svg" *
               "?branch=main)](" * gh * "/actions/workflows/ad.yaml)"
@@ -2352,12 +2019,8 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         "| " * docs * " | " * ci * " | " * quality * " | " * license_doi * " | " * downloads * " |"
     ]
     if ad
-        # Per-backend AD coverage flags (one codecov upload per backend from the
-        # aggregate ad.yaml matrix). No per-backend *status* badges: only the
-        # aggregate ad.yaml exists, so per-backend status URLs would 404 — the
-        # single aggregate AD status badge lives in the Build Status cell above.
-        # The table itself is shared with the AD-backends tutorial page, so the
-        # two always match (see `_ad_cov_flag_table`).
+        # Coverage flags only: per-backend *status* URLs would 404, since only
+        # the aggregate `ad.yaml` exists.
         header_line, sep, cov_line = _ad_cov_flag_table(repo)
         push!(lines, "")
         push!(lines, header_line)
@@ -2367,28 +2030,16 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
     return join(lines, "\n")
 end
 
-# Inject or refresh the managed badge block in a README. If the markers are
-# present, the content between them is replaced; otherwise the block is inserted
-# just after the first `# ` H1 title (or at the top when there is no title).
-# Content outside the markers is never touched. Returns `(action, changed)`
-# where action is `:created`/`:injected`/`:refreshed` and `changed` is whether
-# the file content changed.
-# A starter README body for a package that has none yet, following the standard
-# EpiAware section structure (Why / Getting started / Related packages / Where
-# to learn more). The managed standard-sections block
-# (`_apply_standard_sections`) then appends Contributing / How to cite / Code of
-# conduct in the order `STANDARD_README_SECTIONS` in `quality.jl` requires.
-# Parameterised from the repo slug, package name, and docs host. Only seeded
-# when no README exists; thereafter this body is package-owned and only the
-# badge block and the managed standard sections are refreshed on update.
+# A starter README body for a package that has none yet, in the standard
+# EpiAware section order (Why / Getting started / Related packages / Where to
+# learn more); `_apply_standard_sections` then appends Contributing / How to
+# cite / Code of conduct. Only seeded when no README exists; thereafter the
+# body is package-owned.
 #
-# The Related packages bullets are inherently package-specific — one sentence
-# per sibling with a real, verifiable relationship, linked to that sibling's
-# live docs (#292) — so only the heading and a placeholder are seeded.
-# Every italic `_..._` span here is a placeholder
-# `test_readme_placeholders` derives its patterns from, so an unfilled skeleton
-# is reported rather than published; adding a placeholder means writing it in
-# that form.
+# Every italic `_..._` span is a placeholder `test_readme_placeholders` derives
+# its patterns from, so an unfilled skeleton is reported rather than published.
+# Add a placeholder in that form. Only a heading and a placeholder are seeded
+# for Related packages, whose bullets are package-specific (#292).
 function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         docs_url::Union{Nothing, AbstractString})
     host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
@@ -2410,6 +2061,10 @@ function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         "- [GitHub Repository](https://github.com/$repo)\n")
 end
 
+# Inject or refresh the managed badge block in a README. With the markers
+# present the content between them is replaced; otherwise the block is
+# inserted after the first `# ` H1 title, or at the top when there is none.
+# Content outside the markers is never touched. Returns `(action, changed)`.
 function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
         license::AbstractString = DEFAULT_LICENSE,
         docs_url::Union{Nothing, AbstractString} = nothing,
@@ -2447,17 +2102,14 @@ end
 
 # --- managed README logo title ---------------------------------------------
 #
-# Once a package has a `docs/src/assets/logo.svg` (package-owned; see the
-# `docs/src/assets/logo.svg` template), the README's `# ` title gets an inline
-# `<img>` tag pointing at it, mirroring CensoredDistributions.jl. This is
-# managed like the badge block: (re)checked on every scaffold/update, but it
-# only adds the tag — a title that already references `assets/logo.svg` (in
-# whatever form the package customised it to) is left exactly as-is.
+# Once a package has a `docs/src/assets/logo.svg`, the README's `# ` title gets
+# an inline `<img>` tag pointing at it. Managed like the badge block, but it
+# only ever adds the tag: a title that already references `assets/logo.svg` in
+# any form is left as-is.
 
 const _LOGO_REL = "docs/src/assets/logo.svg"
 
-# The standard inline logo tag for a README title, sized/positioned to match
-# CensoredDistributions.jl.
+# The standard inline logo tag for a README title.
 function _logo_img_tag(pkg::AbstractString)
     string(
         "<img src=\"", _LOGO_REL, "\" width=\"150\" alt=\"", pkg,
@@ -2484,38 +2136,30 @@ end
 
 # --- managed README standard sections --------------------------------------
 #
-# The README body is package-owned, but three standard sections are managed so
-# their wording stays consistent across adopters and updates centrally:
-# Contributing, How to cite, and Code of conduct. They live between the markers
-# below and are re-rendered on every scaffold/update, exactly like the badge
-# block. The citation *content* stays package-owned in `CITATION.cff` (seeded
-# once, never clobbered); the managed "How to cite" section only points at it
-# (#67).
+# The README body is package-owned, but three sections are managed so their
+# wording stays consistent and updates centrally: Contributing, How to cite,
+# and Code of conduct. They live between the markers below and are re-rendered
+# on every sync, like the badge block. The citation content stays package-owned
+# in `CITATION.cff`; the managed section only points at it (#67).
 
 # --- opt-in EpiAware org branding (#242) -----------------------------------
 #
 # An EpiAware package can advertise that it is part of the org's ecosystem: a
 # line in the managed README standard sections, and a logo + org links in the
-# docs footer. Opt-in and default OFF, because the kit is usable by anyone: a
-# third-party adopter must never be handed EpiAware branding, so the flag is
-# read from the package-owned `docs/docs_config.jl` (`const ORG_BRANDING`) and
-# defaults to `false` when the config is absent or predates the key.
-#
-# The *flag* is package-owned; the *content* it turns on is managed, so the
-# wording, links and logo update centrally on every sync, like the badge block.
+# docs footer. Opt-in and default off, because the kit is usable by anyone and
+# a third-party adopter must never be handed EpiAware branding. The flag is
+# package-owned (`const ORG_BRANDING` in `docs/docs_config.jl`); the content it
+# turns on is managed, so wording and links update centrally.
 
-# The org's canonical site. The repo's CNAME serves the site from `epiaware.org`
-# (`epiaware.github.io` redirects to it), so link the canonical host.
+# The org's canonical site (`epiaware.github.io` redirects to it).
 const _ORG_SITE = "https://epiaware.org"
 const _ORG_GITHUB = "https://github.com/EpiAware"
 
-# The bundled org logo, distinct from the package's own `docs/src/assets/
-# logo.svg`. Copied verbatim from the org site's `assets/img/logo.svg`, so the
-# ecosystem shows one mark. Written only when branding is on, and removed again
-# when it is turned off, so an opted-out repo carries no EpiAware asset at all.
+# The bundled org logo, distinct from the package's own
+# `docs/src/assets/logo.svg`. Written only when branding is on and removed
+# again when it is turned off, so an opted-out repo carries no EpiAware asset.
 const _ORG_LOGO_SRC = "docs/epiaware-logo.svg"
-# Split into segments so the destination is built with the platform separator
-# (a posix string joined onto a Windows root leaves a mixed path).
+# Segments, so the destination is built with the platform separator.
 const _ORG_LOGO_SEGMENTS = ("docs", "src", "assets", "epiaware-logo.svg")
 const _ORG_LOGO_REL = join(_ORG_LOGO_SEGMENTS, "/")
 
@@ -2526,19 +2170,15 @@ Whether the package opted in to EpiAware org branding, via
 `const ORG_BRANDING = true` in the package-owned `docs/docs_config.jl` (#242).
 
 Read from the destination rather than passed as a kwarg, the same
-detect-from-the-file idempotency as `_detect_benchmarks`/`_detect_downgrade_compat`:
-an `update` (or the scheduled template sync, which passes no kwargs)
-then preserves the package's choice instead of reverting it. Defaults to
-`false` — off — for a package with no config, or one predating the key.
+detect-from-the-file idempotency as `_detect_benchmarks`, so an `update` (or
+the scheduled sync, which passes no kwargs) preserves the package's choice.
+Defaults to off for a package with no config, or one predating the key.
 """
 function _detect_org_branding(target_dir::AbstractString)
     cfg = joinpath(target_dir, "docs", "docs_config.jl")
     isfile(cfg) || return false
-    # Anchored to the start of a line: commenting the const out
-    # (`# const ORG_BRANDING = true`) is the obvious way to turn branding off,
-    # and an unanchored match would read that as still on — branding a repo
-    # whose owner had just opted out. A `const` is a top-level statement, so
-    # only leading whitespace may precede it.
+    # Line-anchored: commenting the const out is the obvious way to opt out,
+    # and an unanchored match would read that as still on.
     m = match(r"(?m)^\s*const\s+ORG_BRANDING\s*=\s*(true|false)\s*$",
         read(cfg, String))
     m === nothing && return false
@@ -2555,22 +2195,15 @@ function _org_branding_section(pkg::AbstractString)
         _ORG_GITHUB, ") in the ecosystem.\n")
 end
 
-# The docs footer message spliced into the managed `config.mts`
-# (`{{ORG_FOOTER_MESSAGE}}`). VitePress renders `themeConfig.footer.message` as
-# HTML, so branding is a logo + org links prepended to the standard
-# DocumenterVitepress credit; with branding off it is the credit alone, exactly
-# as before this feature.
+# The docs footer message spliced into the managed `config.mts`. VitePress
+# renders `themeConfig.footer.message` as HTML, so branding is a logo + org
+# links prepended to the DocumenterVitepress credit.
 #
-# The logo is referenced through the site's own `base`, not as a root-absolute
-# `/epiaware-logo.svg`: a versioned deploy is served under `/Package.jl/vX.Y/`,
-# where a root-absolute path 404s. DocumenterVitepress copies any asset whose
-# filename contains "logo" from `assets/` into `public/`, which VitePress then
-# serves at the base — hence `${baseTemp.base}epiaware-logo.svg`, resolved in
-# `config.mts` where `base` is known.
-#
-# Spliced into a backtick template literal in `config.mts` — which is what lets
-# `${baseTemp.base}` interpolate — so the HTML quotes with `"` throughout and
-# must contain no backtick of its own.
+# The logo goes through the site's own `base`, not a root-absolute path, which
+# 404s on a versioned deploy served under `/Package.jl/vX.Y/`. Spliced into a
+# backtick template literal in `config.mts` — which is what lets
+# `${baseTemp.base}` interpolate — so the HTML uses `"` throughout and must
+# contain no backtick of its own.
 const _DOCS_CREDIT = string(
     "Made with <a href=\"https://luxdl.github.io/DocumenterVitepress.jl/dev/\" ",
     "target=\"_blank\"><strong>DocumenterVitepress.jl</strong></a><br>")
@@ -2595,22 +2228,17 @@ end
 Write (or remove) the bundled EpiAware org logo asset, following the package's
 `ORG_BRANDING` opt-in (#242).
 
-Bundled but deliberately not a `SCAFFOLD_TEMPLATES` entry, like the `LICENSE`
-variants: the template table is emitted wholesale, and a third-party adopter
-must not be handed an EpiAware logo.
+Not a `SCAFFOLD_TEMPLATES` entry, like the `LICENSE` variants: the table is
+emitted wholesale, and a third-party adopter must not be handed an EpiAware
+logo.
 
-Returns `:created` (written fresh), `:refreshed` (drifted, rewritten),
-`:unchanged` (already byte-correct, nothing written), `:removed` (branding off,
-the kit's asset withdrawn), or `:skipped` (branding off, nothing of ours there).
+Returns `:created`, `:refreshed` (drifted, rewritten), `:unchanged`,
+`:removed` (branding off, the kit's asset withdrawn), or `:skipped` (branding
+off, nothing of ours there), so `update` is a fixed point in both states.
 
-Managed, so the asset is re-applied when it drifts and removed when branding is
-turned back off — leaving a repo that opts out with no EpiAware asset, and
-`update` a fixed point in both states.
-
-Turning branding off deletes the asset only when it is byte-identical to the one
-the kit shipped. A file the package put at that path is *not* the kit's to
-remove, so it is left alone with a warning, rather than silently destroying
-package content — the same care `_detect_managed_override` takes elsewhere.
+Turning branding off deletes the asset only when it is byte-identical to the
+one the kit shipped. A file the package put at that path is not the kit's to
+remove, so it is left alone with a warning.
 """
 function _apply_org_branding(target_dir::AbstractString, org_branding::Bool)
     dest = joinpath(target_dir, _ORG_LOGO_SEGMENTS...)
@@ -2662,8 +2290,8 @@ function _render_standard_sections(pkg::AbstractString, org::AbstractString,
     doi_line = doi === nothing ? "" :
                string("A version-specific DOI is available at ",
         "[https://doi.org/", doi, "](https://doi.org/", doi, ").\n")
-    # The org line leads the block when the package opted in (#242), and is
-    # absent entirely otherwise, so a third-party adopter's README is untouched.
+    # Absent entirely when the package did not opt in, so a third-party
+    # adopter's README is untouched (#242).
     branding = org_branding ? _org_branding_section(pkg) * "\n" : ""
     return string(
         branding,
@@ -2701,11 +2329,10 @@ end
 Inject or refresh the managed README standard-sections block.
 
 Returns `(action, changed)` where action is `:refreshed` (markers present),
-`:injected` (appended to a README that carries none of these sections yet), or
+`:injected` (appended to a README carrying none of these sections yet), or
 `:skipped` (no README, missing inputs, or a marker-less README that already has
-a bespoke Contributing/Code-of-conduct/citation section — migrating that to the
-managed block is a deliberate, maintainer-signed per-repo wording change, #67).
-Mirrors `_apply_badges`/`_apply_gitignore`: only the marked region is rewritten.
+bespoke prose for one of them — migrating that is a deliberate per-repo wording
+change, #67). As in `_apply_badges`, only the marked region is rewritten.
 """
 function _apply_standard_sections(
         target_dir::AbstractString, inputs::NamedTuple;
@@ -2730,10 +2357,8 @@ function _apply_standard_sections(
         write(readme, new)
         return (:refreshed, true)
     end
-    # No markers. Append the block only when the README carries none of these
-    # standard sections yet (a freshly seeded body). A README with bespoke
-    # Contributing/citation/CoC prose is left untouched — migrating it to the
-    # managed block is a deliberate wording change signed off per repo (#67).
+    # No markers: append only to a README with none of these sections yet.
+    # Bespoke prose is left untouched (#67).
     _has_managed_section_heading(text) && return (:skipped, false)
     endswith(text, "\n") || (text *= "\n")
     write(readme, text * "\n" * block * "\n")
@@ -2742,18 +2367,17 @@ end
 
 # --- package-owned CITATION.cff --------------------------------------------
 #
-# A Citation File Format (https://citation-file-format.github.io) seed so GitHub
-# renders a "Cite this repository" widget and the managed "How to cite" README
-# section has a file to point at. Package-owned and write-once: never rewrites
-# an existing file, so a package's real author list, DOI, and version are
-# preserved (#67). Unlike `LICENSE`, both `scaffold` and `update` seed it when
-# absent (#322) — the managed section that points at it is re-rendered by
-# `update` on every sync regardless, so leaving the file unseeded there just
-# hands a pre-CITATION adopter a permanently dangling link.
+# A Citation File Format (https://citation-file-format.github.io) seed so
+# GitHub renders a "Cite this repository" widget and the managed "How to cite"
+# section has a file to point at. Package-owned and write-once, so a package's
+# real author list, DOI and version are preserved (#67). Unlike `LICENSE`, both
+# `scaffold` and `update` seed it when absent (#322): the section pointing at
+# it is re-rendered by `update` regardless, so an unseeded file would leave a
+# pre-CITATION adopter with a dangling link.
 
-# The CFF `authors:` list from the kit's author display names (comma- or
-# `and`-separated), one `- name:` entity entry each — a valid CFF starting point
-# the package refines into person `family-names`/`given-names`.
+# The CFF `authors:` list from the author display names, one `- name:` entity
+# entry each — a valid starting point the package refines into person
+# `family-names`/`given-names`.
 function _cff_authors(authors::Union{Nothing, AbstractString})
     names = authors === nothing ? String[] :
             [String(strip(a))
@@ -2763,9 +2387,8 @@ function _cff_authors(authors::Union{Nothing, AbstractString})
 end
 
 # Render a package-owned CITATION.cff seed. `doi` fills the `doi:` field when
-# known (the value persisted in the README DOI badge); otherwise the field is
-# omitted entirely (a valid CFF) — add a real `doi:` line once released, rather
-# than carrying a placeholder value.
+# known; otherwise it is omitted entirely, which is valid CFF, rather than
+# carrying a placeholder value.
 function _render_citation_cff(pkg::AbstractString, repo::AbstractString,
         authors::Union{Nothing, AbstractString},
         doi::Union{Nothing, AbstractString})
@@ -2798,11 +2421,10 @@ end
 
 # --- managed [workspace] stanza in the root Project.toml -------------------
 #
-# The root Project.toml is package-owned (the kit never rewrites its deps), but
-# the Julia `[workspace]` table that makes the `test` and `docs` sub-projects
-# share the root manifest is part of the standard (as in CensoredDistributions.jl
-# with `projects = ["test", "docs"]`). It is injected once when absent and left
-# alone thereafter, so a package may extend `projects` without it being reverted.
+# The root Project.toml is package-owned, but the `[workspace]` table that
+# makes the `test` and `docs` sub-projects share the root manifest is part of
+# the standard. Injected once when absent and left alone thereafter, so a
+# package may extend `projects` without it being reverted.
 
 const WORKSPACE_PROJECTS = ["test", "docs"]
 
@@ -2823,15 +2445,11 @@ end
 
 # --- managed .gitignore block (package additions preserved) ----------------
 #
-# `.gitignore` used to be a fully-managed template: `update` copied it
-# verbatim, so a package's own ignore-rule additions (e.g. a keep-rule for
-# bundled data the standard rules would otherwise exclude) were silently
-# dropped on the next sync (#65). It now follows the same managed-block
-# pattern as the README badges: the standard rules live between the markers
-# below and are (re)rendered on every scaffold/update; anything outside the
-# markers — including a legacy `.gitignore` with no markers yet, which is
-# treated as a package-owned tail and kept below the freshly-inserted block —
-# is left untouched.
+# `.gitignore` was once fully managed: `update` copied it verbatim, dropping a
+# package's own ignore-rule additions on the next sync (#65). It now follows
+# the managed-block pattern of the README badges. Anything outside the markers
+# is left untouched, including a legacy marker-less file, which is kept as a
+# package-owned tail below the freshly-inserted block.
 
 const GITIGNORE_START = "# managed:start"
 const GITIGNORE_END = "# managed:end"
@@ -2857,11 +2475,9 @@ marked region is touched). Mirrors `_apply_badges`.
 function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
     path = joinpath(target_dir, ".gitignore")
     body = _render_gitignore(inputs)
-    # The explanatory header lives inside the marker pair (the start marker is
-    # always the block's first line) so the whole block — header included —
-    # is replaced as one unit on refresh. Putting the header before the start
-    # marker would leave it sitting in the "preserved" prefix on every
-    # subsequent refresh, duplicating it on each `update` call.
+    # The header lives inside the marker pair so the whole block is replaced as
+    # one unit on refresh. Before the start marker it would sit in the
+    # preserved prefix and be duplicated on each `update`.
     block = GITIGNORE_START * "\n" *
             "# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n" *
             "# Standard ignore rules live between the markers below and are\n" *
@@ -2873,10 +2489,8 @@ function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
         return (:created, true)
     end
     text = read(path, String)
-    # `findfirst` for the opening marker (the block we write always puts it
-    # first); `findlast` for the closing one, so a closing marker is found
-    # correctly even if the package-owned tail happens to mention the marker
-    # text (e.g. in a comment) before the real terminator.
+    # `findlast` for the closing marker, so the real terminator is found even
+    # if the package-owned tail mentions the marker text.
     si = findfirst(GITIGNORE_START, text)
     ei = findlast(GITIGNORE_END, text)
     if si !== nothing && ei !== nothing && first(ei) > last(si)
@@ -2885,9 +2499,8 @@ function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
         write(path, new)
         return (:refreshed, true)
     end
-    # No markers yet: a legacy fully-managed copy (pre-#65) or a hand-written
-    # file. Insert the managed block at the top and keep everything that was
-    # already there as the package-owned tail — never drop existing content.
+    # No markers yet (a pre-#65 copy, or hand-written): insert the block at the
+    # top and keep what was there as the package-owned tail.
     new = block * "\n\n" * text
     write(path, new)
     return (:injected, true)
@@ -2913,18 +2526,15 @@ end
 """
     _detect_benchmarks(target_dir)
 
-Whether a repo already has benchmarks enabled, so a resync (`update`
-with no `benchmarks` kwarg) preserves an adopter's opt-in instead of
-reverting to the opt-out default and stripping their benchmark
-CI/suite/page (the #72 trap).
+Whether a repo already has benchmarks enabled, so a resync (`update` with no
+`benchmarks` kwarg) preserves an adopter's opt-in instead of stripping their
+benchmark CI/suite/page (the #72 trap).
 
-The scheduled template-sync bakes `benchmarks = {{BENCHMARKS}}` into
-its `update` call, but a repo scaffolded before this flag has a
-template-sync that re-passes nothing, so the state must also be
-recoverable from the destination. The managed benchmark CI workflows
-are the marker: present iff benchmarks were enabled. A fresh
-(never-scaffolded) target has neither, so it defaults to opt-out —
-exactly the intended behaviour for a new package.
+The scheduled template-sync bakes `benchmarks = {{BENCHMARKS}}` into its
+`update` call, but a repo scaffolded before the flag re-passes nothing, so the
+state must also be recoverable from the destination. The managed benchmark CI
+workflows are the marker. A never-scaffolded target has neither and so
+defaults to opt-out.
 """
 function _detect_benchmarks(target_dir::AbstractString)
     wf = joinpath(target_dir, ".github", "workflows")
@@ -2936,19 +2546,14 @@ end
     _detect_downgrade_compat(target_dir)
 
 Whether a repo keeps the opt-in `downgrade-compat` CI job, so a resync
-(`update` with no `downgrade_compat` kwarg) preserves a package's
-decision to drop it instead of unconditionally reintroducing a job the
+(`update` with no `downgrade_compat` kwarg) does not reintroduce a job the
 package deliberately removed (#121).
 
-A package pinned to a Julia floor (or one adopting an unregistered,
-`[sources]`-pinned dependency) can never resolve the
-`julia-downgrade-compat` job, so it disables that job in its managed
-`.github/workflows/test.yaml`. The current template would regenerate it
-on every sync, silently reintroducing a permanently-red job. The
-committed `test.yaml`'s `downgrade.yml` caller is the marker: present
-iff the job is kept. A fresh (never-scaffolded) target has no
-`test.yaml`, so it defaults to keeping the job — the standard for a new
-package.
+A package pinned to a Julia floor, or one adopting an unregistered
+`[sources]`-pinned dependency, can never resolve `julia-downgrade-compat`, so
+it disables the job in its `test.yaml`; regenerating it on every sync would
+reintroduce a permanently-red job. The committed `downgrade.yml` caller is the
+marker. A target with no `test.yaml` defaults to keeping the job.
 """
 function _detect_downgrade_compat(target_dir::AbstractString)
     tf = joinpath(target_dir, ".github", "workflows", "test.yaml")
@@ -2967,16 +2572,13 @@ const _AD_SETUP_OWNED_MARKER = "EPIAWARE_AD_SETUP_OWNED"
 Whether a package has opted its AD-harness driver (`test/ad/setup.jl`) out
 of kit management by marking it package-owned (#162).
 
-`test/ad/setup.jl` is force-managed: `update()` overwrites it with the
-generic driver that assumes the package's `ADFixtures` registry satisfies the
-current `ADRegistry` contract (its `scenarios` accepts a `category` keyword).
-A package whose `ADFixtures` predates that contract cannot run the generic
-driver (it would `MethodError` on `category=`), so it must keep a package-owned
-driver while it migrates. Adding the marker `$(_AD_SETUP_OWNED_MARKER)` to the
-committed `test/ad/setup.jl` (in a comment) tells `update()` to preserve the
-file instead of clobbering it — the same detect-from-the-destination idempotency
-as `_detect_downgrade_compat` (#121). A never-scaffolded or unmarked file is
-managed as before, so the opt-out is explicit and self-documenting.
+`test/ad/setup.jl` is force-managed: `update()` overwrites it with the generic
+driver, which assumes the package's `ADFixtures` registry satisfies the current
+`ADRegistry` contract (its `scenarios` accepts a `category` keyword). A package
+whose `ADFixtures` predates that contract would `MethodError` on `category=`,
+so it must keep its own driver while it migrates. A comment containing
+`$(_AD_SETUP_OWNED_MARKER)` in the committed file tells `update()` to preserve
+it. An unmarked file is managed as before.
 """
 function _detect_ad_setup_owned(target_dir::AbstractString)
     f = _dest_path(target_dir, _AD_SETUP_DEST)
@@ -2995,40 +2597,28 @@ Whether the template-emitted managed file at `dest` has been marked
 package-owned, so `update()` preserves it rather than resyncing it
 (#224).
 
-Managed files always resync — that is what keeps an adopter on the current
-standard. A package that must keep its own version of one (a hand-kept AD
-driver mid-migration, a workflow the package genuinely owns) says so in the
-file, by putting the marker `$(_MANAGED_OVERRIDE_MARKER)` in a comment. The
-committed file is then the marker, the same detect-from-the-destination
-idempotency as `_detect_downgrade_compat` (#121), so the opt-out is explicit,
-self-documenting, and survives every sync. The match is a plain case-sensitive
-`occursin`, so a mis-cased marker does nothing.
+Managed files always resync, which is what keeps an adopter on the current
+standard. A package that must keep its own version of one says so in the file,
+by putting `$(_MANAGED_OVERRIDE_MARKER)` in a comment. The match is a plain
+case-sensitive `occursin`, so a mis-cased marker does nothing.
 
-This governs whole files emitted from a template (`SCAFFOLD_TEMPLATES`) only.
-The marker-delimited regions the kit injects into otherwise package-owned
-files (the `.gitignore` managed block, the README badge and standard-sections
-blocks, `Project.toml`'s `[workspace]` stanza) are refreshed by their own
-appliers (`_apply_gitignore` and friends), which never consult this, so they
-cannot be opted out this way.
+This governs whole template-emitted files only. The marker-delimited regions
+the kit injects into otherwise package-owned files (the `.gitignore` block, the
+README badge and standard-sections blocks, `[workspace]`) are refreshed by
+their own appliers, which never consult this.
 
-`rendered` is the freshly rendered template for `dest`, and is required rather
-than defaulted: a managed template that itself contained the marker literal (a
-workflow comment documenting this feature, say) would otherwise hand every
-adopter a self-preserving copy of that file on its next sync, and the kit would
-silently stop managing its own file, everywhere, forever. So when the fresh
-render carries the marker, the marker means nothing and the file stays managed.
-A caller cannot omit the guard by accident. The test suite additionally asserts
-that no bundled template renders the marker, so a template that ever adds it
-fails the kit's own CI loudly rather than being tacitly absorbed here.
+`rendered` is the freshly rendered template for `dest`, required rather than
+defaulted: a managed template that itself contained the marker literal would
+otherwise hand every adopter a self-preserving copy and the kit would stop
+managing its own file everywhere. So a render carrying the marker keeps the
+file managed, and the test suite asserts no bundled template renders it.
 
-`test/ad/setup.jl` additionally still honours its original marker
-`$(_AD_SETUP_OWNED_MARKER)` (#162) via `_detect_ad_setup_owned`, which adopters
-carry today; either marker opts that file out.
+`test/ad/setup.jl` also still honours its original marker
+`$(_AD_SETUP_OWNED_MARKER)` (#162); either opts that file out.
 
-`scaffold`/`scaffold_generate` (`force = true`) ignore the marker and lay the
-managed file down fresh, so a new package always starts managed. The marker
-opts a file out of *resyncing*, not out of *retirement*: a path the kit retires
-(`RETIRED_PATHS`) is still deleted, marker or not.
+`scaffold`/`scaffold_generate` (`force = true`) ignore the marker, so a new
+package always starts managed. The marker opts a file out of resyncing, not of
+retirement: a `RETIRED_PATHS` entry is still deleted.
 """
 function _detect_managed_override(target_dir::AbstractString,
         dest::AbstractString, rendered::AbstractString)
@@ -3039,16 +2629,12 @@ function _detect_managed_override(target_dir::AbstractString,
     return dest == _AD_SETUP_DEST && _detect_ad_setup_owned(target_dir)
 end
 
-# The opt-in `downgrade-compat` caller job spliced into `test.yaml` directly
-# after the `test` job's `secrets:` line via `{{DOWNGRADE_COMPAT_JOB}}` (#121):
-# the job block (preceded by a blank line) when kept, empty when a package opts
-# out. The template file keeps the single trailing newline the pre-commit
-# end-of-file-fixer requires, so this block carries none of its own — the empty
-# opt-out case leaves just that newline, and the kept case ends on its
-# `secrets:` line with the file's newline after it. Built with the org already
-# interpolated (so no `{{ORG}}` survives into the substituted content) and the
-# seed ref `_DOWNGRADE_SEED_REF`, which `_preserve_reusable_refs` overwrites
-# with the destination's Dependabot-bumped ref on every `update`.
+# The opt-in `downgrade-compat` caller job spliced into `test.yaml` after the
+# `test` job's `secrets:` line (#121), empty when a package opts out. Carries
+# no trailing newline of its own — the template file keeps the single one the
+# pre-commit end-of-file-fixer requires. Built with the org interpolated and
+# the seed ref, which `_preserve_reusable_refs` overwrites with the
+# destination's Dependabot-bumped ref on every `update`.
 function _downgrade_compat_job(org::AbstractString, keep::Bool)
     keep || return ""
     return string(
@@ -3056,9 +2642,8 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
         "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
         _DOWNGRADE_SEED_REF, "\n",
         "    with:\n",
-        # The reusable defaults this to '1.10', the one version where the
-        # `[sources]` kit pin is silently ignored, so the downgrade job would
-        # resolve the registered kit instead of the pinned rev (#246, #115).
+        # The reusable defaults to '1.10', where the `[sources]` kit pin is
+        # silently ignored (#246, #115).
         "      julia_version: ", _JULIA_DOWNGRADE_VERSION, "\n",
         "    secrets: inherit  # pragma: allowlist secret")
 end
@@ -3070,15 +2655,13 @@ Whether a package has parked `benchmark-history.yaml`'s push/tag triggers, so
 a resync (`update`) preserves that state instead of re-enabling a permanently
 failing `history` run (#153).
 
-AirspeedVelocity/benchpkg installs the package into a temp environment where a
-`[sources]` pin does not apply, so an unregistered `[sources]`-pinned dependency
-(currently every adopter, via the unregistered kit itself) can never resolve
-there and every push/tag-triggered `history` run fails. The fix is to park the
-workflow — drop the `push`/`tags` triggers, keeping only `workflow_dispatch` —
-until the package is registered. The committed `on:` block is the marker:
-parked iff it carries no `push:` trigger. A fresh (never-scaffolded) target has
-no file, so it defaults to the full triggers — the standard once a package is
-registered, mirroring `_detect_downgrade_compat`.
+benchpkg installs the package into a temp environment where a `[sources]` pin
+does not apply, so an unregistered `[sources]`-pinned dependency — currently
+every adopter, via the unregistered kit itself — never resolves there and every
+push/tag-triggered `history` run fails. Parking drops the `push`/`tags`
+triggers, keeping only `workflow_dispatch`, until the package is registered.
+The committed `on:` block is the marker: parked iff it carries no `push:`. A
+target with no file defaults to the full triggers.
 """
 function _detect_benchmark_history_parked(target_dir::AbstractString)
     f = joinpath(target_dir, ".github", "workflows", "benchmark-history.yaml")
@@ -3086,13 +2669,10 @@ function _detect_benchmark_history_parked(target_dir::AbstractString)
     return !occursin(r"(?m)^  push:", read(f, String))
 end
 
-# The `benchmark-history.yaml` `on:` trigger block spliced via
-# `{{BENCHMARK_HISTORY_TRIGGERS}}` (#153): the full push/tags/dispatch triggers
-# by default, or a parked `workflow_dispatch`-only block (push/tags dropped)
-# when the package has parked the workflow for an unregistered `[sources]` dep.
-# The parked form self-heals to the full triggers once the package removes the
-# park (registers), the same detect-and-preserve idempotency as
-# `_downgrade_compat_job`.
+# The `benchmark-history.yaml` `on:` trigger block (#153): the full
+# push/tags/dispatch triggers by default, or a `workflow_dispatch`-only block
+# when the package has parked the workflow. Self-heals to the full triggers
+# once the park is removed.
 function _benchmark_history_triggers(parked::Bool)
     parked && return string(
         "  # push/tags parked until this package is registered: an\n",
@@ -3113,50 +2693,35 @@ end
 
 Shared worker for `scaffold`/`update`.
 
-`managed_only` restricts to managed templates (the `update` path).
-`force` overwrites package-owned files too (only meaningful for
-`scaffold`). `ad` selects the AD-enabled or AD-disabled standard;
-`benchmarks` gates the opt-in benchmark CI/suite/docs page;
-`downgrade_compat` gates the opt-in `downgrade-compat` CI job. Returns a
-`(created, updated, preserved, removed, warnings)` manifest of destination
-paths (`removed` being the retired managed paths cleaned up; see
-`RETIRED_PATHS`; `warnings` a `Vector{String}` of non-fatal issues raised
-while applying, e.g. a diverged-but-unmarked `test/ad/setup.jl` about to be
-overwritten, or a caller job repointed at a local reusable workflow about
-to be silently reverted (#325, see `_warn_local_caller_override!`)).
+`managed_only` restricts to managed templates (the `update` path). `force`
+overwrites package-owned files too (only meaningful for `scaffold`). `ad`
+selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
+benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
+`downgrade-compat` CI job.
+
+Returns a `(created, updated, preserved, removed, warnings)` manifest of
+destination paths. `removed` holds the retired managed paths cleaned up (see
+`RETIRED_PATHS`); `warnings` the non-fatal issues raised while applying, e.g. a
+diverged-but-unmarked `test/ad/setup.jl` about to be overwritten.
 """
 function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
-    # The opt-in (#242). Read once, and used by every branding surface (README
-    # section, docs footer, logo asset), so they cannot disagree with each other
-    # or with the flag left on disk.
-    #
-    # It must be the value the config will hold when this run *finishes*, not
-    # merely when it starts, because `docs/docs_config.jl` is package-owned and
-    # this same pass can rewrite it. `force` (and only `force`) re-lays the
-    # package-owned files, so it resets the config — and the flag with it — to
-    # the template default, off. Every other path leaves an existing config
-    # alone (`managed_only` skips package-owned files; an unforced `scaffold`
-    # writes them only when absent), so the committed choice stands. Reading the
-    # destination naively here would brand the footer and the logo from the old
-    # value while `force` reset the flag underneath, leaving a repo whose README
-    # says one thing, whose footer says another, and whose next sync strips both.
+    # The #242 opt-in, read once so every branding surface (README section,
+    # docs footer, logo asset) agrees. It must be the value the config holds
+    # when this run *finishes*: `docs/docs_config.jl` is package-owned, and
+    # `force` re-lays it, resetting the flag to the template default. Reading
+    # the destination naively would brand the footer from the old value while
+    # `force` reset the flag underneath.
     org_branding = (force && !managed_only) ? false :
                    _detect_org_branding(target_dir)
-    # Expose the AD + benchmarks + downgrade-compat flags as substitution values
-    # so the scheduled template-sync workflow re-applies the standard with the
+    # The AD/benchmarks/downgrade-compat flags are exposed as substitution
+    # values so the scheduled template-sync re-applies the standard with the
     # same choices the package adopted. `BENCHMARKS_NAV` is the top-level
-    # "Benchmarks" nav group (present when either `benchmarks` or `ad` is
-    # enabled, both pages nested under it when both are -- see
-    # `_benchmarks_nav`, #299/#305); `BENCHMARK_PAGE` the `docs_config`
-    # default the build reads; `DOWNGRADE_COMPAT_JOB` the `test.yaml` job
-    # block (present only when kept).
+    # "Benchmarks" group, present when either `benchmarks` or `ad` is on.
     bench_nav = _benchmarks_nav(benchmarks, ad)
     # The `benchmark-history.yaml` `on:` triggers preserve a package's parked
-    # state (push/tags dropped for an unregistered `[sources]` dep) across a
-    # resync (#153), detected from the committed workflow — a fresh target
-    # defaults to the full triggers.
+    # state across a resync (#153), detected from the committed workflow.
     inputs = merge(inputs,
         (AD = string(ad), BENCHMARKS = string(benchmarks),
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
@@ -3165,34 +2730,20 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
                 inputs.ORG, downgrade_compat),
             BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
                 _detect_benchmark_history_parked(target_dir)),
-            # The ad=true docs surface: the AD-backends page's registration
-            # (Tutorials pipeline + nav) and the docs-env deps both AD pages
-            # execute against (see `_ad_heavy_tutorials` etc.).
             AD_HEAVY_TUTORIALS = _ad_heavy_tutorials(ad),
             AD_TUTORIAL_STUBS = _ad_tutorial_stubs(ad),
             AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
             # The AD-comparison page's registration in the sibling
-            # `docs/src/benchmarks/` pipeline, not the Tutorials one above
-            # (#305, see `_ad_heavy_benchmarks` etc.); its nav entry is part
-            # of `BENCHMARKS_NAV` below, not a separate substitution.
+            # `docs/src/benchmarks/` pipeline, not the Tutorials one above;
+            # its nav entry is part of `BENCHMARKS_NAV`.
             AD_HEAVY_BENCHMARKS = _ad_heavy_benchmarks(ad),
             AD_BENCHMARK_STUBS = _ad_benchmark_stubs(ad),
-            # The extensions docs surface: the nav group for whatever
-            # `[extensions]` the target declares, empty when it declares none
-            # (see `_extensions_nav`).
             EXTENSIONS_NAV = _extensions_nav(target_dir),
             AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
             AD_DOCS_SOURCES = _ad_docs_sources(ad),
             AD_DOCS_COMPAT = _ad_docs_compat(ad),
-            # The benchmarks=true docs surface: the trend-plot dependency the
-            # overall summary needs (see `_bench_docs_deps`).
             BENCH_DOCS_DEPS = _bench_docs_deps(benchmarks),
             BENCH_DOCS_COMPAT = _bench_docs_compat(benchmarks),
-            # The managed docs footer: the EpiAware logo + org links when the
-            # package opted in (`ORG_BRANDING` in the package-owned
-            # docs_config), otherwise the DocumenterVitepress credit alone —
-            # detected from the destination, like the other opt-ins, so a sync
-            # that passes no kwargs preserves the package's choice (#242).
             ORG_FOOTER_MESSAGE = _org_footer_message(org_branding)))
     src_dir = _templates_dir()
     created = String[]
@@ -3207,22 +2758,11 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         isfile(from) || error("missing bundled template $(t.src) at $from")
         to = _dest_path(target_dir, t.dest)
         exists = isfile(to)
-        # Any managed file can be opted out of management by marking it
-        # package-owned (#224), generalising the AD driver's original
-        # file-specific opt-out (#162): the generic `test/ad/setup.jl` assumes
-        # the package's ADFixtures registry satisfies the current `ADRegistry`
-        # contract (`scenarios(; category=)`), so force-clobbering a
-        # pre-contract adopter's hand-kept driver would `MethodError` every AD
-        # test. When the committed file carries an ownership marker, preserve
-        # it rather than overwriting — `scaffold`/`scaffold_generate`
-        # (`force = true`) still (re)lays it down so a fresh package starts
-        # managed. The marker lives in the file, so the opt-out is explicit and
-        # visible to anyone reading it.
-        #
-        # The fresh render is passed in so a managed template that itself
-        # carried the marker literal cannot hand every adopter a permanently
-        # self-preserving file (see `_detect_managed_override`); the kit's own
-        # tests also assert no template ships the marker.
+        # A committed file carrying an ownership marker is preserved rather
+        # than overwritten (#224); `force` still re-lays it. The fresh render
+        # is passed in so a template that itself carried the marker literal
+        # cannot hand every adopter a self-preserving file — see
+        # `_detect_managed_override`.
         rendered = exists && !force && t.managed ?
                    _render(from, t.substitute, inputs) : nothing
         if rendered !== nothing &&
@@ -3230,29 +2770,15 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             push!(preserved, to)
             continue
         end
-        # A managed file that already diverges substantially from what a
-        # fresh render would produce, with no ownership marker, is a strong
-        # signal the adopter customised it and simply never added the
-        # marker — silently force-overwriting it (the standard "managed
-        # files always resync" rule) is exactly the footgun that nearly
-        # broke CensoredDistributions' AD CI: a heavily customised
-        # `test/ad/setup.jl` carrying no ownership marker was clobbered with
-        # the generic driver, which would `MethodError` on every AD job. Warn
-        # (rather than silently proceed) so a maintainer notices before the
-        # next scheduled template-sync does this again; still overwrites,
-        # matching every other managed file.
+        # An unmarked AD driver that diverges from a fresh render is probably
+        # a customisation nobody marked. It is still overwritten, like every
+        # managed file, but warns first: this is the one file where a clobber
+        # is silently fatal (a `MethodError` in every AD CI job).
         #
-        # This warning stays scoped to `test/ad/setup.jl` and is deliberately
-        # not generalised to every managed file (#224). Divergence from a fresh
-        # render is the normal state of a managed file on an adopter running an
-        # older kit version, precisely what `update` exists to fix, so
-        # a generic divergence check cannot tell "the adopter customised this"
-        # from "the adopter is simply behind" and would warn on every file on
-        # every sync. The AD driver is the one file where a clobber is
-        # silently fatal (a `MethodError` in every AD CI job) rather than merely
-        # a resync, which is what earns it the noise. A package that genuinely
-        # owns any other managed file says so with the
-        # `$(_MANAGED_OVERRIDE_MARKER)` marker above, which needs no heuristic.
+        # Deliberately not generalised (#224): divergence is the normal state
+        # of a managed file on an adopter running an older kit, so a generic
+        # check cannot tell "customised" from "behind" and would warn on every
+        # file on every sync.
         if rendered !== nothing && t.dest == _AD_SETUP_DEST
             if read(to, String) != rendered
                 msg = string(_AD_SETUP_DEST,
@@ -3271,20 +2797,16 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             push!(preserved, to)
             continue
         end
-        # A managed caller job repointed at a repo-local reusable workflow
-        # cannot be keyed by `_CALLER_JOB`/`_preserve_caller_with_inputs`
-        # (#325), so the `_emit` below is about to silently drop any
-        # `with:` inputs it carries. Warn before that happens rather than
-        # letting the loss ride along unnoticed in the sync output.
+        # `_emit` is about to drop the `with:` inputs of any caller job
+        # repointed at a repo-local reusable workflow (#325).
         exists && t.managed &&
             _warn_local_caller_override!(warnings, to, t.dest)
         _emit(from, to, t.substitute, inputs)
         push!(exists ? updated : created, to)
     end
-    # The README body is package-owned, but the standard badge block between the
-    # markers is managed: inject it when absent, refresh it when present. Only
-    # the marker region is touched. This is reported separately (`readme`) so the
-    # template manifest stays template-driven.
+    # The README body is package-owned, but the badge block between the markers
+    # is managed. Reported separately (`readme`) so the template manifest stays
+    # template-driven, as for every applier below.
     readme = joinpath(target_dir, "README.md")
     repo = inputs.REPO
     pkg = inputs.PACKAGE
@@ -3296,65 +2818,40 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             docs_url = inputs.DOCS_URL, doi = inputs.DOI,
             zenodo_badge = inputs.ZENODO_BADGE))
     end
-    # The README title's inline logo tag is managed the same way as the badge
-    # block: added once a `docs/src/assets/logo.svg` exists, left alone
-    # otherwise. Reported separately for the same reason as `readme` above.
+    # The README title's inline logo tag is managed like the badge block:
+    # added once a `docs/src/assets/logo.svg` exists, left alone otherwise.
     logo_action = pkg === nothing ? :skipped : _apply_logo_title(target_dir, pkg)
-    # The standard sections (Contributing / How to cite / Code of conduct) are
-    # managed between markers, like the badge block: refreshed on every sync but
-    # only within the markers, so a package's own body sections are preserved.
-    # Reported separately (`standard_sections`) for the same reason as `readme`.
+    # Contributing / How to cite / Code of conduct, refreshed within their
+    # markers so a package's own body sections are preserved.
     sections_action = first(_apply_standard_sections(target_dir, inputs;
         org_branding = org_branding))
-    # CITATION.cff is package-owned and write-once: `_apply_citation_cff` only
-    # ever creates it when absent, never overwrites an existing one, so a
-    # package's real citation metadata (authors, DOI, version) is preserved.
-    # Unlike LICENSE, `update` also seeds it (not gated on `managed_only`): the
-    # managed "How to cite" section (`_apply_standard_sections`, above) links to
-    # `CITATION.cff` unconditionally on every sync, and a package that adopted
-    # the template before citation seeding existed would otherwise carry that
-    # link forever with no `update` ever able to make it resolve — a 404 the
-    # moment the README reaches a linkchecked docs build (#322). Reported
-    # separately (`citation`) so the template manifest stays template-driven.
+    # CITATION.cff is package-owned and write-once, so a package's real
+    # citation metadata is preserved. Unlike LICENSE, `update` seeds it too
+    # (#322): the managed "How to cite" section links to it on every sync, so
+    # an adopter predating citation seeding would otherwise carry a dangling
+    # link no `update` could ever resolve.
     citation_action = _apply_citation_cff(target_dir, inputs)
-    # The per-extension docs pages are package-owned and write-once, like
-    # CITATION.cff: only `scaffold`/`scaffold_generate` seed them, and only
-    # when absent, so authored scope prose survives every sync. Unlike
+    # The per-extension docs pages are package-owned and write-once. Unlike
     # CITATION.cff, `update` does not seed them: a page is only reachable
-    # through the nav group in the package-owned `docs/pages.jl`
-    # (`EXTENSIONS_NAV`), which `update` cannot write either, so seeding one
-    # on a sync would leave an unreferenced file rather than fix a dangling
-    # link (the #322 case). A package that adds an extension after adopting
-    # the kit adds the page and its one nav line by hand — the same contract
-    # as flipping `benchmarks = true` on an already-scaffolded package.
-    # Reported separately (`extension_pages`) so the template manifest stays
-    # template-driven (#319).
+    # through `EXTENSIONS_NAV` in the package-owned `docs/pages.jl`, which
+    # `update` cannot write either, so seeding one on a sync would leave an
+    # unreferenced file rather than fix a dangling link (#319).
     ext_created, ext_preserved = managed_only ? (String[], String[]) :
                                  _apply_extension_pages(
         target_dir, inputs; force = force)
-    # A page the write-once seeding just laid down (or one already present)
-    # that the write-once nav never learned about is built but unreachable —
-    # see `_extension_pages_unlinked`. Warn with the exact entry to add
-    # rather than let it be found on a published site.
     ext_unlinked = _extension_pages_unlinked(target_dir)
     ext_unlinked === nothing || push!(warnings, ext_unlinked)
-    # LICENSE is package-owned and write-once: only `scaffold`/`scaffold_generate`
-    # (`managed_only = false`) may write it, and only when absent. `update`
-    # (`managed_only = true`) never touches it, so a deliberate licence stands.
-    # Reported separately (`license`) so the template manifest stays
-    # template-driven (the count-based scaffold tests track `SCAFFOLD_TEMPLATES`).
+    # LICENSE is package-owned and write-once: `update` never touches it, so a
+    # deliberate licence stands.
     license_action = managed_only ? :skipped : _apply_license(target_dir, inputs)
-    # The standard `[workspace]` stanza is injected into the (package-owned) root
-    # Project.toml when absent, on both scaffold and update, and preserved
-    # thereafter. Reported separately so the template manifest stays
-    # template-driven.
+    # Injected into the package-owned root Project.toml when absent, on both
+    # scaffold and update, and preserved thereafter.
     workspace_action = _apply_workspace(target_dir)
-    # A package's own `[compat] julia` is package-owned — the kit will not
-    # rewrite it — but the managed test infrastructure needs 1.11 (#246), so a
-    # package still claiming 1.10 is claiming support the standard cannot
-    # deliver. Say so rather than leaving it to be discovered as an
-    # `UndefVarError` on a runner, or worse, as a green LTS job quietly testing
-    # a stale kit resolved from the registry.
+    # A package's `[compat] julia` is package-owned, but the managed test
+    # infrastructure needs 1.11 (#246), so a package still claiming 1.10 is
+    # claiming support the standard cannot deliver. Better said here than
+    # discovered as an `UndefVarError` on a runner, or as a green LTS job
+    # quietly testing a stale kit resolved from the registry.
     proj_path = joinpath(target_dir, "Project.toml")
     if isfile(proj_path)
         m = match(r"(?m)^julia\s*=\s*\"([^\"]*)\"", read(proj_path, String))
@@ -3372,13 +2869,10 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             end
         end
     end
-    # A package may pick its own Julia matrix on the managed test caller (#73),
-    # and the kit does not overwrite it (`_WITH_SEED_DEFAULT_KEYS`). But a leg
-    # below the floor tests a kit resolved from the registry rather than the
-    # pinned rev, so an override that reaches back below it is never silent.
-    # Scanned across every managed caller, not just test.yaml: `codecoverage.yaml`
-    # names a Julia version of its own, and a coverage job below the floor is the
-    # same silent staleness, measured and published as if it were current.
+    # A package may pick its own Julia matrix (#73) and the kit does not
+    # overwrite it, but a leg below the floor tests a kit resolved from the
+    # registry rather than the pinned rev. Scanned across every managed caller,
+    # not just `test.yaml`: `codecoverage.yaml` names a version of its own.
     wf_dir = joinpath(target_dir, ".github", "workflows")
     if isdir(wf_dir)
         for f in sort(readdir(wf_dir))
@@ -3393,16 +2887,11 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
                     "this one. Drop it (#246)."))
         end
     end
-    # A Julia standard library is not implicitly available in a test
-    # environment: to `using LinearAlgebra` a test needs LinearAlgebra declared
-    # as a dep (in test/Project.toml, or transitively via the package under
-    # test). Contributors routinely add `using <stdlib>` in a test without
-    # declaring it, and the whole env then fails to resolve on every platform
-    # with an opaque error — #263 saw Statistics break one PR and LinearAlgebra
-    # break two more, each a one-line fix that kept recurring. The gap is
-    # invisible until CI reds, so name it here at scaffold/sync time instead.
-    # test/Project.toml is package-owned (the kit cannot just add the dep), so a
-    # warning pointing at the exact missing stdlib is the durable, general fix.
+    # A Julia stdlib is not implicitly available in a test environment: it
+    # needs declaring as a dep, or reaching transitively. A `using <stdlib>`
+    # added without one makes the whole env fail to resolve with an opaque
+    # error, invisible until CI reds (#263). test/Project.toml is
+    # package-owned, so a warning naming the exact stdlib is the durable fix.
     stdlibs = _undeclared_test_stdlibs(target_dir)
     isempty(stdlibs) || push!(warnings,
         string("test/ uses the standard librar",
@@ -3437,19 +2926,14 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         push!(warnings, deps_gap)
         @warn deps_gap
     end
-    # `.gitignore` is managed between markers so package-owned additions below
-    # the block survive `update` (#65). Reported separately for the same
-    # reason as `readme`/`license`/`workspace` above.
+    # Managed between markers so package-owned additions below the block
+    # survive `update` (#65).
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
-    # Managed files the kit has retired are deleted, not just left unwritten, so
-    # a sync converges on the current standard rather than accreting dead infra
-    # (#185). Reported as `removed`.
+    # Retired files are deleted, not just left unwritten, so a sync converges
+    # on the current standard rather than accreting dead infra (#185).
     removed = _remove_retired(target_dir)
-    # The org logo asset follows the same `ORG_BRANDING` opt-in as the README
-    # section and the docs footer: written when on, removed when off, so a
-    # package that opts out carries no EpiAware asset (#242). Reported
-    # separately, like `license`/`logo`, so the template manifest stays
-    # template-driven.
+    # Written when branding is on, removed when off, so a package that opts out
+    # carries no EpiAware asset (#242).
     org_branding_action = _apply_org_branding(target_dir, org_branding)
     return (created = created, updated = updated, preserved = preserved,
         removed = removed, readme = readme_action, license = license_action,
@@ -3474,10 +2958,8 @@ function _julia_stdlibs()
 end
 
 # Dep names in a Project.toml `[deps]` table. Empty when the file is absent or
-# unparseable — an unsubstituted template still carrying `{{PLACEHOLDER}}` is
-# not valid TOML, so skip it rather than error. A line scan (not a TOML parse)
-# keeps this dependency-free and matches how the rest of the file reads
-# Project.toml.
+# unparseable (an unsubstituted template is not valid TOML). A line scan rather
+# than a TOML parse, matching how the rest of this file reads Project.toml.
 function _declared_deps(path::AbstractString)
     isfile(path) || return Set{String}()
     names = Set{String}()
@@ -3532,26 +3014,20 @@ function _manifest_packages(path::AbstractString)
 end
 
 # Standard libraries `using`d in a package's committed test sources but not
-# available in the resolved test environment. Returned sorted; empty when test/
-# is absent. Drives the #263 scaffold/sync warning.
+# available in the resolved test environment. Sorted; empty when test/ is
+# absent. Drives the #263 scaffold/sync warning.
 #
-# Availability is judged against the resolved test/Manifest.toml, not just the
-# `[deps]` lines: a stdlib pulled in transitively by a declared dependency (e.g.
-# LinearAlgebra via Aqua/JET) is genuinely loadable and must not be flagged —
-# reading only `[deps]` false-flagged such stdlibs, including on the kit itself.
-# A Manifest is gitignored (a package must not commit one), so it exists only in
-# an instantiated env — typically a maintainer's local checkout, where the
-# warning is actionable. Without one we cannot tell a transitively-available
-# stdlib from a genuinely missing one, so we do not guess: no manifest means no
-# warning, trading a missed hint in a bare CI checkout for zero false positives.
+# Availability is judged against the resolved test/Manifest.toml, not the
+# `[deps]` lines alone: a stdlib pulled in transitively (e.g. LinearAlgebra via
+# Aqua/JET) is genuinely loadable and must not be flagged. A Manifest is
+# gitignored, so it exists only in an instantiated env, which is where the
+# warning is actionable anyway. Without one, no warning: a missed hint in a
+# bare CI checkout buys zero false positives.
 function _undeclared_test_stdlibs(target_dir::AbstractString)
     test_dir = joinpath(target_dir, "test")
     isdir(test_dir) || return String[]
     stdlibs = _julia_stdlibs()
     isempty(stdlibs) && return String[]
-    # The test-env manifest is the authoritative availability oracle. Absent
-    # (never instantiated / fresh checkout) → cannot verify transitive deps →
-    # stay silent rather than false-flag.
     available = _manifest_packages(joinpath(test_dir, "Manifest.toml"))
     isempty(available) && return String[]
     # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
@@ -3604,13 +3080,6 @@ adopts the whole kit in one call. Two kinds of file are written:
     are where a package's own unit tests, AD scenarios, registry, citation, and
     config values live.
 
-The README body is package-owned, but three standard sections — Contributing,
-How to cite, and Code of conduct — are managed between the
-`<!-- standard-sections:start -->`/`:end` markers and refreshed on every sync
-(like the badge block), so their wording stays consistent across adopters. The
-citation *content* stays package-owned in `CITATION.cff`; the managed "How to
-cite" section only points at it.
-
 Placeholders (`{{PACKAGE}}`, `{{AUTHORS}}`, `{{HOLDER}}`, `{{ORG}}`, `{{REPO}}`,
 `{{REVIEWER}}`, `{{YEAR}}`) are filled by [`scaffold_inputs`](@ref): each
 defaults from the target `Project.toml` or a sensible org default and is
@@ -3623,65 +3092,42 @@ selects the bundled licence text, written with `{{YEAR}}`/`{{HOLDER}}` filled
 only when no `LICENSE` exists. [`update`](@ref) never rewrites it, so a package
 that deliberately changes its licence is not reverted on a sync.
 
-The managed `.github/workflows/Register.yml` triggers Julia General Registry
-registration: a `/register` comment on an issue or PR, or a manual
-`workflow_dispatch` run, both post `@JuliaRegistrator register` on `main`'s
-HEAD commit (gated on the actor having write/maintain/admin access). See
-[`setup_checklist`](@ref) for the rest of the one-off manual setup a fresh
-repo needs (Codecov, GitHub Pages, branch protection, ...).
+The managed `.github/workflows/Register.yml` triggers General Registry
+registration from a `/register` comment or a `workflow_dispatch` run, gated on
+the actor having write access. See [`setup_checklist`](@ref) for the rest of
+the one-off manual setup a fresh repo needs.
 
 `ad` controls whether the AD CI caller and AD test infrastructure are
-scaffolded, so a numerical package opts in and a tooling/non-numerical package
-opts out. It defaults to `true` (the common case for an EpiAware modelling
-package). When `ad = true` two managed docs pages are also written: the
-AD-backends tutorial page (`docs/src/getting-started/tutorials/ad-backends.jl`,
-generalised from CensoredDistributions.jl), which reports which backends
-work and how to configure and debug them, and its AD-comparison sibling
-(`docs/src/benchmarks/ad-comparison.jl`), which benchmarks what each backend
-costs (split apart in #299 so the cost report gets its own top-level
-"Benchmarks" nav group rather than reading as a how-to guide under
-Tutorials — physically under `docs/src/benchmarks/`, not nested inside
-Tutorials, #305, the shape EpiAwareADTools#28 asked for). Both pages'
-bodies stay kit-current across syncs while the scenarios, backends, and
-broken/skip declarations they report are read at docs-build time from the
-package-owned `test/ADFixtures` registry (rendered via
-[`ad_backend_support_table`](@ref) on the AD-backends page), and their
-registration plus docs-env deps are seeded into the package-owned
-`docs/docs_config.jl`, `docs/pages.jl`, and `docs/Project.toml`.
-When `ad = false`, none of the AD infra is written — no
-`.github/workflows/ad.yaml`, no `test/ad/` drivers, scenarios, or env, no
-`test/ADFixtures/` registry skeleton, no AD-backends or AD-comparison docs
-pages — and the files whose content depends on AD (`Taskfile.yml`,
-`codecov.yml`, `test/Project.toml`, and the docs seeds above) are emitted in
-their no-AD variants (no `test-ad` tasks, no per-backend `ad-*` coverage
-flags, no AD test/docs deps). Pass the same `ad` value to
-[`update`](@ref) to keep the standard stable.
+scaffolded, so a numerical package opts in and a tooling package opts out. It
+defaults to `true`. When `ad = true` two managed docs pages are written: the
+AD-backends tutorial page, which reports which backends work and how to
+configure and debug them, and its AD-comparison sibling under
+`docs/src/benchmarks/`, which benchmarks what each backend costs. Both bodies
+stay kit-current across syncs, while the scenarios, backends and broken/skip
+declarations they report are read at docs-build time from the package-owned
+`test/ADFixtures` registry (via [`ad_backend_support_table`](@ref)), and their
+registration plus docs-env deps are seeded into the package-owned docs seeds.
+When `ad = false` none of the AD infra is written, and the files whose content
+depends on AD (`Taskfile.yml`, `codecov.yml`, `test/Project.toml`, the docs
+seeds) are emitted in their no-AD variants. Pass the same `ad` value to
+[`update`](@ref).
 
-`benchmarks` controls the opt-in benchmark suite: the benchmark CI callers
-(`.github/workflows/benchmark.yaml`, `benchmark-history.yaml`), the `benchmark/`
-suite + compare script, and the docs benchmark page (its "Benchmarks" nav
-entry, the package-owned `docs/benchmarks.md` prose hook, and the
-package-owned `docs/benchmarks_notes.md` skipped/broken-benchmarks hook,
-gated by `docs_config`'s `BENCHMARK_PAGE`) — rendered to
-`docs/src/benchmarks/over-time.md`, alongside the AD-comparison page above
-when the package also has `ad = true` (#305). It defaults to `nothing`,
-which detects the target's current state from the benchmark workflows so
-re-scaffolding preserves an opt-in; a
-fresh package has none, so the default is opt-out. When disabled, none of the
-benchmark files are written and the docs emit no Benchmarks page (unless
-`ad = true` still needs the group for AD comparison). Pass
-`benchmarks = true` to opt in; [`update`](@ref) detects and preserves the state.
+`benchmarks` controls the opt-in benchmark suite: the benchmark CI callers,
+the `benchmark/` suite + compare script, and the docs performance-over-time
+page (`docs/src/benchmarks/over-time.md`) with its nav entry and the two
+package-owned prose hooks. It defaults to `nothing`, which detects the
+target's current state from the benchmark workflows so re-scaffolding
+preserves an opt-in; a fresh package has none, so the default is opt-out.
+[`update`](@ref) detects and preserves the state.
 
 `downgrade_compat` controls the opt-in `downgrade-compat` CI job in
-`.github/workflows/test.yaml` (the `julia-downgrade-compat` reusable, which
-resolves the oldest compatible dep versions). A package pinned to a Julia floor
-— or one depending on an unregistered, `[sources]`-pinned package that the
-downgrade resolver cannot see — can never pass that job, so it opts out. It
-defaults to `nothing`, which detects the target's current state from the
-committed `test.yaml` so a resync preserves the choice; a fresh package keeps
-the job (the standard). Pass `downgrade_compat = false` to drop it (#121); the
-`test`/`downgrade` `julia_versions` inputs are separately preserved as a
-package-owned `with:` override (see `_preserve_caller_with_inputs`).
+`test.yaml`, which resolves the oldest compatible dep versions. A package
+pinned to a Julia floor, or one depending on an unregistered
+`[sources]`-pinned package the downgrade resolver cannot see, can never pass
+it. It defaults to `nothing`, detecting the state from the committed
+`test.yaml` so a resync preserves the choice; a fresh package keeps the job.
+The `julia_versions` inputs are separately preserved as a package-owned
+`with:` override (#121, see `_preserve_caller_with_inputs`).
 
 The README body is package-owned, but the standard badge set is managed: a block
 between `$(BADGES_START)` / `$(BADGES_END)` markers carries the docs/CI/coverage/
@@ -3700,57 +3146,40 @@ before this behaviour existed) is treated the same way a legacy README is:
 the managed block is inserted at the top and the whole existing file is kept
 below as the tail, so nothing a package added is ever silently dropped.
 
-`docs_subdomain` selects how the docs site is hosted. The default (`nothing`) is
-a GitHub project-pages deploy: `docs/make.jl` gets `deploy_url = nothing`, so
-DocumenterVitepress derives the VitePress base from the repo name and the site
-renders at `epiaware.org/<Repo>.jl/` with no DNS to wire — the docs work out of
-the box. Pass `docs_subdomain = true` for the conventional `<pkg>.epiaware.org`,
-or a host string for a bespoke domain, to deploy at a custom subdomain instead;
-this sets `deploy_url` to that host and points the README docs badges at it. A
-custom subdomain also needs a DNS record for the host and the repo's GitHub
-Pages custom domain set (which writes the gh-pages `CNAME`); until both exist
-the site will not resolve, so the project-pages default is preferred unless
-that wiring is in place. When no explicit choice is passed, the hosting is
-recovered from the repo's existing `docs/make.jl` `deploy_url`, so
-[`update`](@ref) preserves a subdomain-hosted package (and self-heals a
-drifted one) without the maintainer re-supplying `docs_subdomain` on every
-sync (#123). Only a never-scaffolded target falls back to the default: the kit
-itself dogfoods the opt-in path, defaulting to its own DNS-wired subdomain
-(`epiawarepackagetools.epiaware.org`), so its dogfood `update` stays stable.
+`docs_subdomain` selects how the docs site is hosted. The default (`nothing`)
+is a project-pages deploy: `deploy_url = nothing`, so DocumenterVitepress
+derives the base from the repo name and the site renders at
+`epiaware.org/<Repo>.jl/` with no DNS to wire. Pass `docs_subdomain = true` for
+the conventional `<pkg>.epiaware.org`, or a host string for a bespoke domain,
+which also needs a DNS record and the repo's Pages custom domain set; until
+both exist the site will not resolve. With no explicit choice the hosting is
+recovered from the repo's existing `deploy_url`, so [`update`](@ref) preserves
+a subdomain-hosted package and self-heals a drifted one (#123). Only a
+never-scaffolded target falls back to the default, and the kit itself dogfoods
+the opt-in path.
 
 The three managed README sections (Contributing, How to cite, Code of conduct)
-follow the same managed-block pattern between
-`$(STANDARD_SECTIONS_START)` / `$(STANDARD_SECTIONS_END)` markers: appended to a
-freshly seeded README and refreshed in place thereafter. A marker-less README
-that already carries a bespoke Contributing/citation/Code-of-conduct section is
-left untouched — migrating it to the managed block is a deliberate per-repo
-wording change (#67). `CITATION.cff` is package-owned and write-once, seeded
-from `{{PACKAGE}}`/`{{AUTHORS}}`/`{{REPO}}` (and the DOI when known) by both
-`scaffold` and [`update`](@ref) whenever it is absent; neither ever rewrites an
-existing one, so the real author list and DOI stand (#322).
+follow the same managed-block pattern between `$(STANDARD_SECTIONS_START)` /
+`$(STANDARD_SECTIONS_END)`: appended to a freshly seeded README and refreshed
+in place thereafter. A marker-less README that already carries bespoke prose
+for one of them is left untouched (#67). `CITATION.cff` is package-owned and
+write-once, seeded when absent by both `scaffold` and [`update`](@ref) and
+never rewritten, so the real author list and DOI stand (#322).
 
 `force = true` overwrites the package-owned skeletons too, and lays every
 managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 (see [`update`](@ref)), so a new package always starts fully managed.
-`target_dir` must exist. Use [`update`](@ref) to re-apply only the
-managed files later.
+`target_dir` must exist. Use [`update`](@ref) to re-apply only the managed
+files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
 gitignore, logo, standard_sections, citation, org_branding, extension_pages,
-warnings)` named tuple:
-destination paths newly written, managed files overwritten, package-owned
-files left in place, retired managed paths deleted (`RETIRED_PATHS`, #185),
-the README badge action (`:created`, `:injected`, `:refreshed`, or
-`:skipped`), the `LICENSE` action, the root `[workspace]` stanza action
-(`:injected`, `:preserved`, or `:skipped`), the `.gitignore` managed-block
-action (`:created`, `:injected`, or `:refreshed`), the README logo-title
-action (`:injected`, `:preserved`, or `:skipped` when no logo file exists
-yet), the managed standard-sections action (`:refreshed`, `:injected`, or
-`:skipped`), the `CITATION.cff` action (`:created`, `:preserved`, or
-`:skipped`), the org-branding asset action, the seeded per-extension docs
-pages as a `(created, preserved)` pair of path vectors (#319; both empty for
-a package with no `[extensions]`), and non-fatal `warnings` raised while
-applying (a `Vector{String}`).
+warnings)` named tuple: destination paths newly written, managed files
+overwritten, package-owned files left in place, retired managed paths deleted
+(`RETIRED_PATHS`, #185), then the action taken by each of the region appliers
+(`:created`/`:injected`/`:refreshed`/`:preserved`/`:skipped`, as each
+docstring records), the seeded per-extension docs pages as a
+`(created, preserved)` pair of path vectors (#319), and non-fatal `warnings`.
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
@@ -3773,121 +3202,61 @@ report the drift.
 
 `update` is `public`, not `export`ed (#294): call it qualified
 (`EpiAwarePackageTools.update(...)`) or with an explicit
-`using EpiAwarePackageTools: update`. This used to be a bare `update` until
-#173 found that an `export`ed generic verb collides with a package's own
-same-named export — `using EpiAwarePackageTools; using ComposedDistributions`
-left `update` unbound in `Main`, breaking Documenter `@ref` resolution —
-which #178 fixed with a hard rename to `scaffold_update`. `public` closes
-that collision a different way: a `public`-not-`export`ed name is never
-brought into scope by a bare `using`, so it cannot fight another package's
-export regardless of what either package calls its own verb. That makes the
-short, generic name safe again, so #294 renamed it back. The old name is
-kept reachable as [`scaffold_update`](@ref), a transitional alias, so an
-existing qualified caller is unaffected by the rename itself.
+`using EpiAwarePackageTools: update`. An `export`ed generic verb collides with
+a package's own same-named export (#173), and a `public`-not-`export`ed name is
+never brought into scope by a bare `using`, so it cannot. The old name is kept
+reachable as [`scaffold_update`](@ref).
 
 This is the entry point the scheduled template-sync workflow calls: it rewrites
-every managed standard file (root config, CI caller workflows, dependabot, and
-the test-infra drivers) from the bundled templates, leaving all package-owned
-files (unit tests, `qa_config.jl`, AD scenarios, `benchmarks.jl`, and `LICENSE`)
-untouched. In particular `LICENSE` is never rewritten, so a package that
-deliberately switches licence is not silently reverted. `CITATION.cff` is the
-one exception to "package-owned files are untouched": it is seeded when absent
-(never overwritten when present), because the managed "How to cite" section
-below links to it unconditionally on every sync, and a package that predates
-citation seeding would otherwise carry a link `update` could never make
-resolve (#322). The workflow opens a PR when the result differs from what is
-committed. Placeholder inputs are resolved exactly as in [`scaffold`](@ref);
-pass the same overrides to keep substitution stable across a sync.
+every managed standard file from the bundled templates, leaving package-owned
+files (unit tests, `qa_config.jl`, AD scenarios, `benchmarks.jl`, `LICENSE`)
+untouched, so a deliberate licence change is never reverted. `CITATION.cff` is
+the one exception: it is seeded when absent, because the managed "How to cite"
+section links to it on every sync and an adopter predating citation seeding
+would otherwise carry a link `update` could never make resolve (#322).
+Placeholder inputs resolve exactly as in [`scaffold`](@ref); pass the same
+overrides to keep substitution stable across a sync.
 
-`ad` must match the value the package was scaffolded with (default `true`): with
-`ad = false` the managed AD files (`ad.yaml`, `test/ad/setup.jl`,
-`test/ad/runtests.jl`) are not managed and the no-AD variants of `Taskfile.yml`
-and `codecov.yml` are re-applied instead.
+`ad` must match the value the package was scaffolded with (default `true`).
+`benchmarks` and `downgrade_compat` both default to `nothing`, detecting the
+package's current state from the committed workflows so a resync preserves an
+adopter's opt-in rather than stripping it, or reintroducing a job the package
+deliberately removed (#121). Pass `true`/`false` to force either.
 
-`benchmarks` controls the opt-in benchmark CI + suite. It defaults to `nothing`,
-which detects the package's current state from the managed benchmark workflows
-(`benchmark.yaml` / `benchmark-history.yaml`) so a resync preserves an adopter's
-benchmarks rather than stripping them — the scheduled template-sync bakes the
-adopted value into its own `update` call, but a repo scaffolded before this flag
-re-passes nothing, so detection is what keeps that first sync idempotent. Pass
-`benchmarks = true`/`false` to force enable/disable.
+The README badge block, the managed `.gitignore` block, the standard-sections
+block and the README logo title are all refreshed as in [`scaffold`](@ref),
+without the package-owned parts of those files being touched.
 
-`downgrade_compat` controls the opt-in `downgrade-compat` CI job the same way:
-it defaults to `nothing`, detecting the job's presence in the committed
-`test.yaml` so a resync preserves a package's decision to drop it (#121) rather
-than reintroducing a job it deliberately removed. Pass
-`downgrade_compat = true`/`false` to force keep/drop.
+Every managed file written from a template has a package-owned opt-out (#224):
+`$(_MANAGED_OVERRIDE_MARKER)` in a comment tells `update()` to preserve it
+(reporting it in `preserved`) instead of resyncing. Remove the marker to hand
+management back. Use it sparingly — an overridden file no longer tracks the
+standard, which is the point of the kit. Three deliberate limits:
 
-The README's managed badge block is also refreshed: `update` injects it when the
-`$(BADGES_START)` / `$(BADGES_END)` markers are absent and re-renders it from the
-current placeholders when present, so a package gets and keeps the standard
-badges automatically without its README body being touched.
+  - It covers whole template-emitted files, not the marker-delimited regions
+    the kit injects into package-owned files. Those are refreshed regardless;
+    customise them by editing outside their markers.
+  - It opts a file out of resyncing, not of retirement: a marked file on a
+    retired path (`RETIRED_PATHS`) is still deleted.
+  - It must appear in a comment, so the two managed JSON files
+    (`docs/package.json`, `.secrets.baseline`) cannot carry it. The match is
+    case-sensitive.
 
-The managed `.gitignore` block is handled the same way: refreshed between its
-markers (or migrated in place if a pre-existing file has none yet), with any
-package-owned tail after the block left untouched.
-
-The README logo title (see `scaffold`) is also (re)checked: once a package has
-a `docs/src/assets/logo.svg`, the tag is added to the title if missing.
-
-Every managed file written from a template has a package-owned opt-out (#224).
-Putting the marker `$(_MANAGED_OVERRIDE_MARKER)` in a comment in the committed
-file tells `update()` to preserve it (leaving it in `preserved`)
-instead of resyncing it, so a package keeps its own version of that file; remove
-the marker to hand management back to the kit. `scaffold`/`scaffold_generate`
-(`force = true`) ignore the marker and lay the managed file down fresh, so a new
-package always starts managed. Use the marker sparingly: an overridden file no
-longer tracks the standard, which is the whole point of the kit.
-
-Three limits on the marker, all deliberate:
-
-  - It covers whole files emitted from a template, not the marker-delimited
-    *regions* the kit injects into otherwise package-owned files. The
-    `.gitignore` managed block, the README badge and standard-sections blocks,
-    and `Project.toml`'s `[workspace]` stanza are refreshed on every sync
-    regardless of any `$(_MANAGED_OVERRIDE_MARKER)`; a package customises those
-    by editing outside their markers, which is what the markers are for.
-  - It opts a file out of resyncing, not out of retirement: a marked file whose
-    path the kit has retired (`RETIRED_PATHS`, below) is still deleted, since a
-    retired path is infrastructure the kit no longer supports at all.
-  - The marker must appear in a comment, so the two managed JSON files
-    (`docs/package.json`, `.secrets.baseline`) cannot carry it — JSON has no
-    comment syntax — and cannot be overridden this way. The match is
-    case-sensitive: `$(_MANAGED_OVERRIDE_MARKER)`, in capitals, or it does
-    nothing.
-
-The AD-harness driver `test/ad/setup.jl` is where this began (#162): the generic
-driver assumes the package's `ADFixtures` registry satisfies the current
-`ADRegistry` contract (its `scenarios` accepts a `category` keyword), so a
-package whose registry predates that contract would `MethodError` on every AD
-test if the driver were overwritten. That file still honours its original marker
-`$(_AD_SETUP_OWNED_MARKER)` as well as the generic one; either preserves it.
-When the committed driver has diverged from the managed one but carries no
-marker — a strong signal it was customised and the marker just never got
-added — `update()` still overwrites it (managed files always
-resync) but records a message in `warnings` (and emits `@warn`) rather than
-clobbering it silently. That divergence warning is deliberately scoped to
-`test/ad/setup.jl`, the one file whose clobber is silently fatal: divergence
-from a fresh render is the normal state of any managed file on an adopter simply
-running an older kit version, so a generic divergence check would fire on every
-sync and mean nothing. Mark a file you own instead.
+The AD-harness driver `test/ad/setup.jl` is where this began (#162) and still
+honours its original marker `$(_AD_SETUP_OWNED_MARKER)` as well; either
+preserves it. A committed driver that has diverged but carries no marker is
+still overwritten, with a message in `warnings`, rather than clobbered
+silently. That warning is scoped to this one file, whose clobber is silently
+fatal: divergence is the normal state of a managed file on an adopter running
+an older kit, so a generic check would fire on every sync and mean nothing.
 
 Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
 
-Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, org_branding, extension_pages,
-warnings)` named
-tuple: managed files newly added, managed files rewritten, preserved files,
-retired paths deleted, the README badge action, the `LICENSE` action
-(`:skipped` on update), the root `[workspace]` stanza action, the `.gitignore`
-managed-block action, the README logo-title action, the managed
-standard-sections action, the `CITATION.cff` action (`:created` or
-`:preserved` — unlike `LICENSE`, `update` seeds this one when absent, #322),
-the org-branding asset action, the per-extension docs pages as a
-`(created, preserved)` pair of path vectors (both always empty here: those
-pages are package-owned, and only `scaffold` seeds them, #319), and non-fatal
-warnings raised while applying (a `Vector{String}`).
+Returns the same named tuple as [`scaffold`](@ref). `license` is always
+`:skipped` here, `citation` is `:created` or `:preserved` (#322), and
+`extension_pages` is always empty: those pages are package-owned and only
+`scaffold` seeds them (#319).
 """
 function update(target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,
@@ -3903,14 +3272,10 @@ end
 """
     scaffold_update
 
-Transitional alias for [`update`](@ref) (#294): `update` was called
-`scaffold_update` until this rename, kept reachable under its old name so a
-caller already qualifying it (`EpiAwarePackageTools.scaffold_update`, or an
-explicit `using EpiAwarePackageTools: scaffold_update`) keeps working across
-the rename. `scaffold_update` is `public`, like `update` itself — neither is
-`export`ed, so there is no `Main`-binding collision either name could cause
-(see `update`'s own docstring for why that used to matter and no longer
-does). New code should call `update`; this alias is removed in a future
+Transitional alias for [`update`](@ref), which was called `scaffold_update`
+until #294, so an existing qualified caller keeps working across the rename.
+`public` like `update` itself, so neither can cause a `Main`-binding
+collision. New code should call `update`; this alias is removed in a future
 cleanup once adopters have moved off it.
 """
 const scaffold_update = update
@@ -3972,9 +3337,9 @@ Generate a fresh package at `target_dir` and adopt the standard tooling.
 Creates the target directory if needed, writes a minimal package skeleton (a
 `Project.toml` naming `package` with a fresh UUID, and a `src/<package>.jl`
 module stub), then runs [`scaffold`](@ref) over it so the new package starts
-fully managed. Unlike [`scaffold`](@ref) — which adopts the tooling into an
-existing package — `scaffold_generate` also lays down the package's own `Project.toml`
-and source module, so it works from an empty (or non-existent) directory.
+fully managed. Unlike [`scaffold`](@ref), which adopts the tooling into an
+existing package, this also lays down the package's own `Project.toml` and
+source module, so it works from an empty or non-existent directory.
 
   - `package` — the package name (no `.jl` suffix).
   - `authors` — author entries (a `Vector{String}`); written to the new

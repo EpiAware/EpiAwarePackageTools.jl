@@ -1,31 +1,25 @@
 # Managed test-entry runner for the scaffolded `test/runtests.jl`.
 #
-# TestItemRunner's `@run_package_tests` walks the whole *package root* to
-# collect `@testitem`s and `@testsnippet`s, then runs the items its `filter`
-# keeps. Two properties of that walk bite a package whose worktrees live under
-# its own root (the EpiAware `worktrees/wt-*` convention):
+# TestItemRunner's `@run_package_tests` walks the whole *package root*,
+# which bites a package whose worktrees live under its own root (the
+# EpiAware `worktrees/wt-*` convention): `@testsnippet`s are registered
+# globally by name with last-write-wins, and the walk order puts a nested
+# `worktrees/…` copy after the real `test/` one, so a stale worktree's
+# snippet silently shadows the package's own — even the item-level
+# `in_this_package` filter can't help, since it runs after discovery and
+# never sees snippets (kit #191).
 #
-#   * the `filter` only selects test *items* — `@testsnippet`s are registered
-#     globally by name with last-write-wins, and the walk order puts a nested
-#     `worktrees/…` copy after the real `test/` one, so a stale worktree's copy
-#     of a same-named snippet silently shadows the package's own (kit #191);
-#   * even the item-level `in_this_package` path filter cannot help, because it
-#     runs *after* discovery and never sees snippets.
+# `run_package_tests` closes this by rooting the scan at the package's own
+# `test/` tree. It is otherwise a faithful transcription of
+# `TestItemRunner.run_tests` (v1.1.x), with two deviations: the walk is
+# rooted at `testdir` rather than the package root, and `package_name`
+# (which drives each item's default `using <Package>`) is read from the
+# *package root* `Project.toml` — the parent of `testdir`, since `testdir`
+# itself carries the unnamed test-environment project.
 #
-# `run_package_tests` closes both holes by rooting the scan at the package's own
-# `test/` tree, so a sibling `worktrees/…` checkout is never walked and cannot
-# contribute items or snippets. It is otherwise a faithful transcription of
-# `TestItemRunner.run_tests` (v1.1.x), with exactly two deviations from the
-# upstream body:
-#
-#   1. the walk is rooted at `testdir` rather than the package root, and
-#   2. `package_name` (which drives each item's default `using <Package>`) is
-#      read from the *package root* `Project.toml` — the parent of `testdir` —
-#      since `testdir` itself carries the unnamed test-environment project.
-#
-# TestItemRunner is loaded lazily (it is a test-environment dep of adopting
-# packages, not a hard dep of the kit), so every call into it goes through
-# `Base.invokelatest` — see `_require_pkg`.
+# TestItemRunner is a test-environment dep of adopting packages, not a hard
+# dep of the kit, so it is loaded lazily and every call goes through
+# `Base.invokelatest` (see `_require_pkg`).
 
 const _TESTITEMRUNNER_UUID = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
