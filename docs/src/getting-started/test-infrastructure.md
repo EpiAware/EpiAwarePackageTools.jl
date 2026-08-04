@@ -165,6 +165,12 @@ The kit therefore runs each in its own environment under `test/jet/` and
 
 The formatter check reports any file under `src`, `test`, `docs`, or `benchmark`
 that is not formatted, without modifying it.
+The style is Blue, set by the managed `.JuliaFormatter.toml` at the package root,
+which every path that runs JuliaFormatter reads.
+Blue and the JuliaFormatter default are the styles upstream keeps stable, so a
+version bump does not rewrite files;
+sciml and YAS instead make a package choose between pinning a version forever
+and accepting output changes when their bugs are fixed.
 The JET runner fails on any static-analysis report by default.
 A package whose public surface is DynamicPPL `@model` functions can drop a
 package-owned `test/jet/jet_config.jl` defining a `JET_REPORT_FILTER` predicate

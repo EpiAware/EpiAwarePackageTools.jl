@@ -74,19 +74,25 @@ module EpiAwarePackageTools
 # dependency set (see `_require_pkg` below).
 using Test: @testset, @test, @test_skip, @test_broken, detect_ambiguities
 using Markdown: Markdown
-using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
-                           TYPEDFIELDS, TYPEDSIGNATURES
-import Dates
-import Random
-import UUIDs
+using DocStringExtensions:
+    @template,
+    DOCSTRING,
+    EXPORTS,
+    IMPORTS,
+    TYPEDEF,
+    TYPEDFIELDS,
+    TYPEDSIGNATURES
+using Dates: Dates
+using Random: Random
+using UUIDs: UUIDs
 # `Pkg.TOML` parses a target's Project.toml where a line scan will not do —
 # the `[extensions]` table's values are strings or arrays of strings (see
 # `_package_extensions`). Pkg is already a hard dependency of the kit.
-import Pkg
+using Pkg: Pkg
 # `Test` (the module) is needed for the test-runner machinery in
 # `run_tests.jl` (`Test.push_testset`/`get_testset`/`record`/`finish`); the
 # selective `using Test: ...` above only pulls in the assertion macros.
-import Test
+using Test: Test
 
 # Resolve a heavy dependency at call time via `Base.require`, rather than
 # making it a hard dependency of the kit: a package only needs it in the
@@ -100,7 +106,7 @@ import Test
 # every call into it must go through `Base.invokelatest` — that rationale is
 # documented once here rather than restated at each of the 15 call sites.
 function _require_pkg(uuid::AbstractString, name::AbstractString)
-    Base.require(Base.PkgId(Base.UUID(uuid), name))
+    return Base.require(Base.PkgId(Base.UUID(uuid), name))
 end
 
 # Register the standard EpiAware docstring conventions before any docstrings are
@@ -120,8 +126,8 @@ include("docs_build.jl")
 
 export test_aqua, test_jet, test_explicit_imports, test_import_centralisation
 export dynamicppl_model_filter
-export test_docstring_format, test_ext_ambiguities, test_doctest,
-       test_formatting, test_linting
+export test_docstring_format,
+    test_ext_ambiguities, test_doctest, test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
 export STALE_README_HEADINGS, BANNED_README_WORDS
 export test_readme_placeholders, test_readme_prose, test_readme_bullets

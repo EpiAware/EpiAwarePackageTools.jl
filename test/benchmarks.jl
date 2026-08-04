@@ -7,9 +7,13 @@
     using Test
     using EpiAwarePackageTools
     using EpiAwarePackageTools.Benchmarks
-    using EpiAwarePackageTools.Benchmarks: flatten_asv, asv_comment,
-                                           compare_comment, run_suite, fmt_time,
-                                           fmt_ratio
+    using EpiAwarePackageTools.Benchmarks:
+        flatten_asv,
+        asv_comment,
+        compare_comment,
+        run_suite,
+        fmt_time,
+        fmt_ratio
     using BenchmarkTools
     import JSON3
 
@@ -29,12 +33,24 @@
     @testset "flatten_asv reads a results file" begin
         # An AirspeedVelocity-shaped nested group: inner groups carry "data",
         # leaves carry a "times" vector in nanoseconds.
-        group = Dict("data" => Dict(
-            "core" => Dict("data" => Dict(
-                "op" => Dict("times" => [10.0, 30.0, 20.0]))),
-            "AD gradients" => Dict("data" => Dict(
-                "scenarioA" => Dict("data" => Dict(
-                "ForwardDiff" => Dict("times" => [100.0, 200.0])))))))
+        group = Dict(
+            "data" => Dict(
+                "core" => Dict(
+                    "data" => Dict("op" => Dict("times" => [10.0, 30.0, 20.0])),
+                ),
+                "AD gradients" => Dict(
+                    "data" => Dict(
+                        "scenarioA" => Dict(
+                            "data" => Dict(
+                                "ForwardDiff" => Dict(
+                                    "times" => [100.0, 200.0],
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
         dir = mktempdir()
         path = joinpath(dir, "results_MyPkg@abcdef123456.json")
         open(path, "w") do io
@@ -49,11 +65,12 @@
 
     @testset "asv_comment builds the three sections" begin
         base = Dict(
-            "core/op" => 100.0,
-            "AD gradients/scenarioA/ForwardDiff" => 100.0)
+            "core/op" => 100.0, "AD gradients/scenarioA/ForwardDiff" => 100.0
+        )
         head = Dict(
             "core/op" => 150.0,                              # 1.5x slower
-            "AD gradients/scenarioA/ForwardDiff" => 80.0)    # faster
+            "AD gradients/scenarioA/ForwardDiff" => 80.0,
+        )    # faster
         md = asv_comment(base, head)
         @test occursin("## Benchmark results", md)
         @test occursin("Most changed", md)
@@ -68,16 +85,20 @@
     @testset "asv_comment ad_prefix = \"\" skips the AD matrix" begin
         base = Dict("core/op" => 100.0)
         head = Dict("core/op" => 110.0)
-        md = asv_comment(base, head; ad_prefix = "")
+        md = asv_comment(base, head; ad_prefix="")
         @test !occursin("AD gradients (PR / base", md)
         @test occursin("core/op", md)
     end
 
     @testset "asv_comment dir wrapper round-trips through JSON" begin
         function write_results(dir, rev, op_time)
-            group = Dict("data" => Dict(
-                "core" => Dict("data" => Dict(
-                "op" => Dict("times" => [op_time])))))
+            group = Dict(
+                "data" => Dict(
+                    "core" => Dict(
+                        "data" => Dict("op" => Dict("times" => [op_time])),
+                    ),
+                ),
+            )
             open(joinpath(dir, "results_MyPkg@$rev.json"), "w") do io
                 JSON3.write(io, group)
             end
@@ -96,16 +117,15 @@
         function save_group(path; op_evals)
             suite = BenchmarkTools.BenchmarkGroup()
             suite["core"]["op"] = @benchmarkable sum($(rand(op_evals)))
-            tuned = BenchmarkTools.run(suite; samples = 5, seconds = 1)
+            tuned = BenchmarkTools.run(suite; samples=5, seconds=1)
             BenchmarkTools.save(path, tuned)
         end
         dir = mktempdir()
         base_f = joinpath(dir, "base.json")
         pr_f = joinpath(dir, "pr.json")
-        save_group(base_f; op_evals = 10)
-        save_group(pr_f; op_evals = 10)
-        md = compare_comment(pr_f, base_f;
-            backend_order = ["ForwardDiff"])
+        save_group(base_f; op_evals=10)
+        save_group(pr_f; op_evals=10)
+        md = compare_comment(pr_f, base_f; backend_order=["ForwardDiff"])
         @test occursin("Benchmark comparison vs base", md)
         @test occursin("<!-- benchmark-comparison -->", md)
         @test occursin("Evaluation", md)
@@ -118,8 +138,7 @@
         suite["op"] = @benchmarkable sum($(rand(10)))
         dir = mktempdir()
         out = joinpath(dir, "out.json")
-        results = run_suite(suite; out_file = out, seconds = 1,
-            verbose = false)
+        results = run_suite(suite; out_file=out, seconds=1, verbose=false)
         @test results isa BenchmarkTools.BenchmarkGroup
         @test isfile(out)
         # The saved file reloads as a comparable group.

@@ -1,5 +1,13 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
+# The line breaks in the `build_docs` call below are blue's output for the
+# substituted text, not for the template text, so they read as over-wrapped
+# while this is still a template. Blue reflows to the margin rather than
+# keeping the author's breaks, so where the breaks fall depends on how long the
+# package name is; these are right for a name of the kit's own length and
+# approximate for a much shorter or longer one. #344 tracks formatting managed
+# files after substitution instead.
+#
 # Thin entry point for the standard EpiAware documentation build. All build
 # logic lives in `EpiAwarePackageTools.DocsBuild.build_docs` (versioned +
 # tested in the kit); this file only wires the package-owned `pages.jl` +
@@ -43,47 +51,49 @@ for _f in ("pages.jl", "docs_config.jl")
         include(joinpath(@__DIR__, _f))
     else
         @warn "docs/$(_f) not found; building with defaults " *
-              "(a missing pages.jl leaves the site with a Home-only nav). " *
-              "Write it if this package should own one."
+            "(a missing pages.jl leaves the site with a Home-only nav). " *
+            "Write it if this package should own one."
     end
 end
 
 # Read a package-owned config const, defaulting when a missing or older
 # `docs_config.jl`/`pages.jl` (package-owned, not re-applied by `update`)
 # predates it.
-_cfg(sym, default) = isdefined(@__MODULE__, sym) ?
-                     getfield(@__MODULE__, sym) : default
+function _cfg(sym, default)
+    return isdefined(@__MODULE__, sym) ? getfield(@__MODULE__, sym) : default
+end
 
 build_docs(
     EpiAwarePackageTools;
-    repo = "EpiAware/EpiAwarePackageTools.jl",
-    authors = "Sam Abbott, EpiAware contributors",
-    deploy_url = "https://epiawarepackagetools.epiaware.org",
-    pages = _cfg(:pages, ["Home" => "index.md"]),
-    skip_notebooks = "--skip-notebooks" in ARGS ||
-                     get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
-    tutorials_subdir = _cfg(:TUTORIALS_SUBDIR,
-        joinpath("getting-started", "tutorials")),
-    light_tutorials = _cfg(:LIGHT_TUTORIALS, String[]),
-    heavy_tutorials = _cfg(:HEAVY_TUTORIALS, String[]),
-    tutorial_stubs = _cfg(:TUTORIAL_STUBS, Pair{String, String}[]),
-    force_stub_tutorials = _cfg(:FORCE_STUB_TUTORIALS, String[]),
-    linkcheck_ignore = _cfg(:LINKCHECK_IGNORE, Regex[]),
-    index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
-    readme_execute = _cfg(:README_EXECUTE, true),
-    index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
-    benchmark_page = _cfg(:BENCHMARK_PAGE, false),
+    repo="EpiAware/EpiAwarePackageTools.jl",
+    authors="Sam Abbott, EpiAware contributors",
+    deploy_url="https://epiawarepackagetools.epiaware.org",
+    pages=_cfg(:pages, ["Home" => "index.md"]),
+    skip_notebooks="--skip-notebooks" in ARGS ||
+                   get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
+    tutorials_subdir=_cfg(
+        :TUTORIALS_SUBDIR, joinpath("getting-started", "tutorials")
+    ),
+    light_tutorials=_cfg(:LIGHT_TUTORIALS, String[]),
+    heavy_tutorials=_cfg(:HEAVY_TUTORIALS, String[]),
+    tutorial_stubs=_cfg(:TUTORIAL_STUBS, Pair{String,String}[]),
+    force_stub_tutorials=_cfg(:FORCE_STUB_TUTORIALS, String[]),
+    linkcheck_ignore=_cfg(:LINKCHECK_IGNORE, Regex[]),
+    index_rewrites=_cfg(:INDEX_REWRITES, Pair{String,String}[]),
+    readme_execute=_cfg(:README_EXECUTE, true),
+    index_strip_sections=_cfg(:INDEX_STRIP_SECTIONS, String[]),
+    benchmark_page=_cfg(:BENCHMARK_PAGE, false),
     # Performance-history rendering (#193): restrict to headline suites and cap
     # the overall summary/detail to the most-recent revisions. Both default to
     # the whole timeline when a package predates these config keys.
-    history_suites = _cfg(:HISTORY_SUITES, String[]),
-    history_commits = _cfg(:HISTORY_COMMITS, 5),
+    history_suites=_cfg(:HISTORY_SUITES, String[]),
+    history_commits=_cfg(:HISTORY_COMMITS, 5),
     # Overall-summary regression cutoff: the ratio (against the oldest shown
     # revision) at or above which a suite's `Status` flags "⚠ reg". Defaults
     # when a package predates this config key.
-    history_regression_threshold = _cfg(:HISTORY_REGRESSION_THRESHOLD, 1.1),
+    history_regression_threshold=_cfg(:HISTORY_REGRESSION_THRESHOLD, 1.1),
     # Extra docstring-owning modules for a re-export the alias walk cannot
     # reach (e.g. one referenced only from prose); owners of re-exported API
     # bindings are auto-discovered, so most packages leave this empty (#175).
-    extra_modules = _cfg(:EXTRA_MODULES, Module[])
+    extra_modules=_cfg(:EXTRA_MODULES, Module[]),
 )

@@ -21,22 +21,22 @@ fails with `UndefVarError: <mod> not defined in Main`. To make the standard
 """
 function test_doctest(mod::Module)
     # See `test_aqua` for why this goes through `invokelatest`.
-    Documenter = _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4",
-        "Documenter")
+    Documenter = _require_pkg(
+        "e30172f5-a6a5-5a46-863b-614d45cd2de4", "Documenter"
+    )
     # Bind `mod` into `Main` under its own name so `@meta CurrentModule = <mod>`
     # blocks in the docs pages resolve when doctest runs inside a TestItemRunner
     # sandbox module (where `Main` would otherwise lack the binding). Set it
     # when absent so a real `Main.<mod>` is never clobbered.
     name = nameof(mod)
-    isdefined(Main, name) ||
-        Core.eval(Main, Expr(:(=), name, mod))
+    isdefined(Main, name) || Core.eval(Main, Expr(:(=), name, mod))
     return @testset "doctest: $(nameof(mod))" begin
         Base.invokelatest(Documenter.doctest, mod)
     end
 end
 
 """
-    test_formatting(dirs; style = "sciml", verbose = true)
+    test_formatting(dirs; style = "blue", verbose = true)
     test_formatting(mod; ...)
 
 Check that the given source trees are JuliaFormatter-clean.
@@ -45,7 +45,7 @@ Check that the given source trees are JuliaFormatter-clean.
 each existing directory is checked without modification. Passing a `Module`
 defaults to checking the `src`, `test`, `docs`, and `benchmark` directories of
 the package that owns `mod`. `style` selects the JuliaFormatter style (the
-EpiAware standard is `"sciml"`); the `.JuliaFormatter.toml` at the package root
+EpiAware standard is `"blue"`); the `.JuliaFormatter.toml` at the package root
 still takes precedence when present.
 
 The test passes when every directory is already formatted. JuliaFormatter must
@@ -64,9 +64,12 @@ isolated `runtests.jl` owns that configuration).
 The formatting standard, and the org style decision behind it, are in
 [Package standards](@ref standards).
 """
-function test_formatting(dirs; style::AbstractString = "sciml",
-        verbose::Bool = true,
-        env::Union{Nothing, AbstractString} = nothing)
+function test_formatting(
+    dirs;
+    style::AbstractString="blue",
+    verbose::Bool=true,
+    env::Union{Nothing,AbstractString}=nothing,
+)
     env === nothing || return _test_formatting_env(env)
     # See `test_aqua` for why this goes through `invokelatest`.
     JF = _require_pkg("98e50ef6-434e-11e9-1051-2b60c6c9e899", "JuliaFormatter")
@@ -77,8 +80,9 @@ function test_formatting(dirs; style::AbstractString = "sciml",
         else
             sty = _formatter_style(JF, style)
             all_ok = all(existing) do dir
-                Base.invokelatest(JF.format, dir;
-                    style = sty, verbose = verbose, overwrite = false)
+                Base.invokelatest(
+                    JF.format, dir; style=sty, verbose=verbose, overwrite=false
+                )
             end
             @test all_ok
         end
@@ -98,16 +102,18 @@ function _test_formatting_env(env::AbstractString)
 end
 
 # Map a style name to a JuliaFormatter style instance. A `.JuliaFormatter.toml`
-# at the package root still overrides this per directory.
+# at the package root still overrides this per directory. `"blue"` is the org
+# standard; the other names stay mapped so a package that has not resynced yet,
+# or a third-party adopter, can still ask for the style it uses.
 function _formatter_style(JF, style::AbstractString)
     s = lowercase(style)
     # `JF` is loaded at call time via `Base.require`, so its style constructors
     # live in a newer world age; build through `invokelatest` (cf. `test_aqua`).
-    s == "sciml" && return Base.invokelatest(JF.SciMLStyle)
     s == "blue" && return Base.invokelatest(JF.BlueStyle)
+    s == "sciml" && return Base.invokelatest(JF.SciMLStyle)
     s == "yas" && return Base.invokelatest(JF.YASStyle)
     s in ("default", "") && return Base.invokelatest(JF.DefaultStyle)
-    error("unknown JuliaFormatter style $style")
+    return error("unknown JuliaFormatter style $style")
 end
 
 function test_formatting(mod::Module; kwargs...)
@@ -219,9 +225,12 @@ function _method_args(obj)
             names = Base.method_argnames(m)
             for arg in (length(names) > 1 ? names[2:end] : Symbol[])
                 s = string(arg)
-                if arg != Symbol("#unused#") && !startswith(s, "#") &&
-                   !startswith(s, "var\"") && arg != Symbol("") &&
-                   !occursin("##", s) && length(s) > 1
+                if arg != Symbol("#unused#") &&
+                    !startswith(s, "#") &&
+                    !startswith(s, "var\"") &&
+                    arg != Symbol("") &&
+                    !occursin("##", s) &&
+                    length(s) > 1
                     push!(args, arg)
                 end
             end
@@ -266,9 +275,14 @@ matching the original package-level check.
 The documentation standard this check enforces is
 [Package standards](@ref standards).
 """
-function test_docstring_format(mod::Module; exported_only_examples::Bool = true,
-        require_field_docs::Bool = true, require_arg_sections::Bool = true,
-        require_examples::Bool = true, crossref_ignore::Tuple = ())
+function test_docstring_format(
+    mod::Module;
+    exported_only_examples::Bool=true,
+    require_field_docs::Bool=true,
+    require_arg_sections::Bool=true,
+    require_examples::Bool=true,
+    crossref_ignore::Tuple=(),
+)
     syms = names(mod)
     types = [s for s in syms if _is_type(mod, s)]
     funcs = [s for s in syms if !_is_type(mod, s)]
@@ -281,8 +295,13 @@ function test_docstring_format(mod::Module; exported_only_examples::Bool = true,
         end
         @testset "functions" begin
             for name in funcs
-                _check_func_docstring(mod, name; exported_only_examples,
-                    require_arg_sections, require_examples)
+                _check_func_docstring(
+                    mod,
+                    name;
+                    exported_only_examples,
+                    require_arg_sections,
+                    require_examples,
+                )
             end
         end
         @testset "cross-references" begin
@@ -303,12 +322,12 @@ function _check_type_docstring(mod, name; require_field_docs)
             getfield(mod, name)
         catch
             @test_skip "could not resolve $name"
-            return
+            return nothing
         end
         doc = _docstring_content(mod, name)
         if !_meaningful(doc, name)
             @test_skip "$name has no meaningful docstring"
-            return
+            return nothing
         end
         if require_field_docs && isstructtype(obj)
             fields = try
@@ -326,19 +345,20 @@ function _check_type_docstring(mod, name; require_field_docs)
     end
 end
 
-function _check_func_docstring(mod, name; exported_only_examples,
-        require_arg_sections, require_examples)
+function _check_func_docstring(
+    mod, name; exported_only_examples, require_arg_sections, require_examples
+)
     @testset "$name" begin
         obj = try
             getfield(mod, name)
         catch
             @test_skip "could not resolve $name"
-            return
+            return nothing
         end
         doc = _docstring_content(mod, name)
         if !_meaningful(doc, name)
             @test_skip "$name has no meaningful docstring"
-            return
+            return nothing
         end
         args, has_kwargs = _method_args(obj)
         if require_arg_sections
@@ -388,7 +408,7 @@ them out (so the on-surface filter is doing real work, not trivially empty).
 function raw_ambiguity_count(mod::Module, extname::Symbol)
     ext = Base.get_extension(mod, extname)
     ext === nothing && error("extension $extname is not loaded")
-    return length(detect_ambiguities(mod, ext; recursive = false))
+    return length(detect_ambiguities(mod, ext; recursive=false))
 end
 
 """
@@ -405,14 +425,14 @@ extension modules are named `<Package>...Ext`); pass extra prefixes for trigger
 packages whose methods participate in a legitimate pair (e.g.
 `("MyPkg", "Distributions")`).
 """
-function on_surface_ambiguities(mod::Module, extname::Symbol;
-        prefixes = (string(nameof(mod)),))
+function on_surface_ambiguities(
+    mod::Module, extname::Symbol; prefixes=(string(nameof(mod)),)
+)
     ext = Base.get_extension(mod, extname)
     ext === nothing && error("extension $extname is not loaded")
     pre = collect(String, prefixes)
-    amb = detect_ambiguities(mod, ext; recursive = false)
-    return filter(
-        p -> _on_surface(p[1], pre) && _on_surface(p[2], pre), amb)
+    amb = detect_ambiguities(mod, ext; recursive=false)
+    return filter(p -> _on_surface(p[1], pre) && _on_surface(p[2], pre), amb)
 end
 
 """
@@ -437,12 +457,16 @@ the extension's trigger package(s) before calling so the extension is loaded.
     quarantining a known, issue-tracked extension-only ambiguity without
     silencing it; the test flips green when the bug is fixed.
 """
-function test_ext_ambiguities(mod::Module, extname::Symbol;
-        prefixes = (string(nameof(mod)),), expect_phantoms::Bool = false,
-        broken::Bool = false)
+function test_ext_ambiguities(
+    mod::Module,
+    extname::Symbol;
+    prefixes=(string(nameof(mod)),),
+    expect_phantoms::Bool=false,
+    broken::Bool=false,
+)
     return @testset "ext ambiguities: $extname" begin
         expect_phantoms && @test raw_ambiguity_count(mod, extname) > 0
-        amb = on_surface_ambiguities(mod, extname; prefixes = prefixes)
+        amb = on_surface_ambiguities(mod, extname; prefixes=prefixes)
         if broken
             @test_broken isempty(amb)
         else

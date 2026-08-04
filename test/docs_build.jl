@@ -50,14 +50,20 @@
         readme = joinpath(dir, "README.md")
         write(readme, sample_readme)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl",
-            execute = true,
-            rewrites = ["Tagline." => "REWRITTEN"], strip_sections = String[])
+        DB.build_index(;
+            readme=readme,
+            dest=dest,
+            repo="Org/Pkg.jl",
+            execute=true,
+            rewrites=["Tagline." => "REWRITTEN"],
+            strip_sections=String[],
+        )
         out = read(dest, String)
         # EditURL meta block points at the README.
         @test occursin(
             "EditURL = \"https://github.com/Org/Pkg.jl/blob/main/README.md\"",
-            out)
+            out,
+        )
         # Badges (between the markers) and the markers themselves are gone.
         @test !occursin("badges:start", out)
         @test !occursin("[![x](y)](z)", out)
@@ -78,8 +84,12 @@
         readme = joinpath(dir, "README.md")
         write(readme, sample_readme)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl",
-            strip_sections = ["Drop me"])
+        DB.build_index(;
+            readme=readme,
+            dest=dest,
+            repo="Org/Pkg.jl",
+            strip_sections=["Drop me"],
+        )
         out = read(dest, String)
         # The named section and its deeper subsection are removed...
         @test !occursin("## Drop me", out)
@@ -124,7 +134,7 @@
         readme = joinpath(dir, "README.md")
         write(readme, readme_with_comments)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        DB.build_index(; readme=readme, dest=dest, repo="Org/Pkg.jl")
         out = read(dest, String)
         @test !occursin("<!--", out)
         @test !occursin("<!–", out)
@@ -163,14 +173,15 @@
         readme = joinpath(dir, "README.md")
         write(readme, readme_with_fenced_comment)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        DB.build_index(; readme=readme, dest=dest, repo="Org/Pkg.jl")
         out = read(dest, String)
         # The fenced example markers survive, verbatim, inside the fence.
         @test occursin("```html", out)
         @test occursin(
             "<!-- standard-sections:start -->\nsome content\n" *
             "<!-- standard-sections:end -->",
-            out)
+            out,
+        )
         # The real, unfenced markers below are still stripped.
         @test occursin("real content", out)
         @test count("<!-- standard-sections:start -->", out) == 1
@@ -197,13 +208,14 @@
         readme = joinpath(dir, "README.md")
         write(readme, readme_with_tilde_fence)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        DB.build_index(; readme=readme, dest=dest, repo="Org/Pkg.jl")
         out = read(dest, String)
         @test occursin("~~~html", out)
         @test occursin(
             "<!-- standard-sections:start -->\nsome content\n" *
             "<!-- standard-sections:end -->",
-            out)
+            out,
+        )
         @test occursin("real content", out)
         @test count("<!-- standard-sections:start -->", out) == 1
         @test count("<!-- standard-sections:end -->", out) == 1
@@ -229,7 +241,7 @@
         readme = joinpath(dir, "README.md")
         write(readme, readme_spanning)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        DB.build_index(; readme=readme, dest=dest, repo="Org/Pkg.jl")
         out = read(dest, String)
         @test !occursin("<!--", out)
         @test !occursin("comment opens here", out)
@@ -258,13 +270,14 @@
         readme = joinpath(dir, "README.md")
         write(readme, readme_with_indented_comment)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        DB.build_index(; readme=readme, dest=dest, repo="Org/Pkg.jl")
         out = read(dest, String)
         # The indented example markers survive, verbatim, 4-space-indented.
         @test occursin(
             "    <!-- standard-sections:start -->\n    some content\n" *
             "    <!-- standard-sections:end -->",
-            out)
+            out,
+        )
         # The real, unindented markers below are still stripped.
         @test occursin("real content", out)
         @test count("<!-- standard-sections:start -->", out) == 1
@@ -288,12 +301,13 @@
         readme = joinpath(dir, "README.md")
         write(readme, readme_with_inline_comment)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl")
+        DB.build_index(; readme=readme, dest=dest, repo="Org/Pkg.jl")
         out = read(dest, String)
         # The inline example span survives, verbatim, inside the backticks.
         @test occursin(
             "Use `<!-- standard-sections:start -->` inline to show the syntax.",
-            out)
+            out,
+        )
         # The real markers below are still stripped: the only surviving start
         # marker is the one in the span, and no end marker appears anywhere
         # (the span shows the start marker alone).
@@ -307,8 +321,9 @@
         readme = joinpath(dir, "README.md")
         write(readme, sample_readme)
         dest = joinpath(dir, "index.md")
-        DB.build_index(; readme = readme, dest = dest, repo = "Org/Pkg.jl",
-            execute = false)
+        DB.build_index(;
+            readme=readme, dest=dest, repo="Org/Pkg.jl", execute=false
+        )
         out = read(dest, String)
         @test occursin("```julia", out)
         @test !occursin("@example readme", out)
@@ -319,26 +334,37 @@
         news = joinpath(dir, "NEWS.md")
         header = joinpath(dir, "header.jl")
         write(news, "## 1.0\n- a change\n")
-        write(header, "const RELEASE_NOTES_HEADER = \"# Release notes\\n\\n\"\n")
+        write(
+            header, "const RELEASE_NOTES_HEADER = \"# Release notes\\n\\n\"\n"
+        )
         dest = joinpath(dir, "release-notes.md")
         @test DB.build_release_notes(;
-            news = news, header_file = header, dest = dest) == dest
+            news=news, header_file=header, dest=dest
+        ) == dest
         out = read(dest, String)
         @test startswith(out, "# Release notes")
         @test occursin("- a change", out)
         # Missing NEWS -> nothing written.
-        @test DB.build_release_notes(; news = joinpath(dir, "none.md"),
-            header_file = header, dest = joinpath(dir, "x.md")) === nothing
+        @test DB.build_release_notes(;
+            news=joinpath(dir, "none.md"),
+            header_file=header,
+            dest=joinpath(dir, "x.md"),
+        ) === nothing
     end
 
     @testset "build_benchmark_page: tight skeleton + fallback" begin
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative here.\n\n## Structure\nstuff\n")
         dest = joinpath(dir, "src", "benchmarks.md")
-        lc = DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+        lc = DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+        )
         out = read(dest, String)
         # Managed skeleton: anchored heading + Performance history only.
         @test occursin("# [Benchmarks](@id benchmarks)", out)
@@ -350,22 +376,33 @@
         # No benchmarks branch yet -> graceful fallback link.
         @test occursin("`benchmarks` branch", out)
         @test occursin(
-            "https://github.com/Org/Pkg.jl/tree/benchmarks/history", out)
+            "https://github.com/Org/Pkg.jl/tree/benchmarks/history", out
+        )
         # Linkcheck-ignore regexes returned for the history URLs.
-        @test any(r -> occursin(r, "raw.githubusercontent.com/Org/Pkg.jl/benchmarks"), lc)
+        @test any(
+            r -> occursin(r, "raw.githubusercontent.com/Org/Pkg.jl/benchmarks"),
+            lc,
+        )
     end
 
     @testset "build_benchmark_page: strips the seed's leading comment" begin
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         prose = joinpath(dir, "benchmarks.md")
         # The scaffolded seed opens with an HTML authoring-guidance comment.
-        write(prose,
+        write(
+            prose,
             "<!-- PACKAGE-OWNED — your benchmark narrative.\n" *
-            "spans multiple lines. -->\n\nReal narrative.\n")
+            "spans multiple lines. -->\n\nReal narrative.\n",
+        )
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+        )
         out = read(dest, String)
         # The leading comment is gone; the real narrative survives (#145).
         @test !occursin("<!--", out)
@@ -377,43 +414,60 @@
 
     @testset "build_benchmark_page: renders grouped published history" begin
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         run(`git -C $dir config user.email t@t`)
         run(`git -C $dir config user.name t`)
         write(joinpath(dir, "f.txt"), "x")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm init`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm init`; stdout=devnull, stderr=devnull
+            ),
+        )
         sha = strip(read(`git -C $dir rev-parse HEAD`, String))
         short = sha[1:14]
-        cdate = strip(read(
-            `git -C $dir show -s --date=short --format=%cd $sha`, String))
+        cdate = strip(
+            read(`git -C $dir show -s --date=short --format=%cd $sha`, String)
+        )
         main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
         run(`git -C $dir checkout -q --orphan benchmarks`)
-        run(pipeline(`git -C $dir reset -q --hard`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir reset -q --hard`; stdout=devnull, stderr=devnull
+            ),
+        )
         hist = joinpath(dir, "history")
         mkpath(hist)
         # A realistic multi-suite table: slash-path row names, a truncated
         # commit-hash column header (matching benchpkgtable output).
-        write(joinpath(hist, "table.md"),
+        write(
+            joinpath(hist, "table.md"),
             "|   | $short...  |\n" *
             "|:--|:---------:|\n" *
             "| AD gradients/Enzyme forward | 1.0 |\n" *
             "| AD gradients/ForwardDiff | 2.0 |\n" *
             "| Baseline/allocations | 3.0 |\n" *
-            "| time_to_load | 4.0 |\n")
+            "| time_to_load | 4.0 |\n",
+        )
         write(joinpath(hist, "plot_Pkg_1.png"), "PNG")
         write(joinpath(hist, "plot_Pkg_2.png"), "PNG")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm hist`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm hist`; stdout=devnull, stderr=devnull
+            ),
+        )
         run(`git -C $dir checkout -q $main`)
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative.\n")
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+        )
         out = read(dest, String)
         # Ratio table grouped into per-suite `###` sections (#193).
         @test occursin("### Ratio summary", out)
@@ -434,7 +488,8 @@
         @test occursin("<summary>", out)
         @test occursin(
             "![plot_Pkg_1.png](https://raw.githubusercontent.com/Org/Pkg.jl/benchmarks/history/plot_Pkg_1.png)",
-            out)
+            out,
+        )
         @test !occursin("tree/benchmarks/history", out)  # not the fallback
         # No emitted table carries an empty leading header cell (`|   |`):
         # DocumenterVitepress's inventory writer turns one into an anchored
@@ -445,33 +500,49 @@
 
     @testset "build_benchmark_page: history_suites filters suites" begin
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         run(`git -C $dir config user.email t@t`)
         run(`git -C $dir config user.name t`)
         write(joinpath(dir, "f.txt"), "x")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm init`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm init`; stdout=devnull, stderr=devnull
+            ),
+        )
         main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
         run(`git -C $dir checkout -q --orphan benchmarks`)
-        run(pipeline(`git -C $dir reset -q --hard`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir reset -q --hard`; stdout=devnull, stderr=devnull
+            ),
+        )
         hist = joinpath(dir, "history")
         mkpath(hist)
-        write(joinpath(hist, "table.md"),
+        write(
+            joinpath(hist, "table.md"),
             "|   | c1 |\n|:--|:--:|\n" *
             "| AD gradients/ForwardDiff | 2.0 |\n" *
-            "| Baseline/allocations | 3.0 |\n")
+            "| Baseline/allocations | 3.0 |\n",
+        )
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm hist`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm hist`; stdout=devnull, stderr=devnull
+            ),
+        )
         run(`git -C $dir checkout -q $main`)
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative.\n")
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir,
-            history_suites = ["AD gradients"])
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+            history_suites=["AD gradients"],
+        )
         out = read(dest, String)
         # Only the named headline suite is rendered.
         @test occursin("### AD gradients", out)
@@ -508,7 +579,7 @@
         # columns; it must be skipped instead.
         subrows = [
             "ok" => ["40.0", "50.0"],   # well-formed, capped
-            "malformed" => ["1.0", "2.0", "3.0", "4.0", "5.0"]  # uncapped
+            "malformed" => ["1.0", "2.0", "3.0", "4.0", "5.0"],  # uncapped
         ]
         medians = DB._suite_column_medians(subrows, 2)
         # Only the well-formed row contributes; the malformed row's stale
@@ -520,13 +591,16 @@
         @test DB._suite_ratio_series([2.0, 4.0, 1.0]) == [1.0, 2.0, 0.5]
         # Leading `missing` columns are skipped when picking the baseline.
         series = DB._suite_ratio_series(
-            Union{Float64, Missing}[missing, 2.0, 4.0])
+            Union{Float64,Missing}[missing, 2.0, 4.0]
+        )
         @test ismissing(series[1])
         @test series[2] == 1.0
         @test series[3] == 2.0
         # No finite value at all -> every entry stays `missing`.
-        @test all(ismissing,
-            DB._suite_ratio_series(Vector{Union{Float64, Missing}}(missing, 3)))
+        @test all(
+            ismissing,
+            DB._suite_ratio_series(Vector{Union{Float64,Missing}}(missing, 3)),
+        )
     end
 
     @testset "_suite_ratio_series: zero baseline never divides by zero" begin
@@ -559,18 +633,21 @@
         @test trend == "→"
         @test status == "ok"
         # A custom (stricter) regression threshold.
-        _, _, status = DB._suite_trend_status([1.0, 1.06];
-            regression_threshold = 1.05)
+        _, _, status = DB._suite_trend_status(
+            [1.0, 1.06]; regression_threshold=1.05
+        )
         @test status == "⚠ reg"
         # Fewer than two finite points -> no signal.
         ratio, trend, status = DB._suite_trend_status(
-            Vector{Union{Float64, Missing}}([1.0, missing]))
+            Vector{Union{Float64,Missing}}([1.0, missing])
+        )
         @test ismissing(ratio)
         @test trend == "→"
         @test status == "n/a"
         # Exactly at the regression threshold flags (>=, not >).
-        _, _, status = DB._suite_trend_status([1.0, 1.1];
-            regression_threshold = 1.1)
+        _, _, status = DB._suite_trend_status(
+            [1.0, 1.1]; regression_threshold=1.1
+        )
         @test status == "⚠ reg"
         # A non-finite entry (defence in depth alongside the zero-baseline
         # guard in `_suite_ratio_series`) never reaches the threshold
@@ -587,10 +664,8 @@
     @testset "_write_benchmark_summary: markdown table + legend" begin
         io = IOBuffer()
         rows = [
-            (suite = "AD gradients", ratio = 2.0, trend = "↗",
-                status = "⚠ reg"),
-            (suite = "Baseline",
-                ratio = missing, trend = "→", status = "n/a")
+            (suite="AD gradients", ratio=2.0, trend="↗", status="⚠ reg"),
+            (suite="Baseline", ratio=missing, trend="→", status="n/a"),
         ]
         DB._write_benchmark_summary(io, rows)
         out = String(take!(io))
@@ -604,11 +679,13 @@
         # Every suite `n/a` (single-revision) -> a note replaces the table
         # (#282), never a wall of `n/a` rows.
         io5 = IOBuffer()
-        DB._write_benchmark_summary(io5,
+        DB._write_benchmark_summary(
+            io5,
             [
-                (suite = "Baseline", ratio = missing, trend = "→", status = "n/a"),
-                (suite = "AD", ratio = missing, trend = "→", status = "n/a")
-            ])
+                (suite="Baseline", ratio=missing, trend="→", status="n/a"),
+                (suite="AD", ratio=missing, trend="→", status="n/a"),
+            ],
+        )
         out5 = String(take!(io5))
         @test occursin("Not enough comparable revisions", out5)
         @test !occursin("| Baseline |", out5)
@@ -622,37 +699,53 @@
 
     @testset "build_benchmark_page: overall summary table + trend plot" begin
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         run(`git -C $dir config user.email t@t`)
         run(`git -C $dir config user.name t`)
         write(joinpath(dir, "f.txt"), "x")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm init`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm init`; stdout=devnull, stderr=devnull
+            ),
+        )
         main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
         run(`git -C $dir checkout -q --orphan benchmarks`)
-        run(pipeline(`git -C $dir reset -q --hard`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir reset -q --hard`; stdout=devnull, stderr=devnull
+            ),
+        )
         hist = joinpath(dir, "history")
         mkpath(hist)
         # Two revisions: "AD gradients" doubles (regression), "Baseline"
         # halves (improvement), "time_to_load" stays flat.
-        write(joinpath(hist, "table.md"),
+        write(
+            joinpath(hist, "table.md"),
             "|   | aaaa1111...  | bbbb2222...  |\n" *
             "|:--|:-----------:|:-----------:|\n" *
             "| AD gradients/Enzyme forward | 1.0 | 2.0 |\n" *
             "| AD gradients/ForwardDiff | 1.0 | 2.2 |\n" *
             "| Baseline/allocations | 4.0 | 2.0 |\n" *
-            "| time_to_load | 5.0 | 5.05 |\n")
+            "| time_to_load | 5.0 | 5.05 |\n",
+        )
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm hist`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm hist`; stdout=devnull, stderr=devnull
+            ),
+        )
         run(`git -C $dir checkout -q $main`)
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative.\n")
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+        )
         out = read(dest, String)
         # The overall summary leads the page, above the collapsed detail.
         summary_pos = findfirst("## Benchmark summary (overall)", out)
@@ -686,7 +779,8 @@
         write(blocker, "not a directory")
         bad_dest = joinpath(blocker, "sub", "overall_trend.png")
         @test DB._write_overall_trend_plot(
-            bad_dest, col_labels, series_by_suite) == false
+            bad_dest, col_labels, series_by_suite
+        ) == false
         @test !isfile(bad_dest)
     end
 
@@ -695,30 +789,46 @@
         # (one column) -- fewer than two comparable points means nothing to
         # plot, so no `Plots` dependency is touched and no PNG is written.
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         run(`git -C $dir config user.email t@t`)
         run(`git -C $dir config user.name t`)
         write(joinpath(dir, "f.txt"), "x")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm init`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm init`; stdout=devnull, stderr=devnull
+            ),
+        )
         main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
         run(`git -C $dir checkout -q --orphan benchmarks`)
-        run(pipeline(`git -C $dir reset -q --hard`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir reset -q --hard`; stdout=devnull, stderr=devnull
+            ),
+        )
         hist = joinpath(dir, "history")
         mkpath(hist)
-        write(joinpath(hist, "table.md"),
-            "|   | c1 |\n|:--|:--:|\n| Baseline/allocations | 3.0 |\n")
+        write(
+            joinpath(hist, "table.md"),
+            "|   | c1 |\n|:--|:--:|\n| Baseline/allocations | 3.0 |\n",
+        )
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm hist`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm hist`; stdout=devnull, stderr=devnull
+            ),
+        )
         run(`git -C $dir checkout -q $main`)
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative.\n")
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+        )
         out = read(dest, String)
         @test occursin("## Benchmark summary (overall)", out)
         # Single revision -> no ratios, so a note replaces the all-`n/a`
@@ -730,8 +840,9 @@
         hist_pos = findfirst("## Performance history", out)
         intro_pos = findfirst("summary tracks each benchmark suite", out)
         summary_pos = findfirst("## Benchmark summary (overall)", out)
-        @test hist_pos !== nothing && intro_pos !== nothing &&
-              summary_pos !== nothing
+        @test hist_pos !== nothing &&
+            intro_pos !== nothing &&
+            summary_pos !== nothing
         @test first(hist_pos) < first(intro_pos) < first(summary_pos)
         @test !isfile(joinpath(dirname(dest), "overall_trend.png"))
         @test !occursin("Overall benchmark trend", out)
@@ -763,11 +874,9 @@
         groups = [
             "AD gradients" => [
                 "Enzyme forward" => ["1.0", "2.0"],   # parses fine
-                "broken" => ["—", "—"]                # never parses
+                "broken" => ["—", "—"],                # never parses
             ],
-            "time_to_load" => [
-                "time_to_load" => ["—", "—"]
-            ]
+            "time_to_load" => ["time_to_load" => ["—", "—"]],
         ]
         out = DB._unparsed_benchmarks(groups)
         @test "AD gradients/broken" in out
@@ -777,38 +886,56 @@
 
     @testset "build_benchmark_page: notes block + auto-detected skip" begin
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         run(`git -C $dir config user.email t@t`)
         run(`git -C $dir config user.name t`)
         write(joinpath(dir, "f.txt"), "x")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm init`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm init`; stdout=devnull, stderr=devnull
+            ),
+        )
         main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
         run(`git -C $dir checkout -q --orphan benchmarks`)
-        run(pipeline(`git -C $dir reset -q --hard`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir reset -q --hard`; stdout=devnull, stderr=devnull
+            ),
+        )
         hist = joinpath(dir, "history")
         mkpath(hist)
         # One benchmark never parses across either shown revision (a
         # realistic "errored in CI" signature) alongside normal data.
-        write(joinpath(hist, "table.md"),
+        write(
+            joinpath(hist, "table.md"),
             "|   | c1 | c2 |\n|:--|:--:|:--:|\n" *
             "| Baseline/allocations | 1.0 | 1.0 |\n" *
-            "| Baseline/broken | — | — |\n")
+            "| Baseline/broken | — | — |\n",
+        )
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm hist`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm hist`; stdout=devnull, stderr=devnull
+            ),
+        )
         run(`git -C $dir checkout -q $main`)
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative.\n")
         notes = joinpath(dir, "benchmarks_notes.md")
-        write(notes,
-            "<!-- guidance -->\n\n`weird_scenario` intentionally excluded.\n")
+        write(
+            notes,
+            "<!-- guidance -->\n\n`weird_scenario` intentionally excluded.\n",
+        )
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir,
-            notes_file = notes)
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+            notes_file=notes,
+        )
         out = read(dest, String)
         @test occursin("### Skipped & broken benchmarks", out)
         @test occursin("`weird_scenario` intentionally excluded.", out)
@@ -818,9 +945,14 @@
         @test occursin("`Baseline/broken`", out)
         # A missing notes_file degrades gracefully: no section, no error.
         dest2 = joinpath(dir, "src2", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest2, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir,
-            notes_file = joinpath(dir, "no_such_file.md"))
+        DB.build_benchmark_page(;
+            dest=dest2,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+            notes_file=joinpath(dir, "no_such_file.md"),
+        )
         out2 = read(dest2, String)
         @test occursin("`Baseline/broken`", out2)  # auto-detection still runs
         @test !occursin("intentionally excluded", out2)
@@ -848,31 +980,45 @@
         # the verbatim-splice fallback; the spliced table must still carry no
         # empty leading header cell (#204).
         dir = mktempdir()
-        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        run(pipeline(`git -C $dir init -q`; stdout=devnull, stderr=devnull))
         run(`git -C $dir config user.email t@t`)
         run(`git -C $dir config user.name t`)
         write(joinpath(dir, "f.txt"), "x")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm init`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm init`; stdout=devnull, stderr=devnull
+            ),
+        )
         main = strip(read(`git -C $dir rev-parse --abbrev-ref HEAD`, String))
         run(`git -C $dir checkout -q --orphan benchmarks`)
-        run(pipeline(`git -C $dir reset -q --hard`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir reset -q --hard`; stdout=devnull, stderr=devnull
+            ),
+        )
         hist = joinpath(dir, "history")
         mkpath(hist)
         # Header + alignment only: no parseable data rows, so the reshaper
         # falls back to splicing the table verbatim.
         write(joinpath(hist, "table.md"), "|   | c1 | c2 |\n|:--|:--:|:--:|\n")
         run(`git -C $dir add -A`)
-        run(pipeline(`git -C $dir commit -qm hist`;
-            stdout = devnull, stderr = devnull))
+        run(
+            pipeline(
+                `git -C $dir commit -qm hist`; stdout=devnull, stderr=devnull
+            ),
+        )
         run(`git -C $dir checkout -q $main`)
         prose = joinpath(dir, "benchmarks.md")
         write(prose, "Narrative.\n")
         dest = joinpath(dir, "src", "benchmarks.md")
-        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
-            package = "Pkg", prose_file = prose, project_root = dir)
+        DB.build_benchmark_page(;
+            dest=dest,
+            repo="Org/Pkg.jl",
+            package="Pkg",
+            prose_file=prose,
+            project_root=dir,
+        )
         out = read(dest, String)
         @test occursin("| Benchmark | c1 | c2 |", out)
         @test !occursin(r"(?m)^[ \t]*\|[ \t]*\|", out)
@@ -897,10 +1043,11 @@
         @test occursin("EpiAwarePackageTools.scaffold", pub)
         # The module's own docstring is prepended ahead of Contents/Index
         # (#313), not folded into the alphabetical Public API list.
-        @test occursin("```@docs\nEpiAwarePackageTools.EpiAwarePackageTools\n```",
-            pub)
+        @test occursin(
+            "```@docs\nEpiAwarePackageTools.EpiAwarePackageTools\n```", pub
+        )
         @test findfirst("EpiAwarePackageTools.EpiAwarePackageTools", pub)[1] <
-              findfirst("## Contents", pub)[1]
+            findfirst("## Contents", pub)[1]
         intr = read(joinpath(lib, "internals.md"), String)
         @test occursin("# Internal Documentation", intr)
         @test !occursin("@id public-api", intr)
@@ -911,27 +1058,45 @@
     @testset "_check_index_not_truncated fails on a short copy (#91)" begin
         mktempdir() do dir
             src = joinpath(dir, "index.md")
-            write(src,
+            write(
+                src,
                 join(
-                    ("# Title", "", "one", "two", "three", "four",
-                        "five", "six", "seven", "eight", "nine", "ten"),
-                    "\n"))
+                    (
+                        "# Title",
+                        "",
+                        "one",
+                        "two",
+                        "three",
+                        "four",
+                        "five",
+                        "six",
+                        "seven",
+                        "eight",
+                        "nine",
+                        "ten",
+                    ),
+                    "\n",
+                ),
+            )
             built_dir = joinpath(dir, "build", ".documenter")
             mkpath(built_dir)
             # A suspiciously short copy (the #91 failure mode) errors loudly
             # instead of silently shipping a half-built home page.
             write(joinpath(built_dir, "index.md"), "# Title\n\none\ntwo\n")
             @test_throws ErrorException DB._check_index_not_truncated(
-                src, built_dir)
+                src, built_dir
+            )
 
             # A complete (here: identical) copy is fine.
-            cp(src, joinpath(built_dir, "index.md"); force = true)
+            cp(src, joinpath(built_dir, "index.md"); force=true)
             @test DB._check_index_not_truncated(src, built_dir) === nothing
 
             # Documenter's real pipeline only ever ADDS lines (docstring /
             # cross-reference expansion), which must never be flagged.
-            write(joinpath(built_dir, "index.md"),
-                read(src, String) * "\nexpanded content\nmore\n")
+            write(
+                joinpath(built_dir, "index.md"),
+                read(src, String) * "\nexpanded content\nmore\n",
+            )
             @test DB._check_index_not_truncated(src, built_dir) === nothing
         end
     end
@@ -940,14 +1105,16 @@
         mktempdir() do dir
             # No source index.md yet.
             @test DB._check_index_not_truncated(
-                joinpath(dir, "index.md"), joinpath(dir, "build")) === nothing
+                joinpath(dir, "index.md"), joinpath(dir, "build")
+            ) === nothing
 
             # Source exists but the built copy is absent (e.g. a caller that
             # skips the Documenter build entirely).
             src = joinpath(dir, "index.md")
             write(src, "# Title\n")
             @test DB._check_index_not_truncated(
-                src, joinpath(dir, "nobuild")) === nothing
+                src, joinpath(dir, "nobuild")
+            ) === nothing
         end
     end
 
@@ -962,8 +1129,7 @@
     @testset "_write_tutorial_stubs writes each stub, no-ops when empty" begin
         mktempdir() do dir
             tdir = joinpath(dir, "tutorials")
-            DB._write_tutorial_stubs(
-                tdir, ["a.md" => "# A", "b.md" => "# B"])
+            DB._write_tutorial_stubs(tdir, ["a.md" => "# A", "b.md" => "# B"])
             @test isfile(joinpath(tdir, "a.md"))
             @test isfile(joinpath(tdir, "b.md"))
             a = read(joinpath(tdir, "a.md"), String)
@@ -972,7 +1138,7 @@
 
             # Empty stubs: no directory created, no error.
             empty_dir = joinpath(dir, "untouched")
-            DB._write_tutorial_stubs(empty_dir, Pair{String, String}[])
+            DB._write_tutorial_stubs(empty_dir, Pair{String,String}[])
             @test !isdir(empty_dir)
         end
     end
@@ -987,22 +1153,25 @@
             docs_dir = joinpath(dir, "docs")
             tutorials_dir = joinpath(docs_dir, "src", "tutorials")
             mkpath(tutorials_dir)
-            write(joinpath(tutorials_dir, "light.jl"),
+            write(
+                joinpath(tutorials_dir, "light.jl"),
                 """
                 # # A light tutorial
 
                 x = 1 + 1
-                """)
+                """,
+            )
 
             light = ["light.jl"]
             heavy = ["heavy.jl"]
-            stubs = Pair{String, String}[
+            stubs = Pair{String,String}[
                 "light.md" => "# A light tutorial",
-                "heavy.md" => "# A heavy tutorial"
+                "heavy.md" => "# A heavy tutorial",
             ]
 
-            DB._render_tutorials(docs_dir, tutorials_dir, true, light, heavy,
-                stubs)
+            DB._render_tutorials(
+                docs_dir, tutorials_dir, true, light, heavy, stubs
+            )
 
             light_out = read(joinpath(tutorials_dir, "light.md"), String)
             heavy_out = read(joinpath(tutorials_dir, "heavy.md"), String)
@@ -1028,15 +1197,23 @@
             docs_dir = joinpath(dir, "docs")
             tutorials_dir = joinpath(docs_dir, "src", "tutorials")
             mkpath(tutorials_dir)
-            write(joinpath(tutorials_dir, "light.jl"),
+            write(
+                joinpath(tutorials_dir, "light.jl"),
                 """
                 # # A light tutorial
 
                 x = 1 + 1
-                """)
+                """,
+            )
 
-            DB._render_tutorials(docs_dir, tutorials_dir, false,
-                ["light.jl"], String[], Pair{String, String}[])
+            DB._render_tutorials(
+                docs_dir,
+                tutorials_dir,
+                false,
+                ["light.jl"],
+                String[],
+                Pair{String,String}[],
+            )
 
             light_out = read(joinpath(tutorials_dir, "light.md"), String)
             @test occursin("x = 1 + 1", light_out)
@@ -1057,20 +1234,29 @@
             docs_dir = joinpath(dir, "docs")
             tutorials_dir = joinpath(docs_dir, "src", "tutorials")
             mkpath(tutorials_dir)
-            write(joinpath(tutorials_dir, "light.jl"),
+            write(
+                joinpath(tutorials_dir, "light.jl"),
                 """
                 # # A light tutorial
 
                 x = 1 + 1
-                """)
+                """,
+            )
 
-            stubs = Pair{String, String}[
+            stubs = Pair{String,String}[
                 "light.md" => "# A light tutorial",
-                "heavy.md" => "# A heavy tutorial"
+                "heavy.md" => "# A heavy tutorial",
             ]
 
-            DB._render_tutorials(docs_dir, tutorials_dir, false, ["light.jl"],
-                ["heavy.jl"], stubs; force_stub = ["heavy.jl"])
+            DB._render_tutorials(
+                docs_dir,
+                tutorials_dir,
+                false,
+                ["light.jl"],
+                ["heavy.jl"],
+                stubs;
+                force_stub=["heavy.jl"],
+            )
 
             light_out = read(joinpath(tutorials_dir, "light.md"), String)
             heavy_out = read(joinpath(tutorials_dir, "heavy.md"), String)
@@ -1085,9 +1271,8 @@
     @testset "_tutorial_md_name(s) map .jl sources to Literate .md output" begin
         @test DB._tutorial_md_name("ad-backends.jl") == "ad-backends.md"
         @test DB._tutorial_md_name("composer-toolkit.jl") ==
-              "composer-toolkit.md"
-        @test DB._tutorial_md_names(["a.jl", "b.jl"]) ==
-              Set(["a.md", "b.md"])
+            "composer-toolkit.md"
+        @test DB._tutorial_md_names(["a.jl", "b.jl"]) == Set(["a.md", "b.md"])
     end
 
     @testset "_copy_tutorial_data copies data/*-data dirs, skips others" begin
@@ -1095,22 +1280,24 @@
             src_root = joinpath(dir, "src")
             build_root = joinpath(dir, "build")
             mkpath(joinpath(src_root, "tutorials", "data"))
-            write(joinpath(src_root, "tutorials", "data", "sample.csv"),
-                "a,b\n1,2\n")
+            write(
+                joinpath(src_root, "tutorials", "data", "sample.csv"),
+                "a,b\n1,2\n",
+            )
             mkpath(joinpath(src_root, "tutorials", "other-data"))
             write(joinpath(src_root, "tutorials", "other-data", "x.txt"), "x")
             mkpath(joinpath(src_root, "tutorials", "not-data-dir"))
-            write(joinpath(src_root, "tutorials", "not-data-dir", "y.txt"),
-                "y")
+            write(joinpath(src_root, "tutorials", "not-data-dir", "y.txt"), "y")
 
             DB._copy_tutorial_data(src_root, build_root)
 
             @test isfile(
-                joinpath(build_root, "tutorials", "data", "sample.csv"))
+                joinpath(build_root, "tutorials", "data", "sample.csv")
+            )
             @test isfile(
-                joinpath(build_root, "tutorials", "other-data", "x.txt"))
-            @test !isdir(
-                joinpath(build_root, "tutorials", "not-data-dir"))
+                joinpath(build_root, "tutorials", "other-data", "x.txt")
+            )
+            @test !isdir(joinpath(build_root, "tutorials", "not-data-dir"))
         end
     end
 end
@@ -1139,22 +1326,25 @@ end
     # re-export / native / internal cases run on every version; the public-only
     # binding is asserted only where `public` parses.
     _pub(name) = VERSION >= v"1.11" ? "public $name" : ""
-    Base.include_string(@__MODULE__, """
-    module Pkg160
-    using ..Dep: owned_reexport, dep_public
-    export owned_reexport            # re-export a dep-owned binding
-    $(_pub("dep_public"))            # surface a dep-owned binding as public (>=1.11)
-    "native docstring"
-    native
-    native() = 1
-    export native
-    "guts docstring"
-    guts
-    guts() = 2                       # documented, unexported -> internal
-    undoc_public() = 3               # public but carries no docstring
-    $(_pub("undoc_public"))          # -> must be dropped from @docs (>=1.11)
-    end
-    """)
+    Base.include_string(
+        @__MODULE__,
+        """
+module Pkg160
+using ..Dep: owned_reexport, dep_public
+export owned_reexport            # re-export a dep-owned binding
+$(_pub("dep_public"))            # surface a dep-owned binding as public (>=1.11)
+"native docstring"
+native
+native() = 1
+export native
+"guts docstring"
+guts
+guts() = 2                       # documented, unexported -> internal
+undoc_public() = 3               # public but carries no docstring
+$(_pub("undoc_public"))          # -> must be dropped from @docs (>=1.11)
+end
+""",
+    )
 
     pubs, privs = DB.api_bindings(Pkg160)
     # Re-exported and native bindings now appear in the public API (were missed).
@@ -1241,27 +1431,36 @@ end
 
     # Build the API pages (the @docs blocks listing the re-export) and run a
     # real makedocs pass, collecting its warnings.
-    function makedocs_warnings(modules; checkdocs = :all)
+    function makedocs_warnings(modules; checkdocs=:all)
         dir = mktempdir()
         src = joinpath(dir, "src")
         DB.build_api_pages(Pkg175, joinpath(src, "lib"))
         write(joinpath(src, "index.md"), "# Home\n\nHome.\n")
-        pages = ["Home" => "index.md",
-            "Public" => "lib/public.md", "Internals" => "lib/internals.md"]
-        logger = Test.TestLogger(; min_level = CL.Debug)
+        pages = [
+            "Home" => "index.md",
+            "Public" => "lib/public.md",
+            "Internals" => "lib/internals.md",
+        ]
+        logger = Test.TestLogger(; min_level=CL.Debug)
         CL.with_logger(logger) do
-            Documenter.makedocs(; root = dir, sitename = "Pkg175",
-                modules = modules, pages = pages, remotes = nothing,
-                doctest = false, warnonly = true, checkdocs = checkdocs,
-                format = Documenter.HTML())
+            Documenter.makedocs(;
+                root=dir,
+                sitename="Pkg175",
+                modules=modules,
+                pages=pages,
+                remotes=nothing,
+                doctest=false,
+                warnonly=true,
+                checkdocs=checkdocs,
+                format=Documenter.HTML(),
+            )
         end
-        return [string(r.message) for r in logger.logs
-                if r.level >= CL.Warn]
+        return [string(r.message) for r in logger.logs if r.level >= CL.Warn]
     end
 
     nodocs(msgs) = count(m -> occursin("no docs found", m), msgs)
-    missingdocs(msgs) = count(
-        m -> occursin("not included in the manual", m), msgs)
+    missingdocs(msgs) =
+        count(m -> occursin("not included in the manual", m), msgs)
 
     # Control: the un-widened build reproduces the #175 bug — the re-exported
     # @docs entry raises "no docs found" (a broken @ref in the built HTML).
@@ -1270,7 +1469,7 @@ end
 
     # The fix: widening resolution to the owning modules resolves the re-export
     # (no "no docs found")...
-    widened = makedocs_warnings(doc_modules; checkdocs = checkdocs)
+    widened = makedocs_warnings(doc_modules; checkdocs=checkdocs)
     @test nodocs(widened) == 0
     # ...and disabling the (redundant) completeness check keeps the package off
     # the hook for the dependency's own missing docstring (`Dep175.dep_only`).
@@ -1279,7 +1478,7 @@ end
     # Guard the scoping decision: widening *without* the checkdocs relaxation
     # would flood the package's log with the dependency's own hygiene — the
     # exact failure the :none scoping prevents.
-    widened_checked = makedocs_warnings(doc_modules; checkdocs = :all)
+    widened_checked = makedocs_warnings(doc_modules; checkdocs=:all)
     @test nodocs(widened_checked) == 0
     @test any(m -> occursin("Dep175.dep_only", m), widened_checked)
 end
@@ -1322,14 +1521,24 @@ end
     # "not included in the manual" warning for a package with nothing else
     # missing.
     write(joinpath(src, "index.md"), "# Home\n\nHome.\n")
-    pages = ["Home" => "index.md",
-        "Public" => "lib/public.md", "Internals" => "lib/internals.md"]
-    logger = Test.TestLogger(; min_level = CL.Debug)
+    pages = [
+        "Home" => "index.md",
+        "Public" => "lib/public.md",
+        "Internals" => "lib/internals.md",
+    ]
+    logger = Test.TestLogger(; min_level=CL.Debug)
     CL.with_logger(logger) do
-        Documenter.makedocs(; root = dir, sitename = "Pkg313",
-            modules = Module[Pkg313], pages = pages, remotes = nothing,
-            doctest = false, warnonly = true, checkdocs = :all,
-            format = Documenter.HTML())
+        Documenter.makedocs(;
+            root=dir,
+            sitename="Pkg313",
+            modules=Module[Pkg313],
+            pages=pages,
+            remotes=nothing,
+            doctest=false,
+            warnonly=true,
+            checkdocs=:all,
+            format=Documenter.HTML(),
+        )
     end
     msgs = [string(r.message) for r in logger.logs if r.level >= CL.Warn]
     @test !any(m -> occursin("not included in the manual", m), msgs)
@@ -1389,8 +1598,7 @@ end
         io = IOBuffer()
         # `project_root` here is not a git repo, so the hash columns stay as-is
         # (date relabelling is exercised in the git-backed page test).
-        DB._render_ratio_table(io, tbl, mktempdir(); last_n = 5,
-            suites = String[])
+        DB._render_ratio_table(io, tbl, mktempdir(); last_n=5, suites=String[])
         out = String(take!(io))
         @test occursin("### AD gradients", out)
         @test occursin("### Baseline", out)
@@ -1402,8 +1610,9 @@ end
 
     @testset "_render_ratio_table: history_suites filter" begin
         io = IOBuffer()
-        DB._render_ratio_table(io, tbl, mktempdir(); last_n = 5,
-            suites = ["AD gradients"])
+        DB._render_ratio_table(
+            io, tbl, mktempdir(); last_n=5, suites=["AD gradients"]
+        )
         out = String(take!(io))
         @test occursin("### AD gradients", out)
         @test !occursin("### Baseline", out)
@@ -1462,8 +1671,7 @@ end
 
     @testset "_render_ratio_table emits no empty heading" begin
         io = IOBuffer()
-        DB._render_ratio_table(io, tbl, mktempdir(); last_n = 5,
-            suites = String[])
+        DB._render_ratio_table(io, tbl, mktempdir(); last_n=5, suites=String[])
         out = String(take!(io))
         # A heading with no title is the empty-anchor node that kills the
         # deploy build; there must be none.
@@ -1480,8 +1688,9 @@ end
 
     @testset "the overall summary carries no empty-named row" begin
         io = IOBuffer()
-        DB._render_benchmark_overview(io, tbl, mktempdir(), String[],
-            "EpiAware/Example.jl"; last_n = 5)
+        DB._render_benchmark_overview(
+            io, tbl, mktempdir(), String[], "EpiAware/Example.jl"; last_n=5
+        )
         out = String(take!(io))
         @test !any(!isnothing(match(r"^#+\s*$", ln)) for ln in split(out, '\n'))
         # The phantom suite previously showed up as an empty `|  | n/a |` row.
@@ -1546,7 +1755,7 @@ end
 
     @testset "no duplicate leaf labels within a rendered suite" begin
         io = IOBuffer()
-        DB._render_ratio_table(io, stacked, mktempdir(); last_n = 5)
+        DB._render_ratio_table(io, stacked, mktempdir(); last_n=5)
         out = String(take!(io))
         # One suite heading, both metric sub-tables nested beneath it.
         @test occursin("### AD gradients", out)
@@ -1554,8 +1763,9 @@ end
         @test occursin("#### Memory", out)
         # `Enzyme forward` appears once per metric sub-table (Time + Memory),
         # never as an ambiguous pair of rows inside a single table.
-        @test count(l -> startswith(strip(l), "| Enzyme forward |"),
-            split(out, '\n')) == 2
+        @test count(
+            l -> startswith(strip(l), "| Enzyme forward |"), split(out, '\n')
+        ) == 2
         # No emitted heading is empty (the #204 empty-anchor guard still holds).
         @test !any(!isnothing(match(r"^#+\s*$", ln)) for ln in split(out, '\n'))
     end
@@ -1566,9 +1776,11 @@ end
         _, mg_stacked = DB._reshape_history_metrics(stacked, mktempdir())
         _, mg_time = DB._reshape_history_metrics(time_only, mktempdir())
         s_stacked = DB._suite_ratio_series_by_group(
-            DB._headline_groups(mg_stacked), 2)
+            DB._headline_groups(mg_stacked), 2
+        )
         s_time = DB._suite_ratio_series_by_group(
-            DB._headline_groups(mg_time), 2)
+            DB._headline_groups(mg_time), 2
+        )
         @test s_stacked == s_time
         # Concretely: the AD gradients column-1 median is the TIMING median
         # (median(10.3, 20.0) = 15.15), not the old mixed-unit
@@ -1576,7 +1788,7 @@ end
         ad = DB._headline_groups(mg_stacked)[1]
         @test ad.first == "AD gradients"
         @test DB._suite_column_medians(ad.second, 2)[1] ==
-              Statistics.median([10.3, 20.0])
+            Statistics.median([10.3, 20.0])
     end
 
     @testset "a real slowdown is flagged, not masked by alloc counts" begin
@@ -1594,8 +1806,15 @@ end
         | AD gradients/Enzyme forward | 2400 allocs: 1.3 kB | 2400 allocs: 1.3 kB |
         """
         io = IOBuffer()
-        DB._render_benchmark_overview(io, masking, mktempdir(), String[],
-            "EpiAware/Example.jl"; last_n = 5, regression_threshold = 1.1)
+        DB._render_benchmark_overview(
+            io,
+            masking,
+            mktempdir(),
+            String[],
+            "EpiAware/Example.jl";
+            last_n=5,
+            regression_threshold=1.1,
+        )
         summary = first(split(String(take!(io)), "<details>"))
         # The ratio is the timing ratio (20.6 / 10.3 == 2.0) and the suite is
         # flagged as a regression — not diluted to 1.0 / `ok`.
@@ -1633,7 +1852,7 @@ end
         origin = joinpath(root, "origin.git")
         work = joinpath(root, "work")
         clone = joinpath(root, "clone")
-        q = (; stdout = devnull, stderr = devnull)
+        q = (; stdout=devnull, stderr=devnull)
         run(pipeline(`git init -q --bare $origin`; q...))
         run(pipeline(`git init -q $work`; q...))
         run(`git -C $work config user.email t@t`)
@@ -1645,8 +1864,10 @@ end
         run(`git -C $work checkout -q --orphan benchmarks`)
         run(pipeline(`git -C $work reset -q --hard`; q...))
         mkpath(joinpath(work, "history"))
-        write(joinpath(work, "history", "table.md"),
-            "|  | c1 |\n|:-|:-:|\n| a/b | 1 |\n")
+        write(
+            joinpath(work, "history", "table.md"),
+            "|  | c1 |\n|:-|:-:|\n| a/b | 1 |\n",
+        )
         run(`git -C $work add -A`)
         run(pipeline(`git -C $work commit -qm hist`; q...))
         run(`git -C $work checkout -q main`)
@@ -1655,14 +1876,18 @@ end
 
         # A single-branch clone tracking only `main` — the CI docs checkout
         # shape. `origin/benchmarks` is absent until an explicit fetch.
-        run(pipeline(
-            `git clone -q --single-branch --branch main $origin $clone`; q...))
-        @test DB._benchmarks_ref(clone; fetch = false) === nothing
+        run(
+            pipeline(
+                `git clone -q --single-branch --branch main $origin $clone`;
+                q...,
+            ),
+        )
+        @test DB._benchmarks_ref(clone; fetch=false) === nothing
         # The refspec fetch creates the `origin/benchmarks` tracking ref so the
         # lookup resolves it. A bare `git fetch origin benchmarks` (the old
         # behaviour) would only populate FETCH_HEAD and still return nothing —
         # the #192 failure that blanked the deployed history page.
-        @test DB._benchmarks_ref(clone; fetch = true) == "origin/benchmarks"
+        @test DB._benchmarks_ref(clone; fetch=true) == "origin/benchmarks"
         @test !isempty(DB._history_files(clone, "origin/benchmarks"))
     end
 end
@@ -1675,17 +1900,16 @@ end
 
     @testset "_github_org_repo parses the GitHub URL forms" begin
         @test DB._github_org_repo(
-            "https://github.com/EpiAware/ConvolvedDistributions.jl.git") ==
-              ("EpiAware", "ConvolvedDistributions.jl")
+            "https://github.com/EpiAware/ConvolvedDistributions.jl.git"
+        ) == ("EpiAware", "ConvolvedDistributions.jl")
         @test DB._github_org_repo(
-            "https://github.com/EpiAware/ConvolvedDistributions.jl") ==
-              ("EpiAware", "ConvolvedDistributions.jl")
+            "https://github.com/EpiAware/ConvolvedDistributions.jl"
+        ) == ("EpiAware", "ConvolvedDistributions.jl")
         @test DB._github_org_repo(
-            "git@github.com:EpiAware/ConvolvedDistributions.jl.git") ==
-              ("EpiAware", "ConvolvedDistributions.jl")
+            "git@github.com:EpiAware/ConvolvedDistributions.jl.git"
+        ) == ("EpiAware", "ConvolvedDistributions.jl")
         # Non-GitHub hosts have no GitHub remote to derive.
-        @test DB._github_org_repo(
-            "https://gitlab.com/x/Y.jl.git") === nothing
+        @test DB._github_org_repo("https://gitlab.com/x/Y.jl.git") === nothing
         @test DB._github_org_repo("") === nothing
     end
 
@@ -1693,29 +1917,29 @@ end
         url = "https://github.com/EpiAware/ConvolvedDistributions.jl.git"
         # A git-tracked dependency links against the tracked revision.
         @test DB._remote_spec(url, "main", v"0.1.0") ==
-              ("EpiAware", "ConvolvedDistributions.jl", "main")
+            ("EpiAware", "ConvolvedDistributions.jl", "main")
         # With no revision, the installed version's tag names a tagged tree.
         @test DB._remote_spec(url, nothing, v"0.1.0") ==
-              ("EpiAware", "ConvolvedDistributions.jl", "v0.1.0")
+            ("EpiAware", "ConvolvedDistributions.jl", "v0.1.0")
         # Nothing derivable without a URL, a ref, or a GitHub host.
         @test DB._remote_spec(url, nothing, nothing) === nothing
         @test DB._remote_spec(nothing, "main", v"0.1.0") === nothing
         @test DB._remote_spec("https://gitlab.com/x/Y.jl", "main", v"0.1.0") ===
-              nothing
+            nothing
     end
 
     @testset "api_remotes: extra_remotes escape hatch" begin
         dir = mktempdir()
         # An "Org/Repo.jl" string is expanded into a GitHub remote...
-        remotes = DB.api_remotes(Module[]; extra_remotes = Dict(
-            dir => "Org/Repo.jl"))
+        remotes = DB.api_remotes(
+            Module[]; extra_remotes=Dict(dir => "Org/Repo.jl")
+        )
         remote, ref = remotes[realpath(dir)]
         @test remote == Documenter.Remotes.GitHub("Org", "Repo.jl")
         @test ref == "main"
         # ...and an explicit Documenter remote/ref pair passes straight through.
         explicit = (Documenter.Remotes.GitHub("Org", "Other.jl"), "v1.2.3")
-        remotes = DB.api_remotes(Module[]; extra_remotes = Dict(
-            dir => explicit))
+        remotes = DB.api_remotes(Module[]; extra_remotes=Dict(dir => explicit))
         @test remotes[realpath(dir)] == explicit
     end
 
@@ -1804,12 +2028,15 @@ end
     """
     file = joinpath(mktempdir(), "guard232.jl")
     write(file, script)
-    output = read(`$(Base.julia_cmd()) --project=$(Base.active_project()) \
-        --startup-file=no $file`, String)
-    obs = Dict{String, String}()
+    output = read(
+        `$(Base.julia_cmd()) --project=$(Base.active_project()) \
+--startup-file=no $file`,
+        String,
+    )
+    obs = Dict{String,String}()
     for line in eachsplit(output, '\n')
         occursin('=', line) || continue
-        key, value = split(line, '='; limit = 2)
+        key, value = split(line, '='; limit=2)
         obs[strip(key)] = strip(value)
     end
 
@@ -1819,7 +2046,7 @@ end
         # an unrelated PR — so record it loudly and assert only that the kit
         # stops monkey-patching.
         @info "DocumenterVitepress $(obs["version"]) no longer aborts on an " *
-              "empty anchor id: delete the DocsBuild empty-anchor shim (#232)"
+            "empty anchor id: delete the DocsBuild empty-anchor shim (#232)"
         @test obs["patched"] == "false"
     elseif get(obs, "stale_bound", "false") == "true"
         # The writer still aborts, but its version is newer than the one the
@@ -1828,13 +2055,14 @@ end
         # guard telling us the bound is stale. Fail with that, in those words,
         # rather than letting the unpatched writer throw a bare ArgumentError
         # from inside a subprocess.
-        @test false ||
-              error("DocumenterVitepress $(obs["version"]) still aborts on an " *
-                    "empty anchor id but is newer than " *
-                    "_VITEPRESS_LAST_KNOWN_BROKEN, so the guard declined to " *
-                    "patch it. Diff its render(::AnchoredHeader) against the " *
-                    "shim's copy; if unchanged, raise the bound to " *
-                    "$(obs["version"]) (#232).")
+        @test false || error(
+            "DocumenterVitepress $(obs["version"]) still aborts on an " *
+            "empty anchor id but is newer than " *
+            "_VITEPRESS_LAST_KNOWN_BROKEN, so the guard declined to " *
+            "patch it. Diff its render(::AnchoredHeader) against the " *
+            "shim's copy; if unchanged, raise the bound to " *
+            "$(obs["version"]) (#232).",
+        )
     else
         # The guard installs, and the warning names the culprit.
         @test obs["patched"] == "true"
@@ -1927,8 +2155,14 @@ end
         harness = joinpath(@__DIR__, "stargazers_loader_behaviour.mjs")
         copies = [
             joinpath(root, "docs", "src", "components", "stargazers.data.ts"),
-            joinpath(root, "templates", "docs", "src", "components",
-                "stargazers.data.ts")
+            joinpath(
+                root,
+                "templates",
+                "docs",
+                "src",
+                "components",
+                "stargazers.data.ts",
+            ),
         ]
         for path in copies
             # The template ships a `{{REPO}}` placeholder that is not valid JS;
@@ -1938,8 +2172,11 @@ end
             mktempdir() do d
                 mjs = joinpath(d, "loader.mjs")
                 write(mjs, src)
-                @test success(pipeline(`$node $harness $mjs`;
-                    stdout = stdout, stderr = stderr))
+                @test success(
+                    pipeline(
+                        `$node $harness $mjs`; stdout=stdout, stderr=stderr
+                    ),
+                )
             end
         end
     end
@@ -2008,7 +2245,7 @@ end
         x::Float64
     end
     "Pkg303's own docstring for mean(::Plain, ::Real)."
-    function Statistics.mean(w::Plain, scale::Real = 1.0)
+    function Statistics.mean(w::Plain, scale::Real=1.0)
         return w.x * scale
     end
     export Plain, mean
@@ -2034,9 +2271,10 @@ end
             "Home" => "index.md",
             "Extensions" => [
                 "Plots" => "extensions/plots.md",
-                "Tables" => "extensions/tables.md"
+                "Tables" => "extensions/tables.md",
             ],
-            "Benchmarks" => "benchmarks.md"]
+            "Benchmarks" => "benchmarks.md",
+        ]
         out = DB._strip_extensions_nav(pages, src_dir)
         # The page that exists is kept; the one that does not is dropped, so
         # the built nav carries no dangling link.
@@ -2050,13 +2288,19 @@ end
         # With no pages at all the group itself goes: an empty dropdown is
         # worse than none. This is the package-scaffolded-before-#319 case.
         gone = DB._strip_extensions_nav(
-            ["Home" => "index.md",
-                "Extensions" => ["Tables" => "extensions/tables.md"]], src_dir)
+            [
+                "Home" => "index.md",
+                "Extensions" => ["Tables" => "extensions/tables.md"],
+            ],
+            src_dir,
+        )
         @test gone == ["Home" => "index.md"]
 
         # A tree with no extensions entries is returned unchanged in shape.
-        plain = ["Home" => "index.md",
-            "API reference" => ["Public API" => "lib/public.md"]]
+        plain = [
+            "Home" => "index.md",
+            "API reference" => ["Public API" => "lib/public.md"],
+        ]
         @test DB._strip_extensions_nav(plain, src_dir) == plain
     end
 end

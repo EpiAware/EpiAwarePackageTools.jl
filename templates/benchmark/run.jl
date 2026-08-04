@@ -13,5 +13,5 @@ out_file = get(ARGS, 1, "results.json")
 
 include(joinpath(@__DIR__, "benchmarks.jl"))  # defines `SUITE`
 
-run_suite(SUITE; out_file = out_file, seconds = 1, verbose = true)
+run_suite(SUITE; out_file=out_file, seconds=1, verbose=true)
 println("Saved benchmark results to ", out_file)

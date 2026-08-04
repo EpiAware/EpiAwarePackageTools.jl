@@ -25,7 +25,7 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # heading should preserve the tutorial's `@id` (e.g.
 # `"# [Title](@id my-anchor)"`) so cross-references from other pages still
 # resolve in a fast build.
-const TUTORIAL_STUBS = Pair{String, String}[]
+const TUTORIAL_STUBS = Pair{String,String}[]
 
 # Regexes for URLs to skip during the (full-build) linkcheck, e.g. a page
 # published by a separate workflow that is not yet live.
@@ -46,10 +46,10 @@ const LINKCHECK_IGNORE = Regex[]
 # CensoredDistributions.jl does) keeps the raw README useful on GitHub while
 # the generated home page's linkcheck resolves them in-site instead of over
 # HTTP.
-const INDEX_REWRITES = Pair{String, String}[
+const INDEX_REWRITES = Pair{String,String}[
     "[Getting started](https://epiawarepackagetools.epiaware.org/stable/getting-started/)" => "[Getting started](@ref getting-started)",
     "[Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure/)" => "[Infrastructure and template sync](@ref infrastructure)",
-    "[Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)" => "[Public API](@ref public-api)"
+    "[Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)" => "[Public API](@ref public-api)",
 ]
 
 # The kit's README uses illustrative code (placeholder package names like

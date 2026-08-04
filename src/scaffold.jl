@@ -54,12 +54,12 @@ end
 
 # Convenience constructor: most templates are AD- and benchmark-agnostic.
 function Template(src, dest, managed, substitute)
-    Template(src, dest, managed, substitute, :always, :always)
+    return Template(src, dest, managed, substitute, :always, :always)
 end
 
 # AD-flavoured templates specify only `ad`; still benchmark-agnostic.
 function Template(src, dest, managed, substitute, ad::Symbol)
-    Template(src, dest, managed, substitute, ad, :always)
+    return Template(src, dest, managed, substitute, ad, :always)
 end
 
 # The standard template set. Order is informational only.
@@ -92,65 +92,127 @@ const SCAFFOLD_TEMPLATES = Template[
     # repo-specific, but the content is fully derived from the handle so it is
     # re-applied like any other managed file.
     Template(".github/CODEOWNERS", ".github/CODEOWNERS", true, true),
-    Template(".github/workflows/test.yaml",
-        ".github/workflows/test.yaml", true, true),
+    Template(
+        ".github/workflows/test.yaml", ".github/workflows/test.yaml", true, true
+    ),
     # The AD CI caller is opt-in: only scaffolded when `ad = true`.
-    Template(".github/workflows/ad.yaml",
-        ".github/workflows/ad.yaml", true, true, :ad_only),
-    Template(".github/workflows/document.yaml",
-        ".github/workflows/document.yaml", true, true),
-    Template(".github/workflows/pre-commit.yaml",
-        ".github/workflows/pre-commit.yaml", true, true),
-    Template(".github/workflows/codecoverage.yaml",
-        ".github/workflows/codecoverage.yaml", true, true),
-    Template(".github/workflows/docpreviewcleanup.yaml",
-        ".github/workflows/docpreviewcleanup.yaml", true, true),
-    Template(".github/workflows/TagBot.yaml",
-        ".github/workflows/TagBot.yaml", true, true),
+    Template(
+        ".github/workflows/ad.yaml",
+        ".github/workflows/ad.yaml",
+        true,
+        true,
+        :ad_only,
+    ),
+    Template(
+        ".github/workflows/document.yaml",
+        ".github/workflows/document.yaml",
+        true,
+        true,
+    ),
+    Template(
+        ".github/workflows/pre-commit.yaml",
+        ".github/workflows/pre-commit.yaml",
+        true,
+        true,
+    ),
+    Template(
+        ".github/workflows/codecoverage.yaml",
+        ".github/workflows/codecoverage.yaml",
+        true,
+        true,
+    ),
+    Template(
+        ".github/workflows/docpreviewcleanup.yaml",
+        ".github/workflows/docpreviewcleanup.yaml",
+        true,
+        true,
+    ),
+    Template(
+        ".github/workflows/TagBot.yaml",
+        ".github/workflows/TagBot.yaml",
+        true,
+        true,
+    ),
     # Triggers Julia General Registry registration: a `/register` issue/PR
     # comment or a manual `workflow_dispatch` both post the
     # `@JuliaRegistrator register` comment on `main`'s HEAD commit (gated on
     # the actor having write access). No `{{PLACEHOLDER}}`s — every value it
     # needs comes from the GitHub Actions context, so it ships unsubstituted.
-    Template(".github/workflows/Register.yml",
-        ".github/workflows/Register.yml", true, false),
-    Template(".github/workflows/downstream.yaml",
-        ".github/workflows/downstream.yaml", true, true),
+    Template(
+        ".github/workflows/Register.yml",
+        ".github/workflows/Register.yml",
+        true,
+        false,
+    ),
+    Template(
+        ".github/workflows/downstream.yaml",
+        ".github/workflows/downstream.yaml",
+        true,
+        true,
+    ),
     # Registration-safety caller (thin caller of the EpiAware/.github
     # reusable): fails when a dependency is unregistrable (unregistered or
     # compat-unsatisfiable) so a version cannot be published unregistrable
     # (the ConvolvedDistributions 0.2.0 failure), and warns when an org
     # reverse-dep's compat is stranded by the version under test.
-    Template(".github/workflows/registrability.yaml",
-        ".github/workflows/registrability.yaml", true, true),
+    Template(
+        ".github/workflows/registrability.yaml",
+        ".github/workflows/registrability.yaml",
+        true,
+        true,
+    ),
     # Weekly + on-demand nudge (thin caller of the EpiAware/.github
     # reusable): opens/refreshes a single issue when Project.toml/main
     # has unreleased changes, telling a maintainer whether a version
     # bump or only registration is outstanding, and closes it once
     # everything is released.
-    Template(".github/workflows/release-nudge.yaml",
-        ".github/workflows/release-nudge.yaml", true, true),
+    Template(
+        ".github/workflows/release-nudge.yaml",
+        ".github/workflows/release-nudge.yaml",
+        true,
+        true,
+    ),
     # Cancel a PR's in-flight runs on close/merge (thin caller of the
     # EpiAware/.github reusable), freeing runners that concurrency groups miss.
-    Template(".github/workflows/cancel-on-close.yaml",
-        ".github/workflows/cancel-on-close.yaml", true, true),
+    Template(
+        ".github/workflows/cancel-on-close.yaml",
+        ".github/workflows/cancel-on-close.yaml",
+        true,
+        true,
+    ),
     # The generic org "Try this PR!" helper: comments install instructions for
     # the PR branch. Parameterised by repo slug + package name.
-    Template(".github/workflows/try-this-pr.yaml",
-        ".github/workflows/try-this-pr.yaml", true, true),
+    Template(
+        ".github/workflows/try-this-pr.yaml",
+        ".github/workflows/try-this-pr.yaml",
+        true,
+        true,
+    ),
     # The Claude Code review bot integration (org-standard; the OAuth token is a
     # per-repo secret). Gated on the `reviewer` handle so only that user's
     # comments/PRs trigger it.
-    Template(".github/workflows/claude.yml",
-        ".github/workflows/claude.yml", true, true),
-    Template(".github/workflows/claude-code-review.yml",
-        ".github/workflows/claude-code-review.yml", true, true),
+    Template(
+        ".github/workflows/claude.yml",
+        ".github/workflows/claude.yml",
+        true,
+        true,
+    ),
+    Template(
+        ".github/workflows/claude-code-review.yml",
+        ".github/workflows/claude-code-review.yml",
+        true,
+        true,
+    ),
     # Scheduled template-sync: re-applies the managed standard on a schedule
     # (and on Dependabot updates) and opens a PR / refreshes the branch when the
     # committed infra has drifted from the kit. The auto-refresh half of the
     # dogfooding loop (the `self-drift` check guards it the rest of the time).
-    Template(".github/workflows/template-sync.yaml",
-        ".github/workflows/template-sync.yaml", true, true),
+    Template(
+        ".github/workflows/template-sync.yaml",
+        ".github/workflows/template-sync.yaml",
+        true,
+        true,
+    ),
 
     # --- benchmark CI (managed, opt-in via `benchmarks = true`) ---
     # The PR base-vs-head comparison comment (`benchmark.yaml`) and the
@@ -159,23 +221,46 @@ const SCAFFOLD_TEMPLATES = Template[
     # comment from `benchmark/compare.jl` (the BenchmarkTools `compare_comment`
     # path); `benchmark-history.yaml` renders the timeline with
     # AirspeedVelocity's `benchpkgtable`/`benchpkgplot`.
-    Template(".github/workflows/benchmark.yaml",
-        ".github/workflows/benchmark.yaml", true, true, :always, :bench_only),
-    Template(".github/workflows/benchmark-history.yaml",
-        ".github/workflows/benchmark-history.yaml", true, true, :always,
-        :bench_only),
+    Template(
+        ".github/workflows/benchmark.yaml",
+        ".github/workflows/benchmark.yaml",
+        true,
+        true,
+        :always,
+        :bench_only,
+    ),
+    Template(
+        ".github/workflows/benchmark-history.yaml",
+        ".github/workflows/benchmark-history.yaml",
+        true,
+        true,
+        :always,
+        :bench_only,
+    ),
 
     # --- version automation (managed) ---
     # Auto-increment the patch version on a merge to main when it was not bumped
     # (`auto-version-increment.yaml`), and an on-demand `/version major|minor|
     # patch` PR comment command (`version-on-demand.yaml`), both driven by the
     # bundled `increment-version` composite action.
-    Template(".github/workflows/auto-version-increment.yaml",
-        ".github/workflows/auto-version-increment.yaml", true, false),
-    Template(".github/workflows/version-on-demand.yaml",
-        ".github/workflows/version-on-demand.yaml", true, false),
-    Template(".github/actions/increment-version/action.yaml",
-        ".github/actions/increment-version/action.yaml", true, true),
+    Template(
+        ".github/workflows/auto-version-increment.yaml",
+        ".github/workflows/auto-version-increment.yaml",
+        true,
+        false,
+    ),
+    Template(
+        ".github/workflows/version-on-demand.yaml",
+        ".github/workflows/version-on-demand.yaml",
+        true,
+        false,
+    ),
+    Template(
+        ".github/actions/increment-version/action.yaml",
+        ".github/actions/increment-version/action.yaml",
+        true,
+        true,
+    ),
 
     # NOTE: the org-level community health files (ISSUE_TEMPLATE/, the
     # PULL_REQUEST_TEMPLATE, CONTRIBUTING/CODE_OF_CONDUCT/SUPPORT) are not
@@ -185,25 +270,39 @@ const SCAFFOLD_TEMPLATES = Template[
     # below (GitHub has no org-default CODEOWNERS).
 
     # --- shipped test infrastructure (managed) ---
-    Template("test/package/quality.jl",
-        "test/package/quality.jl", true, false),
+    Template("test/package/quality.jl", "test/package/quality.jl", true, false),
     Template("test/jet/runtests.jl", "test/jet/runtests.jl", true, true),
     Template("test/jet/Project.toml", "test/jet/Project.toml", true, true),
-    Template("test/formatter/runtests.jl",
-        "test/formatter/runtests.jl", true, false),
+    Template(
+        "test/formatter/runtests.jl", "test/formatter/runtests.jl", true, false
+    ),
     # Substituted for the single-source `{{JULIAFORMATTER_VERSION}}` compat pin.
-    Template("test/formatter/Project.toml",
-        "test/formatter/Project.toml", true, true),
+    Template(
+        "test/formatter/Project.toml", "test/formatter/Project.toml", true, true
+    ),
     # The AD harness drivers are opt-in (managed, but only when `ad = true`).
     Template("test/ad/setup.jl", "test/ad/setup.jl", true, true, :ad_only),
-    Template("test/ad/runtests.jl", "test/ad/runtests.jl", true, false,
-        :ad_only),
+    Template(
+        "test/ad/runtests.jl", "test/ad/runtests.jl", true, false, :ad_only
+    ),
     # The benchmark suite drivers are opt-in (managed, only when
     # `benchmarks = true`).
-    Template("benchmark/run.jl", "benchmark/run.jl", true, false, :always,
-        :bench_only),
-    Template("benchmark/compare.jl", "benchmark/compare.jl", true, false,
-        :always, :bench_only),
+    Template(
+        "benchmark/run.jl",
+        "benchmark/run.jl",
+        true,
+        false,
+        :always,
+        :bench_only,
+    ),
+    Template(
+        "benchmark/compare.jl",
+        "benchmark/compare.jl",
+        true,
+        false,
+        :always,
+        :bench_only,
+    ),
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
     # The standard org docs build (mirrors CensoredDistributions.jl). `make.jl`
@@ -212,24 +311,52 @@ const SCAFFOLD_TEMPLATES = Template[
     # `pages.jl` (the nav tree) are package-owned so a package extends them.
     Template("docs/make.jl", "docs/make.jl", true, true),
     # The per-subprocess heavy-tutorial runner `make.jl` shells out to.
-    Template("docs/run_literate_tutorial.jl",
-        "docs/run_literate_tutorial.jl", true, false),
+    Template(
+        "docs/run_literate_tutorial.jl",
+        "docs/run_literate_tutorial.jl",
+        true,
+        false,
+    ),
     Template("docs/package.json", "docs/package.json", true, false),
     Template("docs/versions.js", "docs/versions.js", true, false),
-    Template("docs/src/.vitepress/config.mts",
-        "docs/src/.vitepress/config.mts", true, true),
-    Template("docs/src/.vitepress/theme/index.ts",
-        "docs/src/.vitepress/theme/index.ts", true, false),
-    Template("docs/src/.vitepress/theme/style.css",
-        "docs/src/.vitepress/theme/style.css", true, false),
-    Template("docs/src/components/VersionPicker.vue",
-        "docs/src/components/VersionPicker.vue", true, false),
+    Template(
+        "docs/src/.vitepress/config.mts",
+        "docs/src/.vitepress/config.mts",
+        true,
+        true,
+    ),
+    Template(
+        "docs/src/.vitepress/theme/index.ts",
+        "docs/src/.vitepress/theme/index.ts",
+        true,
+        false,
+    ),
+    Template(
+        "docs/src/.vitepress/theme/style.css",
+        "docs/src/.vitepress/theme/style.css",
+        true,
+        false,
+    ),
+    Template(
+        "docs/src/components/VersionPicker.vue",
+        "docs/src/components/VersionPicker.vue",
+        true,
+        false,
+    ),
     # The GitHub-stars navbar widget (Vue component + its build-time star-count
     # loader). Both carry `{{REPO}}` so the widget targets the adopting repo.
-    Template("docs/src/components/StarUs.vue",
-        "docs/src/components/StarUs.vue", true, true),
-    Template("docs/src/components/stargazers.data.ts",
-        "docs/src/components/stargazers.data.ts", true, true),
+    Template(
+        "docs/src/components/StarUs.vue",
+        "docs/src/components/StarUs.vue",
+        true,
+        true,
+    ),
+    Template(
+        "docs/src/components/stargazers.data.ts",
+        "docs/src/components/stargazers.data.ts",
+        true,
+        true,
+    ),
     # The AD-backends tutorial page (generalised from CensoredDistributions.jl,
     # the org model page). Managed so the page body stays kit-current across
     # syncs; everything package-specific it reports — scenarios, backends, and
@@ -240,9 +367,13 @@ const SCAFFOLD_TEMPLATES = Template[
     # docs-env deps it needs live in the package-owned docs seeds below, filled
     # via the `AD_*` docs fragments (see `_ad_heavy_tutorials` etc.); an
     # adopter that predates those seeds wires them by hand once.
-    Template("docs/src/getting-started/tutorials/ad-backends.jl",
-        "docs/src/getting-started/tutorials/ad-backends.jl", true, true,
-        :ad_only),
+    Template(
+        "docs/src/getting-started/tutorials/ad-backends.jl",
+        "docs/src/getting-started/tutorials/ad-backends.jl",
+        true,
+        true,
+        :ad_only,
+    ),
 
     # --- package-owned skeletons (written once, never overwritten) ---
     # The standard DocStringExtensions `@template` conventions. Package-owned
@@ -263,8 +394,9 @@ const SCAFFOLD_TEMPLATES = Template[
     # the generated docs home page (see `_apply_logo_title` for the managed
     # README title tag). Package-owned like LICENSE — replace the file, never
     # regenerated.
-    Template("docs/src/assets/logo.svg",
-        "docs/src/assets/logo.svg", false, true),
+    Template(
+        "docs/src/assets/logo.svg", "docs/src/assets/logo.svg", false, true
+    ),
     # Substituted so the benchmark nav entry (`{{BENCHMARKS_NAV}}`) is present
     # only when `benchmarks = true`; package-owned so a package extends the tree.
     Template("docs/pages.jl", "docs/pages.jl", false, true),
@@ -274,48 +406,94 @@ const SCAFFOLD_TEMPLATES = Template[
     # Docs about the kit (customising the site, infrastructure and template
     # sync) are not seeded here: they describe the kit, not the adopting
     # package, so they live on the kit's own site (#194).
-    Template("docs/src/getting-started/index.md",
-        "docs/src/getting-started/index.md", false, true),
+    Template(
+        "docs/src/getting-started/index.md",
+        "docs/src/getting-started/index.md",
+        false,
+        true,
+    ),
     # The optional Literate/tutorial + README-rewrite config `make.jl` reads
     # (empty by default), and the release-notes page header (NEWS.md prepend).
     # Substituted so `BENCHMARK_PAGE` defaults to the `benchmarks` flag.
     Template("docs/docs_config.jl", "docs/docs_config.jl", false, true),
-    Template("docs/release_notes_header.jl",
-        "docs/release_notes_header.jl", false, true),
+    Template(
+        "docs/release_notes_header.jl",
+        "docs/release_notes_header.jl",
+        false,
+        true,
+    ),
     # The package-owned prose hook spliced into the generated benchmark page.
     # Opt-in: only written when `benchmarks = true` (no page, no hook otherwise).
-    Template("docs/benchmarks.md", "docs/benchmarks.md", false, true, :always,
-        :bench_only),
+    Template(
+        "docs/benchmarks.md",
+        "docs/benchmarks.md",
+        false,
+        true,
+        :always,
+        :bench_only,
+    ),
     # The package-owned "Skipped & broken benchmarks" notes hook, spliced
     # near the top of the benchmark page (below the overall trend plot,
     # above the collapsed detail). Same write-once/opt-in lifecycle as the
     # narrative prose hook above.
-    Template("docs/benchmarks_notes.md", "docs/benchmarks_notes.md", false,
-        true, :always, :bench_only),
+    Template(
+        "docs/benchmarks_notes.md",
+        "docs/benchmarks_notes.md",
+        false,
+        true,
+        :always,
+        :bench_only,
+    ),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
     Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
-    Template("test/Project.noad.toml", "test/Project.toml", false, true,
-        :noad_only),
-    Template("test/package/qa_config.jl",
-        "test/package/qa_config.jl", false, true),
+    Template(
+        "test/Project.noad.toml", "test/Project.toml", false, true, :noad_only
+    ),
+    Template(
+        "test/package/qa_config.jl", "test/package/qa_config.jl", false, true
+    ),
     # The optional JET report filter (e.g. for a DynamicPPL @model package).
     Template("test/jet/jet_config.jl", "test/jet/jet_config.jl", false, false),
     # The benchmark environment, so `--project=benchmark` resolves. Opt-in.
-    Template("benchmark/Project.toml", "benchmark/Project.toml", false, true,
-        :always, :bench_only),
+    Template(
+        "benchmark/Project.toml",
+        "benchmark/Project.toml",
+        false,
+        true,
+        :always,
+        :bench_only,
+    ),
     # The AD scenarios + registry skeleton are opt-in (only when `ad = true`).
-    Template("test/ad/scenarios.jl", "test/ad/scenarios.jl", false, true,
-        :ad_only),
-    Template("test/ad/Project.toml", "test/ad/Project.toml", false, true,
-        :ad_only),
-    Template("test/ADFixtures/Project.toml",
-        "test/ADFixtures/Project.toml", false, true, :ad_only),
-    Template("test/ADFixtures/src/ADFixtures.jl",
-        "test/ADFixtures/src/ADFixtures.jl", false, true, :ad_only),
+    Template(
+        "test/ad/scenarios.jl", "test/ad/scenarios.jl", false, true, :ad_only
+    ),
+    Template(
+        "test/ad/Project.toml", "test/ad/Project.toml", false, true, :ad_only
+    ),
+    Template(
+        "test/ADFixtures/Project.toml",
+        "test/ADFixtures/Project.toml",
+        false,
+        true,
+        :ad_only,
+    ),
+    Template(
+        "test/ADFixtures/src/ADFixtures.jl",
+        "test/ADFixtures/src/ADFixtures.jl",
+        false,
+        true,
+        :ad_only,
+    ),
     # The package-owned benchmark suite skeleton (the `SUITE`). Opt-in.
-    Template("benchmark/benchmarks.jl", "benchmark/benchmarks.jl", false, true,
-        :always, :bench_only)
+    Template(
+        "benchmark/benchmarks.jl",
+        "benchmark/benchmarks.jl",
+        false,
+        true,
+        :always,
+        :bench_only,
+    ),
 ]
 
 # Managed paths the kit has retired (#185). `update` writes the current
@@ -325,9 +503,7 @@ const SCAFFOLD_TEMPLATES = Template[
 # Retiring is one-way: a path listed here is removed on sync and never written
 # again, so it must not be (or contain) a live template destination — enforced
 # by the scaffold tests. An entry may be a file or a directory.
-const RETIRED_PATHS = String[
-    "benchmark/comment"
-]
+const RETIRED_PATHS = String["benchmark/comment"]
 
 # Absolute native path of a template destination. Every `dest`/`RETIRED_PATHS`
 # entry is written posix-style (`docs/make.jl`), so a plain
@@ -338,7 +514,7 @@ const RETIRED_PATHS = String[
 # "make.jl")`, which is backslash-separated and would never match. Splitting on
 # `/` and re-joining gives the platform's own separator on both.
 function _dest_path(target_dir::AbstractString, dest::AbstractString)
-    joinpath(target_dir, split(dest, '/')...)
+    return joinpath(target_dir, split(dest, '/')...)
 end
 
 # Remove the retired managed paths from `target_dir`, returning those actually
@@ -349,7 +525,7 @@ function _remove_retired(target_dir::AbstractString)
     for rel in RETIRED_PATHS
         path = _dest_path(target_dir, rel)
         ispath(path) || continue
-        rm(path; recursive = true, force = true)
+        rm(path; recursive=true, force=true)
         push!(removed, path)
     end
     return removed
@@ -430,7 +606,8 @@ const _JULIA_DOWNGRADE_VERSION = "'1'"
 # floor; `"lts"` is the long-term-support line, which is what the floor excludes.
 function _julia_versions_below_floor(content::AbstractString)
     below = String[]
-    for m in eachmatch(r"(?m)^[ \t]*julia_versions?:[ \t]*(\S.*?)[ \t]*$", content)
+    for m in
+        eachmatch(r"(?m)^[ \t]*julia_versions?:[ \t]*(\S.*?)[ \t]*$", content)
         # Drop a trailing inline comment before scanning: a note explaining
         # which leg was dropped (`julia_versions: '["1"]'  # was ["1","lts"]`)
         # would otherwise be read as the value and warn about a leg that is not
@@ -454,7 +631,8 @@ function _julia_compat_below_floor(compat::AbstractString)
         m = match(r"(\d+)(?:\.(\d+))?", range)
         m === nothing && continue
         major = parse(Int, something(m.captures[1]))
-        minor = m.captures[2] === nothing ? 0 : parse(Int, something(m.captures[2]))
+        minor =
+            m.captures[2] === nothing ? 0 : parse(Int, something(m.captures[2]))
         v = VersionNumber(major, minor)
         (lowest === nothing || v < lowest) && (lowest = v)
     end
@@ -516,14 +694,16 @@ const DEFAULT_LICENSE = "MIT"
 function _validate_license(license::AbstractString)
     license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
-        join(repr.(SUPPORTED_LICENSES), ", "))
+        join(repr.(SUPPORTED_LICENSES), ", "),
+    )
     return nothing
 end
 
 # Absolute path to the bundled `templates/` directory.
 function _templates_dir()
     dir = pkgdir(EpiAwarePackageTools)
-    dir === nothing && error("could not locate EpiAwarePackageTools package dir")
+    dir === nothing &&
+        error("could not locate EpiAwarePackageTools package dir")
     return joinpath(dir, "templates")
 end
 
@@ -548,8 +728,10 @@ function _project_authors(proj::AbstractString)
     m === nothing && return String[]
     inner = m.captures[1]
     inner === nothing && return String[]
-    return [String(something(x.captures[1], ""))
-            for x in eachmatch(r"\"([^\"]*)\"", inner)]
+    return [
+        String(something(x.captures[1], "")) for
+        x in eachmatch(r"\"([^\"]*)\"", inner)
+    ]
 end
 
 # Strip a trailing `<email>` from an author entry, leaving the display name.
@@ -565,7 +747,7 @@ uppercased, or `"?"` when the package name is unknown (a
 `scaffold_inputs` total). Purely cosmetic — replacing the placeholder
 SVG with a real logo makes this irrelevant.
 """
-function _logo_initial(pkg::Union{Nothing, AbstractString})
+function _logo_initial(pkg::Union{Nothing,AbstractString})
     (pkg === nothing || isempty(pkg)) && return "?"
     return uppercase(string(first(pkg)))
 end
@@ -595,8 +777,10 @@ function _tutorials_subdir(target_dir::AbstractString)
     m = match(r"const\s+TUTORIALS_SUBDIR\s*=\s*([^\n]+)", read(cfg, String))
     m === nothing && return _DEFAULT_TUTORIALS_SUBDIR
     rhs = String(something(m.captures[1]))
-    segs = [String(something(x.captures[1], ""))
-            for x in eachmatch(r"\"([^\"]*)\"", rhs)]
+    segs = [
+        String(something(x.captures[1], "")) for
+        x in eachmatch(r"\"([^\"]*)\"", rhs)
+    ]
     isempty(segs) && return _DEFAULT_TUTORIALS_SUBDIR
     return join(segs, "/")
 end
@@ -678,12 +862,12 @@ function _detect_docs_subdomain(target_dir::AbstractString)
         cname = _gh_pages_cname(target_dir)
         cname === nothing && return nothing
         @warn "docs/make.jl has `deploy_url = nothing` (project-pages) but " *
-              "the gh-pages CNAME is `$cname`, a custom domain served at its " *
-              "root. That mismatch deploys the docs with the wrong VitePress " *
-              "base, so every CSS/JS asset 404s and the site renders " *
-              "unstyled. Recovering the subdomain from the CNAME. To force " *
-              "project-pages instead, pass `docs_subdomain = nothing` and " *
-              "remove the repo's Pages custom domain."
+            "the gh-pages CNAME is `$cname`, a custom domain served at its " *
+            "root. That mismatch deploys the docs with the wrong VitePress " *
+            "base, so every CSS/JS asset 404s and the site renders " *
+            "unstyled. Recovering the subdomain from the CNAME. To force " *
+            "project-pages instead, pass `docs_subdomain = nothing` and " *
+            "remove the repo's Pages custom domain."
         return cname
     end
     # Strip any scheme so the recovered value is always a bare host, matching
@@ -707,7 +891,7 @@ end
 function _gh_pages_cname(target_dir::AbstractString)
     for ref in ("gh-pages", "origin/gh-pages")
         host = try
-            strip(readchomp(Cmd(`git show $ref:CNAME`; dir = target_dir)))
+            strip(readchomp(Cmd(`git show $ref:CNAME`; dir=target_dir)))
         catch
             continue
         end
@@ -738,7 +922,8 @@ function _detect_doi(target_dir::AbstractString)
     isfile(readme) || return (nothing, nothing)
     m = match(
         r"\[!\[DOI\]\(https://zenodo\.org/badge/([^)]+?)\.svg\)\]\(https://doi\.org/([^)]+?)\)",
-        read(readme, String))
+        read(readme, String),
+    )
     m === nothing && return (nothing, nothing)
     return (String(something(m.captures[2])), String(something(m.captures[1])))
 end
@@ -766,8 +951,10 @@ never blocked.
 function _detect_license(target_dir::AbstractString)
     readme = joinpath(target_dir, "README.md")
     if isfile(readme)
-        m = match(r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
-            read(readme, String))
+        m = match(
+            r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
+            read(readme, String),
+        )
         if m !== nothing
             spdx = String(something(m.captures[1]))
             spdx in SUPPORTED_LICENSES && return spdx
@@ -831,37 +1018,47 @@ into a template:
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
 """
-function scaffold_inputs(target_dir::AbstractString;
-        package::Union{Nothing, AbstractString} = nothing,
-        authors::Union{Nothing, AbstractString} = nothing,
-        holder::Union{Nothing, AbstractString} = nothing,
-        org::AbstractString = DEFAULT_ORG,
-        repo::Union{Nothing, AbstractString} = nothing,
-        reviewer::Union{Nothing, AbstractString} = nothing,
-        year::Union{Nothing, Integer} = nothing,
-        license::Union{Nothing, AbstractString} = nothing,
-        docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
-        doi::Union{Nothing, AbstractString} = nothing,
-        zenodo_badge::Union{Nothing, AbstractString} = nothing,
-        docs_timeout::Union{Nothing, Integer} = nothing)
+function scaffold_inputs(
+    target_dir::AbstractString;
+    package::Union{Nothing,AbstractString}=nothing,
+    authors::Union{Nothing,AbstractString}=nothing,
+    holder::Union{Nothing,AbstractString}=nothing,
+    org::AbstractString=DEFAULT_ORG,
+    repo::Union{Nothing,AbstractString}=nothing,
+    reviewer::Union{Nothing,AbstractString}=nothing,
+    year::Union{Nothing,Integer}=nothing,
+    license::Union{Nothing,AbstractString}=nothing,
+    docs_subdomain::Union{Nothing,Bool,AbstractString}=nothing,
+    doi::Union{Nothing,AbstractString}=nothing,
+    zenodo_badge::Union{Nothing,AbstractString}=nothing,
+    docs_timeout::Union{Nothing,Integer}=nothing,
+)
     # When no `license` is passed, recover the one the repo already committed
     # (its README badge, else its `Project.toml` `license` field) so a bare
     # `update`/template-sync keeps a non-MIT adopter's badge instead of
     # resetting it to the default (#235) — the same read-back-the-destination
     # idempotency `_detect_doi` provides. A never-configured target falls back
     # to the scaffold default.
-    license = license === nothing ?
-              something(_detect_license(target_dir), DEFAULT_LICENSE) : license
+    license = if license === nothing
+        something(_detect_license(target_dir), DEFAULT_LICENSE)
+    else
+        license
+    end
     _validate_license(license)
     proj = joinpath(target_dir, "Project.toml")
     pkg = package === nothing ? _project_string(proj, "name") : package
     auth_vec = _project_authors(proj)
-    auth = authors === nothing ?
-           (isempty(auth_vec) ? nothing : join(_author_name.(auth_vec), ", ")) :
-           authors
+    auth = if authors === nothing
+        (isempty(auth_vec) ? nothing : join(_author_name.(auth_vec), ", "))
+    else
+        authors
+    end
     hold = holder === nothing ? auth : holder
-    rp = repo === nothing ?
-         (pkg === nothing ? nothing : string(org, "/", pkg, ".jl")) : repo
+    rp = if repo === nothing
+        (pkg === nothing ? nothing : string(org, "/", pkg, ".jl"))
+    else
+        repo
+    end
     # The `reviewer` handle drives every place a real reviewer/code-owner is
     # needed: the CODEOWNERS line, the Dependabot `reviewers`, the version
     # bump's assignee, and the Claude bot's actor gate. A GitHub username (or an
@@ -872,21 +1069,30 @@ function scaffold_inputs(target_dir::AbstractString;
     # persisted in the destination, so a scheduled resync stays idempotent rather
     # than reverting CODEOWNERS / Dependabot reviewers / the assignee to the org
     # placeholder (#72). An explicit `reviewer = ""` still omits owners.
-    resolved_reviewer = reviewer === nothing ? _detect_reviewer(target_dir) :
-                        reviewer
+    resolved_reviewer =
+        reviewer === nothing ? _detect_reviewer(target_dir) : reviewer
     has_reviewer = resolved_reviewer !== nothing && !isempty(resolved_reviewer)
     rev = resolved_reviewer === nothing ? org : resolved_reviewer
     # The CODEOWNERS rule (active when a handle is given; otherwise a commented
     # placeholder so a bare org is never written as a code owner).
-    codeowners_line = has_reviewer ? string("* @", resolved_reviewer) :
-                      string("# * @", org, "/maintainers  # set the `reviewer` ",
-        "input to a GitHub handle to enable")
+    codeowners_line = if has_reviewer
+        string("* @", resolved_reviewer)
+    else
+        string(
+            "# * @",
+            org,
+            "/maintainers  # set the `reviewer` ",
+            "input to a GitHub handle to enable",
+        )
+    end
     # The per-entry Dependabot `reviewers:` block (empty when no handle). The
     # template carries the 4-space indent before the following `commit-message:`
     # key, so this fragment only supplies the reviewers lines themselves.
-    dependabot_reviewers = has_reviewer ?
-                           string("    reviewers:\n      - \"", resolved_reviewer,
-        "\"\n") : ""
+    dependabot_reviewers = if has_reviewer
+        string("    reviewers:\n      - \"", resolved_reviewer, "\"\n")
+    else
+        ""
+    end
     # The increment-version composite action's `assignee` default. It must be a
     # user/bot handle (or empty), never the bare org: GitHub rejects assigning
     # an org, and the update-existing-PR path fails hard with
@@ -924,7 +1130,11 @@ function scaffold_inputs(target_dir::AbstractString;
         docs_subdomain
     else
         detected = _detect_docs_subdomain(target_dir)
-        detected === :missing ? (pkg == KIT_NAME ? true : nothing) : detected
+        if detected === :missing
+            (pkg == KIT_NAME ? true : nothing)
+        else
+            detected
+        end
     end
     docs_sub = _resolve_docs_subdomain(ds, pkg)
     docs_deploy_url = _docs_deploy_url(docs_sub)
@@ -935,11 +1145,12 @@ function scaffold_inputs(target_dir::AbstractString;
     # (#161) — the same read-back-the-destination idempotency `_detect_reviewer`
     # provides. Passing either explicitly skips detection, so a caller can still
     # supply or override a DOI on demand.
-    resolved_doi, resolved_zenodo = if doi === nothing && zenodo_badge === nothing
-        _detect_doi(target_dir)
-    else
-        (doi, zenodo_badge)
-    end
+    resolved_doi, resolved_zenodo =
+        if doi === nothing && zenodo_badge === nothing
+            _detect_doi(target_dir)
+        else
+            (doi, zenodo_badge)
+        end
     # The managed JET env depends on EpiAwarePackageTools (for its report
     # filter). The kit dogfoods itself, so when the adopting package is the kit
     # the `{{PACKAGE}}` dep/source already cover it — adding a second
@@ -948,64 +1159,94 @@ function scaffold_inputs(target_dir::AbstractString;
     # git source for every other package, and nothing for the kit itself.
     is_kit = pkg == KIT_NAME
     kit_dep = is_kit ? "" : string(KIT_NAME, " = \"", KIT_UUID, "\"\n")
-    kit_source = is_kit ? "" :
-                 string(
-        "\n# Until EpiAwarePackageTools is registered, it is pinned by git so\n",
-        "# the env resolves out of the box. Switch to a local path to\n",
-        "# develop the kit alongside this package.\n",
-        KIT_NAME, " = {url = \"https://github.com/", org, "/",
-        KIT_NAME, ".jl\", rev = \"main\"}")
+    kit_source = if is_kit
+        ""
+    else
+        string(
+            "\n# Until EpiAwarePackageTools is registered, it is pinned by git so\n",
+            "# the env resolves out of the box. Switch to a local path to\n",
+            "# develop the kit alongside this package.\n",
+            KIT_NAME,
+            " = {url = \"https://github.com/",
+            org,
+            "/",
+            KIT_NAME,
+            ".jl\", rev = \"main\"}",
+        )
+    end
     # How the scheduled template-sync workflow loads the kit before calling
     # `update(".")`. The kit dogfoods itself, so when the adopting package is
     # the kit it syncs from its own checked-out project; every other package
     # pulls the kit's newest `main` into a throwaway env so a sync vendors the
     # latest standard. Kept here (not in the template) because it depends on the
     # same `is_kit` split as the JET kit source line.
-    sync_install = is_kit ?
-                   "Pkg.activate(\".\"); Pkg.instantiate()" :
-                   string("Pkg.activate(; temp = true); Pkg.add(url = ",
-        "\"https://github.com/", org, "/", KIT_NAME,
-        ".jl\", rev = \"main\")")
+    sync_install = if is_kit
+        "Pkg.activate(\".\"); Pkg.instantiate()"
+    else
+        string(
+            "Pkg.activate(; temp = true); Pkg.add(url = ",
+            "\"https://github.com/",
+            org,
+            "/",
+            KIT_NAME,
+            ".jl\", rev = \"main\")",
+        )
+    end
     # The managed `.gitignore` tracks the package's tutorial subdir, and the
     # ad=true `codecov.yml` gate holds the status notification until all flag
     # uploads (unit + one per AD backend) are in.
     tutorials_subdir = _tutorials_subdir(target_dir)
     ad_build_count = string(length(_AD_BACKENDS) + 1)
-    return (PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
-        AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
-        REVIEWER = rev, YEAR = string(yr), LICENSE = license,
-        DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
-        DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
-        DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
-        TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
-        AD_CODECOV_FLAGS = _ad_codecov_flags(),
-        AD_BACKENDS_JSON = _ad_backends_json(),
-        AD_COV_TABLE = _ad_cov_table(rp),
-        AD_BACKEND_PACKAGES = _ad_backend_packages(),
-        AD_BACKEND_ENTRIES = _ad_backend_entries(),
-        AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
-        CODEOWNERS_LINE = codeowners_line,
-        DEPENDABOT_REVIEWERS = dependabot_reviewers,
-        ASSIGNEE_DEFAULT = assignee_default,
-        KIT_DEP_LINE = kit_dep,
-        KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
-        JULIAFORMATTER_VERSION = _JULIAFORMATTER_VERSION,
+    return (
+        PACKAGE=pkg,
+        UUID=uuid,
+        ADFIXTURES_UUID=adfix_uuid,
+        AUTHORS=auth,
+        HOLDER=hold,
+        ORG=org,
+        REPO=rp,
+        REVIEWER=rev,
+        YEAR=string(yr),
+        LICENSE=license,
+        DOCS_DEPLOY_URL=docs_deploy_url,
+        DOCS_URL=docs_url,
+        DOCS_TIMEOUT_WITH=_docs_timeout_with(docs_timeout),
+        DOI=resolved_doi,
+        ZENODO_BADGE=resolved_zenodo,
+        TUTORIALS_SUBDIR=tutorials_subdir,
+        AD_BUILD_COUNT=ad_build_count,
+        AD_CODECOV_FLAGS=_ad_codecov_flags(),
+        AD_BACKENDS_JSON=_ad_backends_json(),
+        AD_COV_TABLE=_ad_cov_table(rp),
+        AD_BACKEND_PACKAGES=_ad_backend_packages(),
+        AD_BACKEND_ENTRIES=_ad_backend_entries(),
+        AD_SCENARIO_TESTITEMS=_ad_scenario_testitems(),
+        CODEOWNERS_LINE=codeowners_line,
+        DEPENDABOT_REVIEWERS=dependabot_reviewers,
+        ASSIGNEE_DEFAULT=assignee_default,
+        KIT_DEP_LINE=kit_dep,
+        KIT_SOURCE_LINE=kit_source,
+        SYNC_INSTALL=sync_install,
+        JULIAFORMATTER_VERSION=_JULIAFORMATTER_VERSION,
         # The `tests.yml` caller's Julia matrix, dropping the reusable's `lts`
         # leg: the managed standard needs 1.11 (#246).
-        JULIA_TEST_VERSIONS = _JULIA_TEST_VERSIONS,
-        LOGO_INITIAL = _logo_initial(pkg))
+        JULIA_TEST_VERSIONS=_JULIA_TEST_VERSIONS,
+        LOGO_INITIAL=_logo_initial(pkg),
+    )
 end
 
 # Apply placeholder substitution to `content`. A template may use any subset of
 # the placeholders; each used placeholder must resolve to a non-nothing value.
-function _substitute(content::AbstractString, inputs::NamedTuple,
-        from::AbstractString)
+function _substitute(
+    content::AbstractString, inputs::NamedTuple, from::AbstractString
+)
     for (key, val) in pairs(inputs)
         token = "{{" * string(key) * "}}"
         occursin(token, content) || continue
         val === nothing && error(
             "template $from uses $token but no value resolved; pass it to " *
-            "scaffold/update or set the target Project.toml")
+            "scaffold/update or set the target Project.toml",
+        )
         content = replace(content, token => val)
     end
     return content
@@ -1035,16 +1276,19 @@ idempotent against Dependabot's bumps.
 function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
     occursin(_REUSABLE_USES, content) || return content
     isfile(dest) || return content
-    existing = Dict{String, String}()
+    existing = Dict{String,String}()
     for line in eachline(dest)
         m = match(_REUSABLE_USES, line)
         m === nothing && continue
         # `something` strips the `Union{Nothing, SubString}` the capture API
         # returns; the three groups always match when `m` is non-nothing.
-        existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
+        existing[String(something(m.captures[2]))] = String(
+            something(m.captures[3])
+        )
     end
     isempty(existing) && return content
-    return replace(content,
+    return replace(
+        content,
         _REUSABLE_USES => function (s)
             m = match(_REUSABLE_USES, s)
             m === nothing && return String(s)
@@ -1052,7 +1296,8 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
             workflow = String(something(m.captures[2]))
             seed = String(something(m.captures[3]))
             return prefix * get(existing, workflow, seed)
-        end)
+        end,
+    )
 end
 
 # A third-party action `uses:` pin in a managed workflow (e.g.
@@ -1081,16 +1326,19 @@ the same for the org reusable-workflow callers (those lines are left to it).
 function _preserve_action_pins(content::AbstractString, dest::AbstractString)
     occursin(_ACTION_USES, content) || return content
     isfile(dest) || return content
-    existing = Dict{String, String}()
+    existing = Dict{String,String}()
     for line in eachline(dest)
         # Reusable-workflow callers are `_preserve_reusable_refs`' job.
         occursin(_REUSABLE_USES, line) && continue
         m = match(_ACTION_USES, line)
         m === nothing && continue
-        existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
+        existing[String(something(m.captures[2]))] = String(
+            something(m.captures[3])
+        )
     end
     isempty(existing) && return content
-    return replace(content,
+    return replace(
+        content,
         _ACTION_USES => function (s)
             occursin(_REUSABLE_USES, s) && return String(s)
             m = match(_ACTION_USES, s)
@@ -1099,7 +1347,8 @@ function _preserve_action_pins(content::AbstractString, dest::AbstractString)
             action = String(something(m.captures[2]))
             seed = String(something(m.captures[3]))
             return prefix * action * "@" * get(existing, action, seed)
-        end)
+        end,
+    )
 end
 
 # A managed CI caller job's reusable `uses:` line, any interspersed blank/comment
@@ -1196,7 +1445,7 @@ const _JOB_NAME_LINE = r"(?m)^  ([\w-]+):[ \t]*\r?$"
 # same trailing comment.
 function _parse_with_block(chunk::AbstractString)
     head = String[]
-    inputs = Pair{String, Vector{String}}[]
+    inputs = Pair{String,Vector{String}}[]
     indent = nothing
     pending = String[]
     lines = split(chunk, '\n')
@@ -1222,16 +1471,19 @@ function _parse_with_block(chunk::AbstractString)
             push!(last(inputs).second, String(line))  # value continuation
         end
     end
-    return (head = head, indent = indent, inputs = inputs, trailing = pending)
+    return (head=head, indent=indent, inputs=inputs, trailing=pending)
 end
 
 # Render a caller's preserved region back from its parts. `trailing` has no
 # default: the sole call site (`_merge_with_blocks`) always supplies it
 # explicitly, and a default here would generate an unreachable, uncovered
 # 3-arg method (caught by codecov's patch-coverage check on #218).
-function _render_with_block(head::Vector{String}, indent::AbstractString,
-        inputs::Vector{Pair{String, Vector{String}}},
-        trailing::Vector{String})
+function _render_with_block(
+    head::Vector{String},
+    indent::AbstractString,
+    inputs::Vector{Pair{String,Vector{String}}},
+    trailing::Vector{String},
+)
     lines = copy(head)
     push!(lines, indent * "with:")
     for (_, value) in inputs
@@ -1263,18 +1515,20 @@ end
 # the exact version this floor exists to keep them off.
 const _WITH_SEED_DEFAULT_KEYS = Dict(
     "tests.yml" => Set(["julia_versions"]),
-    "downgrade.yml" => Set(["julia_version"]))
+    "downgrade.yml" => Set(["julia_version"]),
+)
 
 function _seed_default_keys(workflow::AbstractString)
-    get(_WITH_SEED_DEFAULT_KEYS, workflow, Set{String}())
+    return get(_WITH_SEED_DEFAULT_KEYS, workflow, Set{String}())
 end
 
 # Merge the template's `with:` block (`seed`) with the destination's, keeping
 # every key the template manages, letting the destination win on a seed-default
 # key it names (scoped to `workflow`, the reusable being called), and appending
 # the keys only the package carries.
-function _merge_with_blocks(seed::AbstractString, existing::AbstractString,
-        workflow::AbstractString = "")
+function _merge_with_blocks(
+    seed::AbstractString, existing::AbstractString, workflow::AbstractString=""
+)
     s = _parse_with_block(seed)
     e = _parse_with_block(existing)
     e.indent === nothing && return seed
@@ -1288,7 +1542,7 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString,
     # all; every other seeded key is the kit's.
     defaults = _seed_default_keys(workflow)
     overridden = Set(k for k in keys(named) if k in defaults)
-    merged = Pair{String, Vector{String}}[]
+    merged = Pair{String,Vector{String}}[]
     for p in s.inputs
         key = first(p)
         push!(merged, key in overridden ? named[key] : p)
@@ -1305,8 +1559,11 @@ function _merge_with_blocks(seed::AbstractString, existing::AbstractString,
     # own comments on every sync, growing the file without bound.
     extra_head = [l for l in e.head if !(l in s.head)]
     head = vcat(s.head, extra_head)
-    isempty(extra) && isempty(e.trailing) && isempty(overridden) &&
-        isempty(extra_head) && return seed
+    isempty(extra) &&
+        isempty(e.trailing) &&
+        isempty(overridden) &&
+        isempty(extra_head) &&
+        return seed
     return _render_with_block(head, s.indent, vcat(merged, extra), trailing)
 end
 
@@ -1345,26 +1602,30 @@ function _preserve_downstreams(content::AbstractString, dest::AbstractString)
     m = match(_DOWNSTREAMS_INPUT, read(dest, String))
     m === nothing && return content
     value = String(something(m.captures[2]))
-    return replace(content,
+    return replace(
+        content,
         _DOWNSTREAMS_INPUT => function (s)
             mm = match(_DOWNSTREAMS_INPUT, s)
             mm === nothing && return String(s)
             return String(something(mm.captures[1])) * value
-        end)
+        end,
+    )
 end
 
-function _preserve_caller_with_inputs(content::AbstractString,
-        dest::AbstractString)
+function _preserve_caller_with_inputs(
+    content::AbstractString, dest::AbstractString
+)
     occursin(_CALLER_JOB, content) || return content
     isfile(dest) || return content
-    existing = Dict{String, String}()
+    existing = Dict{String,String}()
     for m in eachmatch(_CALLER_JOB, read(dest, String))
         block = String(something(m.captures[3], ""))
         isempty(block) && continue
         existing[String(something(m.captures[2]))] = block
     end
     isempty(existing) && return content
-    return replace(content,
+    return replace(
+        content,
         _CALLER_JOB => function (s)
             m = match(_CALLER_JOB, s)
             m === nothing && return String(s)
@@ -1373,10 +1634,14 @@ function _preserve_caller_with_inputs(content::AbstractString,
             seed = String(something(m.captures[3], ""))
             suffix = String(something(m.captures[5]))
             kept = get(existing, workflow, "")
-            replacement = isempty(kept) ? seed :
-                          _merge_with_blocks(seed, kept, workflow)
+            replacement = if isempty(kept)
+                seed
+            else
+                _merge_with_blocks(seed, kept, workflow)
+            end
             return prefix * replacement * suffix
-        end)
+        end,
+    )
 end
 
 """
@@ -1408,8 +1673,9 @@ looking red check days later. Pushes one message per matching job onto
 `warnings` (mutated in place, mirroring the `test/ad/setup.jl` divergence
 warning in `_apply`).
 """
-function _warn_local_caller_override!(warnings::Vector{String},
-        to::AbstractString, dest::AbstractString)
+function _warn_local_caller_override!(
+    warnings::Vector{String}, to::AbstractString, dest::AbstractString
+)
     isfile(to) || return nothing
     text = read(to, String)
     for m in eachmatch(_LOCAL_CALLER_JOB, text)
@@ -1425,11 +1691,16 @@ function _warn_local_caller_override!(warnings::Vector{String},
             job = String(something(jm.captures[1]))
         end
         job === nothing && continue
-        msg = string(dest, " job \"", job, "\" has `uses:` pointing at a ",
+        msg = string(
+            dest,
+            " job \"",
+            job,
+            "\" has `uses:` pointing at a ",
             "repo-local reusable workflow with its own `with:` inputs. ",
             "`_CALLER_JOB` only keys the org's shared reusable, so this ",
             "job cannot be preserved — the next resync will silently drop ",
-            "those inputs and revert it to the shared reusable (#325).")
+            "those inputs and revert it to the shared reusable (#325).",
+        )
         push!(warnings, msg)
         @warn msg
     end
@@ -1466,8 +1737,12 @@ end
 # package-owned `with:` input it holds (see `_preserve_caller_with_inputs`) and
 # its reverse-dependency list (see `_preserve_downstreams`), so neither a
 # Dependabot bump nor a deliberate caller override is reverted.
-function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
-        inputs::NamedTuple)
+function _emit(
+    from::AbstractString,
+    to::AbstractString,
+    substitute::Bool,
+    inputs::NamedTuple,
+)
     mkpath(dirname(to))
     # A previous sync from a read-only depot may have left `to` unwritable, so
     # restore the write bit before rewriting it (#187).
@@ -1480,7 +1755,7 @@ function _emit(from::AbstractString, to::AbstractString, substitute::Bool,
         content = _preserve_downstreams(content, to)
         write(to, content)
     else
-        cp(from, to; force = true)
+        cp(from, to; force=true)
     end
     _make_writable(to)
     return nothing
@@ -1540,20 +1815,48 @@ const BADGES_END = "<!-- badges:end -->"
 #     `Enzyme`), used to derive the scaffolded `test/ad/setup.jl` `using`
 #     line without repeating a package name.
 const _AD_BACKENDS = [
-    (alt = "ForwardDiff", header = "ForwardDiff",
-        slug = "ad-forwarddiff", tag = "forwarddiff", pkg = "ForwardDiff"),
-    (alt = "ReverseDiff", header = "ReverseDiff (tape)",
-        slug = "ad-reversediff", tag = "reversediff", pkg = "ReverseDiff"),
-    (alt = "Enzyme forward", header = "Enzyme forward",
-        slug = "ad-enzyme-forward", tag = "enzyme_forward", pkg = "Enzyme"),
-    (alt = "Enzyme reverse", header = "Enzyme reverse",
-        slug = "ad-enzyme-reverse", tag = "enzyme_reverse", pkg = "Enzyme"),
-    (alt = "Mooncake reverse", header = "Mooncake reverse",
-        slug = "ad-mooncake-reverse", tag = "mooncake_reverse",
-        pkg = "Mooncake"),
-    (alt = "Mooncake forward", header = "Mooncake forward",
-        slug = "ad-mooncake-forward", tag = "mooncake_forward",
-        pkg = "Mooncake")
+    (
+        alt="ForwardDiff",
+        header="ForwardDiff",
+        slug="ad-forwarddiff",
+        tag="forwarddiff",
+        pkg="ForwardDiff",
+    ),
+    (
+        alt="ReverseDiff",
+        header="ReverseDiff (tape)",
+        slug="ad-reversediff",
+        tag="reversediff",
+        pkg="ReverseDiff",
+    ),
+    (
+        alt="Enzyme forward",
+        header="Enzyme forward",
+        slug="ad-enzyme-forward",
+        tag="enzyme_forward",
+        pkg="Enzyme",
+    ),
+    (
+        alt="Enzyme reverse",
+        header="Enzyme reverse",
+        slug="ad-enzyme-reverse",
+        tag="enzyme_reverse",
+        pkg="Enzyme",
+    ),
+    (
+        alt="Mooncake reverse",
+        header="Mooncake reverse",
+        slug="ad-mooncake-reverse",
+        tag="mooncake_reverse",
+        pkg="Mooncake",
+    ),
+    (
+        alt="Mooncake forward",
+        header="Mooncake forward",
+        slug="ad-mooncake-forward",
+        tag="mooncake_forward",
+        pkg="Mooncake",
+    ),
 ]
 
 # The managed `codecov.yml` `flags:` entries for every AD backend, generated
@@ -1567,8 +1870,16 @@ const _AD_BACKENDS = [
 # down and redded codecov/patch even when the unit suite covered it fully
 # (#180). `ext` belongs to the `unit` flag alone (the job that loads them).
 function _ad_codecov_flags()
-    blocks = [string("  ", b.slug, ":\n", "    paths:\n", "      - src\n",
-                  "    carryforward: true") for b in _AD_BACKENDS]
+    blocks = [
+        string(
+            "  ",
+            b.slug,
+            ":\n",
+            "    paths:\n",
+            "      - src\n",
+            "    carryforward: true",
+        ) for b in _AD_BACKENDS
+    ]
     return join(blocks, "\n")
 end
 
@@ -1580,9 +1891,17 @@ end
 # valid YAML (no characters here need escaping) and avoids any risk of a
 # multi-line block scalar being mis-indented by the substitution.
 function _ad_backends_json()
-    entries = [string(
-                   "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
-                   b.slug, "\"}") for b in _AD_BACKENDS]
+    entries = [
+        string(
+            "{\"name\":\"",
+            b.header,
+            "\",\"tag\":\"",
+            b.tag,
+            "\",\"flag\":\"",
+            b.slug,
+            "\"}",
+        ) for b in _AD_BACKENDS
+    ]
     return "[" * join(entries, ",") * "]"
 end
 
@@ -1608,7 +1927,8 @@ const _AD_BACKEND_CTORS = Dict(
     "enzyme_forward" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Forward))",
     "enzyme_reverse" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))",
     "mooncake_reverse" => "AutoMooncake(config = nothing)",
-    "mooncake_forward" => "AutoMooncakeForward()")
+    "mooncake_forward" => "AutoMooncakeForward()",
+)
 
 # The seeded `ADFixtures.backends()` body, one `(; name, backend)` entry per
 # `_AD_BACKENDS` entry, so a fresh package's AD registry always matches every
@@ -1627,9 +1947,11 @@ const _AD_BACKEND_CTORS = Dict(
 function _ad_backend_entries()
     entries = map(_AD_BACKENDS) do b
         ctor = get(_AD_BACKEND_CTORS, b.tag) do
-            "nothing  # TODO: add the ADTypes constructor for \"$(b.header)\""
+            return "nothing  # TODO: add the ADTypes constructor for \"$(b.header)\""
         end
-        string("        (name = \"", b.header, "\", backend = ", ctor, ")")
+        return string(
+            "        (name = \"", b.header, "\", backend = ", ctor, ")"
+        )
     end
     return join(entries, ",\n")
 end
@@ -1649,12 +1971,22 @@ end
 function _ad_scenario_testitems()
     blocks = map(_AD_BACKENDS) do b
         family = _ad_scenario_family(b.tag)
-        tags = family === nothing ? "[:ad, :$(b.tag)]" :
-               "[:ad, :$(family), :$(b.tag)]"
-        string("@testitem \"", b.header, " gradients (marginal)\" tags=",
-            tags, " setup=[ADHelpers] begin\n",
-            "    test_working_backend(\"", b.header, "\")\n",
-            "end")
+        tags = if family === nothing
+            "[:ad, :$(b.tag)]"
+        else
+            "[:ad, :$(family), :$(b.tag)]"
+        end
+        return string(
+            "@testitem \"",
+            b.header,
+            " gradients (marginal)\" tags=",
+            tags,
+            " setup=[ADHelpers] begin\n",
+            "    test_working_backend(\"",
+            b.header,
+            "\")\n",
+            "end",
+        )
     end
     return join(blocks, "\n\n")
 end
@@ -1668,12 +2000,17 @@ function _ad_cov_flag_table(repo::AbstractString)
     cov = "https://codecov.io/gh/" * repo
     headers = "| " * join((b.header for b in _AD_BACKENDS), " | ") * " |"
     sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
-    badges = "| " *
-             join(
-                 ["[![cov $(b.alt)]($cov/graph/badge.svg?flag=$(b.slug))]" *
-                  "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
-                  "$(b.slug))" for b in _AD_BACKENDS],
-                 " | ") * " |"
+    badges =
+        "| " *
+        join(
+            [
+                "[![cov $(b.alt)]($cov/graph/badge.svg?flag=$(b.slug))]" *
+                "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
+                "$(b.slug))" for b in _AD_BACKENDS
+            ],
+            " | ",
+        ) *
+        " |"
     return (headers, sep, badges)
 end
 
@@ -1727,7 +2064,9 @@ end
 function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
     ad || return ""
     return string(
-        "ADFixtures = \"", adfix_uuid, "\"\n",
+        "ADFixtures = \"",
+        adfix_uuid,
+        "\"\n",
         "AlgebraOfGraphics = \"cbdf2221-f076-402e-a563-3d30da359d67\"\n",
         "CairoMakie = \"13f3f980-e62b-5c42-98c6-ff1f3baf88f0\"\n",
         "Chairmarks = \"0ca39b1e-fe0b-4e98-acfc-b1656634c4de\"\n",
@@ -1735,7 +2074,8 @@ function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
         "DifferentiationInterfaceTest = ",
         "\"a82114a7-5aa3-49a8-9643-716bb13727a3\"\n",
         "Markdown = \"d6f4376e-aef5-505a-96c1-9c027394607a\"\n",
-        "Statistics = \"10745b16-79ce-11e8-11f9-7d13ad32a3b2\"\n")
+        "Statistics = \"10745b16-79ce-11e8-11f9-7d13ad32a3b2\"\n",
+    )
 end
 
 # --- the extensions docs surface --------------------------------------------
@@ -1813,14 +2153,16 @@ function _package_extensions(target_dir::AbstractString)
     for (name, triggers) in exts
         stem = _extension_stem(name, package)
         # A `[extensions]` value is one weakdep or a list of them.
-        weakdeps = triggers isa AbstractVector ?
-                   String[string(t) for t in triggers] :
-                   String[string(triggers)]
+        weakdeps = if triggers isa AbstractVector
+            String[string(t) for t in triggers]
+        else
+            String[string(triggers)]
+        end
         filter!(!isempty, weakdeps)
         title = isempty(weakdeps) ? stem : join(sort!(weakdeps), " + ")
         push!(pages, ExtensionPage(String(name), title, _extension_slug(stem)))
     end
-    sort!(pages, by = p -> (p.title, p.name))
+    sort!(pages; by=p -> (p.title, p.name))
     # Stemming can map two distinct extensions onto one slug (a prefixed
     # `WombatPlotsExt` and a bare `PlotsExt`), which would point two nav
     # entries at one page and leave one extension documented under the other's
@@ -1867,10 +2209,13 @@ end
 function _extensions_nav(target_dir::AbstractString)
     pages = _package_extensions(target_dir)
     isempty(pages) && return ""
-    entries = [string("        \"", p.title, "\" => \"extensions/", p.slug,
-                   ".md\"") for p in pages]
-    return string(",\n    \"Extensions\" => [\n", join(entries, ",\n"),
-        "\n    ]")
+    entries = [
+        string("        \"", p.title, "\" => \"extensions/", p.slug, ".md\"")
+        for p in pages
+    ]
+    return string(
+        ",\n    \"Extensions\" => [\n", join(entries, ",\n"), "\n    ]"
+    )
 end
 
 # The seeded page for one extension. Package-owned: it carries the scope prose
@@ -1893,10 +2238,19 @@ end
 # also reads better: the adopter sees exactly what to paste.
 function _render_extension_page(page::ExtensionPage, package::AbstractString)
     return string(
-        "# [", page.title, " extension](@id extension-", page.slug, ")\n",
+        "# [",
+        page.title,
+        " extension](@id extension-",
+        page.slug,
+        ")\n",
         "\n",
-        "`", page.name, "` is loaded automatically when ", page.title,
-        " is available alongside ", package, ".\n",
+        "`",
+        page.name,
+        "` is loaded automatically when ",
+        page.title,
+        " is available alongside ",
+        package,
+        ".\n",
         "\n",
         "## Scope\n",
         "\n",
@@ -1905,7 +2259,9 @@ function _render_extension_page(page::ExtensionPage, package::AbstractString)
         "\n",
         "## Public API\n",
         "\n",
-        "Add ", page.title, " to `docs/Project.toml` and the extension ",
+        "Add ",
+        page.title,
+        " to `docs/Project.toml` and the extension ",
         "module to\n",
         "`EXTRA_MODULES` in `docs/docs_config.jl`, then replace this block ",
         "with the\n",
@@ -1913,24 +2269,31 @@ function _render_extension_page(page::ExtensionPage, package::AbstractString)
         "\n",
         "````markdown\n",
         "```@autodocs\n",
-        "Modules = [Base.get_extension(", package, ", :", page.name, ")]\n",
+        "Modules = [Base.get_extension(",
+        package,
+        ", :",
+        page.name,
+        ")]\n",
         "```\n",
-        "````\n")
+        "````\n",
+    )
 end
 
 # Seed the package-owned extension pages under `docs/src/extensions`, one per
 # declared extension. Write-once, like LICENSE and CITATION.cff: an existing
 # page is never rewritten, so authored scope prose survives every sync.
 # Returns `(created, preserved)` destination paths.
-function _apply_extension_pages(target_dir::AbstractString,
-        inputs::NamedTuple; force::Bool)
+function _apply_extension_pages(
+    target_dir::AbstractString, inputs::NamedTuple; force::Bool
+)
     created = String[]
     preserved = String[]
     pkg = inputs.PACKAGE
     pkg === nothing && return (created, preserved)
     for page in _package_extensions(target_dir)
-        dest = _dest_path(target_dir,
-            string("docs/src/extensions/", page.slug, ".md"))
+        dest = _dest_path(
+            target_dir, string("docs/src/extensions/", page.slug, ".md")
+        )
         if isfile(dest) && !force
             push!(preserved, dest)
             continue
@@ -1967,25 +2330,40 @@ function _extension_pages_unlinked(target_dir::AbstractString)
     nav = _dest_path(target_dir, "docs/pages.jl")
     isfile(nav) || return nothing
     text = read(nav, String)
-    missing_pages = [p
-                     for p in pages
-                     if isfile(_dest_path(target_dir,
-        string("docs/src/extensions/", p.slug, ".md"))) &&
-        !occursin("extensions/" * p.slug * ".md", text)]
+    missing_pages = [
+        p for p in pages if isfile(
+            _dest_path(
+                target_dir, string("docs/src/extensions/", p.slug, ".md")
+            ),
+        ) && !occursin("extensions/" * p.slug * ".md", text)
+    ]
     isempty(missing_pages) && return nothing
     entries = join(
-        (string("\"", p.title, "\" => \"extensions/", p.slug,
-             ".md\"") for p in missing_pages), ", ")
-    return string("docs/pages.jl has no nav entry for ",
-        length(missing_pages) == 1 ? "the extension page " : "the extension pages ",
-        join((string("extensions/", p.slug, ".md") for p in missing_pages),
-            ", "),
-        ", so ", length(missing_pages) == 1 ? "it is" : "they are",
+        (
+            string("\"", p.title, "\" => \"extensions/", p.slug, ".md\"") for
+            p in missing_pages
+        ),
+        ", ",
+    )
+    return string(
+        "docs/pages.jl has no nav entry for ",
+        if length(missing_pages) == 1
+            "the extension page "
+        else
+            "the extension pages "
+        end,
+        join(
+            (string("extensions/", p.slug, ".md") for p in missing_pages), ", "
+        ),
+        ", so ",
+        length(missing_pages) == 1 ? "it is" : "they are",
         " built but unreachable. `pages.jl` is package-owned and written ",
-        "once, so the kit cannot add ", length(missing_pages) == 1 ? "it" :
-                                        "them",
-        " on a later run: add ", entries,
-        " to the \"Extensions\" group by hand (#319).")
+        "once, so the kit cannot add ",
+        length(missing_pages) == 1 ? "it" : "them",
+        " on a later run: add ",
+        entries,
+        " to the \"Extensions\" group by hand (#319).",
+    )
 end
 
 # The `[sources]` path pin from the docs env to the registry.
@@ -2005,7 +2383,8 @@ function _ad_docs_compat(ad::Bool)
         "DataFramesMeta = \"0.15\"\n",
         "DifferentiationInterfaceTest = \"0.9, 0.10, 0.11\"\n",
         "Markdown = \"1\"\n",
-        "Statistics = \"1\"\n")
+        "Statistics = \"1\"\n",
+    )
 end
 
 # The docs-env `[deps]` fragment the benchmark page's combined trend plot
@@ -2089,11 +2468,12 @@ end
 # equally hand-add the block and `_preserve_caller_with_inputs` keeps it across
 # `update()` (#73), so the scheduled sync — which never re-passes `docs_timeout`
 # — never reverts a package-owned timeout.
-function _docs_timeout_with(docs_timeout::Union{Nothing, Integer})
+function _docs_timeout_with(docs_timeout::Union{Nothing,Integer})
     docs_timeout === nothing && return ""
     docs_timeout > 0 || error(
         "docs_timeout must be a positive integer (minutes), got " *
-        repr(docs_timeout))
+        repr(docs_timeout),
+    )
     return string("    with:\n      timeout_minutes: ", docs_timeout, "\n")
 end
 
@@ -2117,14 +2497,26 @@ end
 # only on the package name. They render once the package is in the General
 # registry and are harmless before then. Mirrors CensoredDistributions.jl.
 function _downloads_badges(pkg::AbstractString)
-    base = "https://img.shields.io/badge/dynamic/json?url=" *
-           "http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2F"
+    base =
+        "https://img.shields.io/badge/dynamic/json?url=" *
+        "http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2F"
     page = "https://juliapkgstats.com/pkg/" * pkg
-    total = "[![Downloads](" * base * "total_downloads%2F" * pkg *
-            "&query=total_requests&label=Downloads)](" * page * ")"
-    monthly = "[![Downloads](" * base * "monthly_downloads%2F" * pkg *
-              "&query=total_requests&suffix=%2Fmonth&label=Downloads)](" *
-              page * ")"
+    total =
+        "[![Downloads](" *
+        base *
+        "total_downloads%2F" *
+        pkg *
+        "&query=total_requests&label=Downloads)](" *
+        page *
+        ")"
+    monthly =
+        "[![Downloads](" *
+        base *
+        "monthly_downloads%2F" *
+        pkg *
+        "&query=total_requests&suffix=%2Fmonth&label=Downloads)](" *
+        page *
+        ")"
     return total * " " * monthly
 end
 
@@ -2143,49 +2535,79 @@ five-column header table (Documentation, Build Status, Code Quality,
 License & DOI, Downloads) plus the per-backend AD table. No owner/repo
 is hardcoded — every URL is built from `repo`/`pkg`.
 """
-function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
-        license::AbstractString = DEFAULT_LICENSE,
-        docs_url::Union{Nothing, AbstractString} = nothing,
-        doi::Union{Nothing, AbstractString} = nothing,
-        zenodo_badge::Union{Nothing, AbstractString} = nothing)
+function _render_badges(
+    repo::AbstractString,
+    pkg::AbstractString;
+    ad::Bool,
+    license::AbstractString=DEFAULT_LICENSE,
+    docs_url::Union{Nothing,AbstractString}=nothing,
+    doi::Union{Nothing,AbstractString}=nothing,
+    zenodo_badge::Union{Nothing,AbstractString}=nothing,
+)
     gh = "https://github.com/" * repo
     cov = "https://codecov.io/gh/" * repo
     # Default to the project-pages URL (`epiaware.org/<Repo>.jl`); a subdomain
     # package passes its host explicitly.
     host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
-    docs = "[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)]" *
-           "(https://" * host * "/stable/) " *
-           "[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)]" *
-           "(https://" * host * "/dev/)"
-    ci = "[![Test](" * gh * "/actions/workflows/test.yaml/badge.svg" *
-         "?branch=main)](" * gh * "/actions/workflows/test.yaml) " *
-         "[![codecov](" * cov * "/graph/badge.svg)](" * cov * ")"
+    docs =
+        "[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)]" *
+        "(https://" *
+        host *
+        "/stable/) " *
+        "[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)]" *
+        "(https://" *
+        host *
+        "/dev/)"
+    ci =
+        "[![Test](" *
+        gh *
+        "/actions/workflows/test.yaml/badge.svg" *
+        "?branch=main)](" *
+        gh *
+        "/actions/workflows/test.yaml) " *
+        "[![codecov](" *
+        cov *
+        "/graph/badge.svg)](" *
+        cov *
+        ")"
     # We ship one aggregate `ad.yaml` (not six per-backend workflows), so the
     # Build Status cell carries a single AD status badge; the per-backend detail
     # lives in the AD coverage-flag table below.
     if ad
-        ci *= " [![AD](" * gh * "/actions/workflows/ad.yaml/badge.svg" *
-              "?branch=main)](" * gh * "/actions/workflows/ad.yaml)"
+        ci *=
+            " [![AD](" *
+            gh *
+            "/actions/workflows/ad.yaml/badge.svg" *
+            "?branch=main)](" *
+            gh *
+            "/actions/workflows/ad.yaml)"
     end
-    quality = "[![SciML Code Style](https://img.shields.io/static/v1?" *
-              "label=code%20style&message=SciML&color=9558b2&" *
-              "labelColor=389826)](https://github.com/SciML/SciMLStyle) " *
-              "[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/" *
-              "Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/" *
-              "Aqua.jl) " *
-              "[![JET](https://img.shields.io/badge/" *
-              "%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)]" *
-              "(https://github.com/aviatesk/JET.jl)"
+    # Blue, matching the `.JuliaFormatter.toml` the kit ships. The badge is a
+    # claim about the style CI enforces, so it moves with the formatter config.
+    quality =
+        "[![Code Style: Blue](https://img.shields.io/badge/" *
+        "code%20style-blue-4495d1.svg)]" *
+        "(https://github.com/JuliaDiff/BlueStyle) " *
+        "[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/" *
+        "Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/" *
+        "Aqua.jl) " *
+        "[![JET](https://img.shields.io/badge/" *
+        "%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)]" *
+        "(https://github.com/aviatesk/JET.jl)"
     license_doi = _license_badge(license)
     if doi !== nothing && zenodo_badge !== nothing
-        license_doi *= " [![DOI](https://zenodo.org/badge/" * zenodo_badge *
-                       ".svg)](https://doi.org/" * doi * ")"
+        license_doi *=
+            " [![DOI](https://zenodo.org/badge/" *
+            zenodo_badge *
+            ".svg)](https://doi.org/" *
+            doi *
+            ")"
     end
     downloads = _downloads_badges(pkg)
     lines = String[
         "| **Documentation** | **Build Status** | **Code Quality** | " * "**License & DOI** | **Downloads** |",
         "|:-----------------:|:----------------:|:----------------:|" * ":-----------------:|:-------------:|",
-        "| " * docs * " | " * ci * " | " * quality * " | " * license_doi * " | " * downloads * " |"
+        "| " * docs * " | " * ci * " | " * quality * " | " * license_doi * " | " * downloads * " |",
     ]
     if ad
         # Per-backend AD coverage flags (one codecov upload per backend from the
@@ -2225,12 +2647,18 @@ end
 # `test_readme_placeholders` derives its patterns from, so an unfilled skeleton
 # is reported rather than published; adding a placeholder means writing it in
 # that form.
-function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
-        docs_url::Union{Nothing, AbstractString})
+function _seed_readme_body(
+    repo::AbstractString,
+    pkg::AbstractString,
+    docs_url::Union{Nothing,AbstractString},
+)
     host = docs_url === nothing ? _docs_url(repo, nothing) : docs_url
     stable = host === nothing ? nothing : "https://" * host * "/stable/"
-    docs_link = stable === nothing ? "the documentation" :
-                "[documentation](" * stable * ")"
+    docs_link = if stable === nothing
+        "the documentation"
+    else
+        "[documentation](" * stable * ")"
+    end
     return string(
         "_One-line description of $pkg._\n\n",
         "## Why $pkg?\n\n",
@@ -2243,16 +2671,29 @@ function _seed_readme_body(repo::AbstractString, pkg::AbstractString,
         "$pkg, one sentence each, linked to that package's docs._\n\n",
         "## Where to learn more\n\n",
         "- [GitHub Discussions](https://github.com/$repo/discussions)\n",
-        "- [GitHub Repository](https://github.com/$repo)\n")
+        "- [GitHub Repository](https://github.com/$repo)\n",
+    )
 end
 
-function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
-        license::AbstractString = DEFAULT_LICENSE,
-        docs_url::Union{Nothing, AbstractString} = nothing,
-        doi::Union{Nothing, AbstractString} = nothing,
-        zenodo_badge::Union{Nothing, AbstractString} = nothing)
-    badges = _render_badges(repo, pkg; ad = ad, license = license,
-        docs_url = docs_url, doi = doi, zenodo_badge = zenodo_badge)
+function _apply_badges(
+    readme::AbstractString,
+    repo,
+    pkg;
+    ad::Bool,
+    license::AbstractString=DEFAULT_LICENSE,
+    docs_url::Union{Nothing,AbstractString}=nothing,
+    doi::Union{Nothing,AbstractString}=nothing,
+    zenodo_badge::Union{Nothing,AbstractString}=nothing,
+)
+    badges = _render_badges(
+        repo,
+        pkg;
+        ad=ad,
+        license=license,
+        docs_url=docs_url,
+        doi=doi,
+        zenodo_badge=zenodo_badge,
+    )
     block = BADGES_START * "\n" * badges * "\n" * BADGES_END
     if !isfile(readme)
         body = _seed_readme_body(repo, pkg, docs_url)
@@ -2272,8 +2713,12 @@ function _apply_badges(readme::AbstractString, repo, pkg; ad::Bool,
     # Inject after the first H1 title, else at the very top.
     m = match(r"^(#[^\n]*\n)"m, text)
     if m !== nothing && m.offset == 1
-        new = text[1:(m.offset + lastindex(m.match) - 1)] *
-              "\n" * block * "\n" * text[(m.offset + lastindex(m.match)):end]
+        new =
+            text[1:(m.offset + lastindex(m.match) - 1)] *
+            "\n" *
+            block *
+            "\n" *
+            text[(m.offset + lastindex(m.match)):end]
     else
         new = block * "\n\n" * text
     end
@@ -2295,9 +2740,13 @@ const _LOGO_REL = "docs/src/assets/logo.svg"
 # The standard inline logo tag for a README title, sized/positioned to match
 # CensoredDistributions.jl.
 function _logo_img_tag(pkg::AbstractString)
-    string(
-        "<img src=\"", _LOGO_REL, "\" width=\"150\" alt=\"", pkg,
-        " logo\" align=\"right\">")
+    return string(
+        "<img src=\"",
+        _LOGO_REL,
+        "\" width=\"150\" alt=\"",
+        pkg,
+        " logo\" align=\"right\">",
+    )
 end
 
 # Add the logo `<img>` tag to the README's `# ` title when `docs/src/assets/
@@ -2313,8 +2762,10 @@ function _apply_logo_title(target_dir::AbstractString, pkg::AbstractString)
     m === nothing && return :skipped
     title = m.match
     occursin("assets/logo.svg", title) && return :preserved
-    write(readme, replace(text, title => title * " " * _logo_img_tag(pkg);
-        count = 1))
+    write(
+        readme,
+        replace(text, title => title * " " * _logo_img_tag(pkg); count=1),
+    )
     return :injected
 end
 
@@ -2375,8 +2826,10 @@ function _detect_org_branding(target_dir::AbstractString)
     # and an unanchored match would read that as still on — branding a repo
     # whose owner had just opted out. A `const` is a top-level statement, so
     # only leading whitespace may precede it.
-    m = match(r"(?m)^\s*const\s+ORG_BRANDING\s*=\s*(true|false)\s*$",
-        read(cfg, String))
+    m = match(
+        r"(?m)^\s*const\s+ORG_BRANDING\s*=\s*(true|false)\s*$",
+        read(cfg, String),
+    )
     m === nothing && return false
     return something(m.captures[1]) == "true"
 end
@@ -2386,9 +2839,14 @@ end
 function _org_branding_section(pkg::AbstractString)
     return string(
         "## Part of the EpiAware ecosystem\n\n",
-        pkg, " is part of [EpiAware](", _ORG_SITE, "), a set of composable ",
+        pkg,
+        " is part of [EpiAware](",
+        _ORG_SITE,
+        "), a set of composable ",
         "tools for infectious disease modelling. See the [other packages](",
-        _ORG_GITHUB, ") in the ecosystem.\n")
+        _ORG_GITHUB,
+        ") in the ecosystem.\n",
+    )
 end
 
 # The docs footer message spliced into the managed `config.mts`
@@ -2409,20 +2867,28 @@ end
 # must contain no backtick of its own.
 const _DOCS_CREDIT = string(
     "Made with <a href=\"https://luxdl.github.io/DocumenterVitepress.jl/dev/\" ",
-    "target=\"_blank\"><strong>DocumenterVitepress.jl</strong></a><br>")
+    "target=\"_blank\"><strong>DocumenterVitepress.jl</strong></a><br>",
+)
 
 function _org_footer_message(org_branding::Bool)
     org_branding || return _DOCS_CREDIT
     return string(
-        "<a href=\"", _ORG_SITE, "\" target=\"_blank\">",
+        "<a href=\"",
+        _ORG_SITE,
+        "\" target=\"_blank\">",
         # `\$` so a literal `\${baseTemp.base}` reaches config.mts, where the
         # backtick template literal interpolates the site base.
         "<img src=\"\${baseTemp.base}epiaware-logo.svg\" alt=\"EpiAware\" ",
         "width=\"48\" height=\"48\" style=\"display:inline-block\"></a><br>",
-        "Part of the <a href=\"", _ORG_SITE, "\" target=\"_blank\">",
+        "Part of the <a href=\"",
+        _ORG_SITE,
+        "\" target=\"_blank\">",
         "<strong>EpiAware</strong></a> ecosystem &middot; ",
-        "<a href=\"", _ORG_GITHUB, "\" target=\"_blank\">GitHub</a><br>",
-        _DOCS_CREDIT)
+        "<a href=\"",
+        _ORG_GITHUB,
+        "\" target=\"_blank\">GitHub</a><br>",
+        _DOCS_CREDIT,
+    )
 end
 
 """
@@ -2457,12 +2923,12 @@ function _apply_org_branding(target_dir::AbstractString, org_branding::Bool)
         isfile(dest) || return :skipped
         if read(dest, String) != content
             @warn "$(_ORG_LOGO_REL) is not the logo this kit ships, so it is " *
-                  "the package's, not the kit's to delete — leaving it in " *
-                  "place though ORG_BRANDING is off. Remove it by hand if it " *
-                  "is a leftover (#242)."
+                "the package's, not the kit's to delete — leaving it in " *
+                "place though ORG_BRANDING is off. Remove it by hand if it " *
+                "is a leftover (#242)."
             return :skipped
         end
-        rm(dest; force = true)
+        rm(dest; force=true)
         return :removed
     end
     exists = isfile(dest)
@@ -2481,23 +2947,37 @@ const STANDARD_SECTIONS_END = "<!-- standard-sections:end -->"
 const _STANDARD_SECTIONS_HEADER = string(
     "<!-- MANAGED by EpiAwarePackageTools.scaffold — do not edit between the\n",
     "     markers. These standard sections are re-rendered on every update;\n",
-    "     edit the package-owned sections outside them, or CITATION.cff. -->")
+    "     edit the package-owned sections outside them, or CITATION.cff. -->",
+)
 
 # The org Code of Conduct URL, served from the org's shared `.github` repo.
 function _coc_url(org::AbstractString)
-    "https://github.com/" * org * "/.github/blob/main/CODE_OF_CONDUCT.md"
+    return "https://github.com/" * org * "/.github/blob/main/CODE_OF_CONDUCT.md"
 end
 
 # Render the managed standard sections (Contributing / How to cite / Code of
 # conduct) without the markers, parameterised by package/org/repo. `doi` adds a
 # version-DOI line to the citation pointer when known (the value persisted in
 # the README DOI badge); otherwise the section points only at `CITATION.cff`.
-function _render_standard_sections(pkg::AbstractString, org::AbstractString,
-        repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing,
-        org_branding::Bool = false)
-    doi_line = doi === nothing ? "" :
-               string("A version-specific DOI is available at ",
-        "[https://doi.org/", doi, "](https://doi.org/", doi, ").\n")
+function _render_standard_sections(
+    pkg::AbstractString,
+    org::AbstractString,
+    repo::AbstractString;
+    doi::Union{Nothing,AbstractString}=nothing,
+    org_branding::Bool=false,
+)
+    doi_line = if doi === nothing
+        ""
+    else
+        string(
+            "A version-specific DOI is available at ",
+            "[https://doi.org/",
+            doi,
+            "](https://doi.org/",
+            doi,
+            ").\n",
+        )
+    end
     # The org line leads the block when the package opted in (#242), and is
     # absent entirely otherwise, so a third-party adopter's README is untouched.
     branding = org_branding ? _org_branding_section(pkg) * "\n" : ""
@@ -2505,20 +2985,30 @@ function _render_standard_sections(pkg::AbstractString, org::AbstractString,
         branding,
         "## Contributing\n\n",
         "We welcome contributions and new contributors! Please open an issue ",
-        "or pull request on [GitHub](https://github.com/", repo, "). This ",
+        "or pull request on [GitHub](https://github.com/",
+        repo,
+        "). This ",
         "package follows [ColPrac](https://github.com/SciML/ColPrac) and the ",
-        "[SciML style](https://github.com/SciML/SciMLStyle).\n\n",
+        "[Blue style](https://github.com/JuliaDiff/BlueStyle).\n\n",
         "## How to cite\n\n",
-        "If you use ", pkg, " in your work, please cite it. Citation metadata ",
-        "lives in [`CITATION.cff`](https://github.com/", repo,
+        "If you use ",
+        pkg,
+        " in your work, please cite it. Citation metadata ",
+        "lives in [`CITATION.cff`](https://github.com/",
+        repo,
         "/blob/main/CITATION.cff), which GitHub renders as a ",
         "\"Cite this repository\" button on the repository page.\n",
         doi_line,
         "\n",
         "## Code of conduct\n\n",
-        "Please note that the ", pkg, " project is released with a ",
-        "[Contributor Code of Conduct](", _coc_url(org), "). By contributing, ",
-        "you agree to abide by its terms.\n")
+        "Please note that the ",
+        pkg,
+        " project is released with a ",
+        "[Contributor Code of Conduct](",
+        _coc_url(org),
+        "). By contributing, ",
+        "you agree to abide by its terms.\n",
+    )
 end
 
 # Whether `text` already carries one of the managed standard section headings
@@ -2528,7 +3018,9 @@ function _has_managed_section_heading(text::AbstractString)
     return occursin(r"(?mi)^#{2,6}\s+contributing\b", text) ||
            occursin(r"(?mi)^#{2,6}\s+code of conduct\b", text) ||
            occursin(
-               r"(?mi)^#{2,6}\s+(how to cite|citation|citing|supporting)\b", text)
+               r"(?mi)^#{2,6}\s+(how to cite|citation|citing|supporting)\b",
+               text,
+           )
 end
 
 """
@@ -2544,8 +3036,8 @@ managed block is a deliberate, maintainer-signed per-repo wording change, #67).
 Mirrors `_apply_badges`/`_apply_gitignore`: only the marked region is rewritten.
 """
 function _apply_standard_sections(
-        target_dir::AbstractString, inputs::NamedTuple;
-        org_branding::Bool = false)
+    target_dir::AbstractString, inputs::NamedTuple; org_branding::Bool=false
+)
     readme = joinpath(target_dir, "README.md")
     isfile(readme) || return (:skipped, false)
     pkg = inputs.PACKAGE
@@ -2553,10 +3045,20 @@ function _apply_standard_sections(
     repo = inputs.REPO
     (pkg === nothing || org === nothing || repo === nothing) &&
         return (:skipped, false)
-    body = _render_standard_sections(String(pkg), String(org), String(repo);
-        doi = inputs.DOI, org_branding = org_branding)
-    block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *
-            "\n\n" * body * STANDARD_SECTIONS_END
+    body = _render_standard_sections(
+        String(pkg),
+        String(org),
+        String(repo);
+        doi=inputs.DOI,
+        org_branding=org_branding,
+    )
+    block =
+        STANDARD_SECTIONS_START *
+        "\n" *
+        _STANDARD_SECTIONS_HEADER *
+        "\n\n" *
+        body *
+        STANDARD_SECTIONS_END
     text = read(readme, String)
     si = findfirst(STANDARD_SECTIONS_START, text)
     ei = findlast(STANDARD_SECTIONS_END, text)
@@ -2590,10 +3092,15 @@ end
 # The CFF `authors:` list from the kit's author display names (comma- or
 # `and`-separated), one `- name:` entity entry each — a valid CFF starting point
 # the package refines into person `family-names`/`given-names`.
-function _cff_authors(authors::Union{Nothing, AbstractString})
-    names = authors === nothing ? String[] :
-            [String(strip(a))
-             for a in split(authors, r",|\band\b") if !isempty(strip(a))]
+function _cff_authors(authors::Union{Nothing,AbstractString})
+    names = if authors === nothing
+        String[]
+    else
+        [
+            String(strip(a)) for
+            a in split(authors, r",|\band\b") if !isempty(strip(a))
+        ]
+    end
     isempty(names) && (names = ["Author One", "Author Two"])
     return join(("  - name: \"" * n * "\"" for n in names), "\n")
 end
@@ -2602,20 +3109,32 @@ end
 # known (the value persisted in the README DOI badge); otherwise the field is
 # omitted entirely (a valid CFF) — add a real `doi:` line once released, rather
 # than carrying a placeholder value.
-function _render_citation_cff(pkg::AbstractString, repo::AbstractString,
-        authors::Union{Nothing, AbstractString},
-        doi::Union{Nothing, AbstractString})
+function _render_citation_cff(
+    pkg::AbstractString,
+    repo::AbstractString,
+    authors::Union{Nothing,AbstractString},
+    doi::Union{Nothing,AbstractString},
+)
     doi_line = doi === nothing ? "" : "doi: \"" * doi * "\"\n"
     return string(
         "cff-version: 1.2.0\n",
         "message: \"If you use this software, please cite it using these ",
         "metadata.\"\n",
-        "title: \"", pkg, ".jl\"\n",
+        "title: \"",
+        pkg,
+        ".jl\"\n",
         "type: software\n",
-        "authors:\n", _cff_authors(authors), "\n",
-        "repository-code: \"https://github.com/", repo, "\"\n",
-        "url: \"https://github.com/", repo, "\"\n",
-        doi_line)
+        "authors:\n",
+        _cff_authors(authors),
+        "\n",
+        "repository-code: \"https://github.com/",
+        repo,
+        "\"\n",
+        "url: \"https://github.com/",
+        repo,
+        "\"\n",
+        doi_line,
+    )
 end
 
 # Seed a package-owned CITATION.cff, write-once (like `_apply_license`): returns
@@ -2627,8 +3146,12 @@ function _apply_citation_cff(target_dir::AbstractString, inputs::NamedTuple)
     pkg = inputs.PACKAGE
     repo = inputs.REPO
     (pkg === nothing || repo === nothing) && return :skipped
-    write(dest, _render_citation_cff(String(pkg), String(repo),
-        inputs.AUTHORS, inputs.DOI))
+    write(
+        dest,
+        _render_citation_cff(
+            String(pkg), String(repo), inputs.AUTHORS, inputs.DOI
+        ),
+    )
     return :created
 end
 
@@ -2698,12 +3221,15 @@ function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
     # is replaced as one unit on refresh. Putting the header before the start
     # marker would leave it sitting in the "preserved" prefix on every
     # subsequent refresh, duplicating it on each `update` call.
-    block = GITIGNORE_START * "\n" *
-            "# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n" *
-            "# Standard ignore rules live between the markers below and are\n" *
-            "# replaced on every update. Add package-specific rules after the\n" *
-            "# closing marker — they are preserved across updates.\n" *
-            body * GITIGNORE_END
+    block =
+        GITIGNORE_START *
+        "\n" *
+        "# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n" *
+        "# Standard ignore rules live between the markers below and are\n" *
+        "# replaced on every update. Add package-specific rules after the\n" *
+        "# closing marker — they are preserved across updates.\n" *
+        body *
+        GITIGNORE_END
     if !isfile(path)
         write(path, block * "\n")
         return (:created, true)
@@ -2735,7 +3261,7 @@ function _ad_selected(t::Template, ad::Bool)
     t.ad === :always && return true
     t.ad === :ad_only && return ad
     t.ad === :noad_only && return !ad
-    error("template $(t.src) has unknown ad mode $(t.ad)")
+    return error("template $(t.src) has unknown ad mode $(t.ad)")
 end
 
 # Whether a template is emitted for the requested `benchmarks` value:
@@ -2743,7 +3269,7 @@ end
 function _bench_selected(t::Template, benchmarks::Bool)
     t.bench === :always && return true
     t.bench === :bench_only && return benchmarks
-    error("template $(t.src) has unknown bench mode $(t.bench)")
+    return error("template $(t.src) has unknown bench mode $(t.bench)")
 end
 
 """
@@ -2866,8 +3392,9 @@ managed file down fresh, so a new package always starts managed. The marker
 opts a file out of *resyncing*, not out of *retirement*: a path the kit retires
 (`RETIRED_PATHS`) is still deleted, marker or not.
 """
-function _detect_managed_override(target_dir::AbstractString,
-        dest::AbstractString, rendered::AbstractString)
+function _detect_managed_override(
+    target_dir::AbstractString, dest::AbstractString, rendered::AbstractString
+)
     f = _dest_path(target_dir, dest)
     isfile(f) || return false
     occursin(_MANAGED_OVERRIDE_MARKER, rendered) && return false
@@ -2889,14 +3416,20 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
     keep || return ""
     return string(
         "\n\n  downgrade-compat:\n",
-        "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
-        _DOWNGRADE_SEED_REF, "\n",
+        "    uses: ",
+        org,
+        "/.github/.github/workflows/downgrade.yml@",
+        _DOWNGRADE_SEED_REF,
+        "\n",
         "    with:\n",
         # The reusable defaults this to '1.10', the one version where the
         # `[sources]` kit pin is silently ignored, so the downgrade job would
         # resolve the registered kit instead of the pinned rev (#246, #115).
-        "      julia_version: ", _JULIA_DOWNGRADE_VERSION, "\n",
-        "    secrets: inherit  # pragma: allowlist secret")
+        "      julia_version: ",
+        _JULIA_DOWNGRADE_VERSION,
+        "\n",
+        "    secrets: inherit  # pragma: allowlist secret",
+    )
 end
 
 """
@@ -2935,12 +3468,14 @@ function _benchmark_history_triggers(parked::Bool)
         "  # unregistered `[sources]`-pinned dependency never resolves in\n",
         "  # benchpkg's temp environment, so a push/tag `history` run always\n",
         "  # fails (#153). Restore the push/tags triggers once registered.\n",
-        "  workflow_dispatch:")
+        "  workflow_dispatch:",
+    )
     return string(
         "  push:\n",
         "    branches: [main]\n",
         "    tags: ['v*']\n",
-        "  workflow_dispatch:")
+        "  workflow_dispatch:",
+    )
 end
 
 """
@@ -2961,8 +3496,15 @@ while applying, e.g. a diverged-but-unmarked `test/ad/setup.jl` about to be
 overwritten, or a caller job repointed at a local reusable workflow about
 to be silently reverted (#325, see `_warn_local_caller_override!`)).
 """
-function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple)
+function _apply(
+    target_dir::AbstractString;
+    managed_only::Bool,
+    force::Bool,
+    ad::Bool,
+    benchmarks::Bool,
+    downgrade_compat::Bool,
+    inputs::NamedTuple,
+)
     isdir(target_dir) || error("target_dir $target_dir does not exist")
     # The opt-in (#242). Read once, and used by every branding surface (README
     # section, docs footer, logo asset), so they cannot disagree with each other
@@ -2978,51 +3520,58 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # destination naively here would brand the footer and the logo from the old
     # value while `force` reset the flag underneath, leaving a repo whose README
     # says one thing, whose footer says another, and whose next sync strips both.
-    org_branding = (force && !managed_only) ? false :
-                   _detect_org_branding(target_dir)
+    org_branding =
+        (force && !managed_only) ? false : _detect_org_branding(target_dir)
     # Expose the AD + benchmarks + downgrade-compat flags as substitution values
     # so the scheduled template-sync workflow re-applies the standard with the
     # same choices the package adopted. `BENCHMARKS_NAV` is the benchmark docs
     # nav entry (present only when enabled); `BENCHMARK_PAGE` the `docs_config`
     # default the build reads; `DOWNGRADE_COMPAT_JOB` the `test.yaml` job block
     # (present only when kept).
-    bench_nav = benchmarks ?
-                ",\n    \"Benchmarks\" => \"benchmarks.md\"" : ""
+    bench_nav = benchmarks ? ",\n    \"Benchmarks\" => \"benchmarks.md\"" : ""
     # The `benchmark-history.yaml` `on:` triggers preserve a package's parked
     # state (push/tags dropped for an unregistered `[sources]` dep) across a
     # resync (#153), detected from the committed workflow — a fresh target
     # defaults to the full triggers.
-    inputs = merge(inputs,
-        (AD = string(ad), BENCHMARKS = string(benchmarks),
-            BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
-            DOWNGRADE_COMPAT = string(downgrade_compat),
-            DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
-                inputs.ORG, downgrade_compat),
-            BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
-                _detect_benchmark_history_parked(target_dir)),
+    inputs = merge(
+        inputs,
+        (
+            AD=string(ad),
+            BENCHMARKS=string(benchmarks),
+            BENCHMARKS_NAV=bench_nav,
+            BENCHMARK_PAGE=string(benchmarks),
+            DOWNGRADE_COMPAT=string(downgrade_compat),
+            DOWNGRADE_COMPAT_JOB=_downgrade_compat_job(
+                inputs.ORG, downgrade_compat
+            ),
+            BENCHMARK_HISTORY_TRIGGERS=_benchmark_history_triggers(
+                _detect_benchmark_history_parked(target_dir)
+            ),
             # The ad=true docs surface: the AD-backends tutorial page's
             # registration in the package-owned docs seeds and the docs-env
             # deps it executes against (see `_ad_heavy_tutorials` etc.).
-            AD_HEAVY_TUTORIALS = _ad_heavy_tutorials(ad),
-            AD_TUTORIAL_STUBS = _ad_tutorial_stubs(ad),
-            AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
+            AD_HEAVY_TUTORIALS=_ad_heavy_tutorials(ad),
+            AD_TUTORIAL_STUBS=_ad_tutorial_stubs(ad),
+            AD_TUTORIALS_NAV=_ad_tutorials_nav(ad),
             # The extensions docs surface: the nav group for whatever
             # `[extensions]` the target declares, empty when it declares none
             # (see `_extensions_nav`).
-            EXTENSIONS_NAV = _extensions_nav(target_dir),
-            AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
-            AD_DOCS_SOURCES = _ad_docs_sources(ad),
-            AD_DOCS_COMPAT = _ad_docs_compat(ad),
+            EXTENSIONS_NAV=_extensions_nav(target_dir),
+            AD_DOCS_DEPS=_ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
+            AD_DOCS_SOURCES=_ad_docs_sources(ad),
+            AD_DOCS_COMPAT=_ad_docs_compat(ad),
             # The benchmarks=true docs surface: the trend-plot dependency the
             # overall summary needs (see `_bench_docs_deps`).
-            BENCH_DOCS_DEPS = _bench_docs_deps(benchmarks),
-            BENCH_DOCS_COMPAT = _bench_docs_compat(benchmarks),
+            BENCH_DOCS_DEPS=_bench_docs_deps(benchmarks),
+            BENCH_DOCS_COMPAT=_bench_docs_compat(benchmarks),
             # The managed docs footer: the EpiAware logo + org links when the
             # package opted in (`ORG_BRANDING` in the package-owned
             # docs_config), otherwise the DocumenterVitepress credit alone —
             # detected from the destination, like the other opt-ins, so a sync
             # that passes no kwargs preserves the package's choice (#242).
-            ORG_FOOTER_MESSAGE = _org_footer_message(org_branding)))
+            ORG_FOOTER_MESSAGE=_org_footer_message(org_branding),
+        ),
+    )
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -3052,10 +3601,13 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         # carried the marker literal cannot hand every adopter a permanently
         # self-preserving file (see `_detect_managed_override`); the kit's own
         # tests also assert no template ships the marker.
-        rendered = exists && !force && t.managed ?
-                   _render(from, t.substitute, inputs) : nothing
+        rendered = if exists && !force && t.managed
+            _render(from, t.substitute, inputs)
+        else
+            nothing
+        end
         if rendered !== nothing &&
-           _detect_managed_override(target_dir, t.dest, rendered)
+            _detect_managed_override(target_dir, t.dest, rendered)
             push!(preserved, to)
             continue
         end
@@ -3084,12 +3636,14 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         # `$(_MANAGED_OVERRIDE_MARKER)` marker above, which needs no heuristic.
         if rendered !== nothing && t.dest == _AD_SETUP_DEST
             if read(to, String) != rendered
-                msg = string(_AD_SETUP_DEST,
+                msg = string(
+                    _AD_SETUP_DEST,
                     " differs from the managed driver but carries no ",
                     "ownership marker — overwriting. If this divergence is ",
                     "intentional, add a comment containing \"",
                     _MANAGED_OVERRIDE_MARKER,
-                    "\" to keep it across future update calls.")
+                    "\" to keep it across future update calls.",
+                )
                 push!(warnings, msg)
                 @warn msg
             end
@@ -3105,7 +3659,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         # (#325), so the `_emit` below is about to silently drop any
         # `with:` inputs it carries. Warn before that happens rather than
         # letting the loss ride along unnoticed in the sync output.
-        exists && t.managed &&
+        exists &&
+            t.managed &&
             _warn_local_caller_override!(warnings, to, t.dest)
         _emit(from, to, t.substitute, inputs)
         push!(exists ? updated : created, to)
@@ -3121,20 +3676,30 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     if repo !== nothing && pkg !== nothing
         lic = String(inputs.LICENSE)
         readme_action = first(
-            _apply_badges(readme, repo, pkg; ad = ad, license = lic,
-            docs_url = inputs.DOCS_URL, doi = inputs.DOI,
-            zenodo_badge = inputs.ZENODO_BADGE))
+            _apply_badges(
+                readme,
+                repo,
+                pkg;
+                ad=ad,
+                license=lic,
+                docs_url=inputs.DOCS_URL,
+                doi=inputs.DOI,
+                zenodo_badge=inputs.ZENODO_BADGE,
+            ),
+        )
     end
     # The README title's inline logo tag is managed the same way as the badge
     # block: added once a `docs/src/assets/logo.svg` exists, left alone
     # otherwise. Reported separately for the same reason as `readme` above.
-    logo_action = pkg === nothing ? :skipped : _apply_logo_title(target_dir, pkg)
+    logo_action =
+        pkg === nothing ? :skipped : _apply_logo_title(target_dir, pkg)
     # The standard sections (Contributing / How to cite / Code of conduct) are
     # managed between markers, like the badge block: refreshed on every sync but
     # only within the markers, so a package's own body sections are preserved.
     # Reported separately (`standard_sections`) for the same reason as `readme`.
-    sections_action = first(_apply_standard_sections(target_dir, inputs;
-        org_branding = org_branding))
+    sections_action = first(
+        _apply_standard_sections(target_dir, inputs; org_branding=org_branding)
+    )
     # CITATION.cff is package-owned and write-once: `_apply_citation_cff` only
     # ever creates it when absent, never overwrites an existing one, so a
     # package's real citation metadata (authors, DOI, version) is preserved.
@@ -3158,9 +3723,11 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # as flipping `benchmarks = true` on an already-scaffolded package.
     # Reported separately (`extension_pages`) so the template manifest stays
     # template-driven (#319).
-    ext_created, ext_preserved = managed_only ? (String[], String[]) :
-                                 _apply_extension_pages(
-        target_dir, inputs; force = force)
+    ext_created, ext_preserved = if managed_only
+        (String[], String[])
+    else
+        _apply_extension_pages(target_dir, inputs; force=force)
+    end
     # A page the write-once seeding just laid down (or one already present)
     # that the write-once nav never learned about is built but unreachable —
     # see `_extension_pages_unlinked`. Warn with the exact entry to add
@@ -3172,7 +3739,8 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # (`managed_only = true`) never touches it, so a deliberate licence stands.
     # Reported separately (`license`) so the template manifest stays
     # template-driven (the count-based scaffold tests track `SCAFFOLD_TEMPLATES`).
-    license_action = managed_only ? :skipped : _apply_license(target_dir, inputs)
+    license_action =
+        managed_only ? :skipped : _apply_license(target_dir, inputs)
     # The standard `[workspace]` stanza is injected into the (package-owned) root
     # Project.toml when absent, on both scaffold and update, and preserved
     # thereafter. Reported separately so the template manifest stays
@@ -3190,14 +3758,23 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
         if m !== nothing
             below = _julia_compat_below_floor(String(something(m.captures[1])))
             if below !== nothing
-                push!(warnings,
-                    string("Project.toml claims julia = \"",
-                        something(m.captures[1]), "\", which admits ", below,
-                        ", but the managed standard needs ", _JULIA_FLOOR,
+                push!(
+                    warnings,
+                    string(
+                        "Project.toml claims julia = \"",
+                        something(m.captures[1]),
+                        "\", which admits ",
+                        below,
+                        ", but the managed standard needs ",
+                        _JULIA_FLOOR,
                         ": `[sources]` (how test/Project.toml pins the kit) is ",
                         "silently ignored before 1.11, so the tests resolve ",
                         "the registered kit instead of the pinned rev. Set ",
-                        "julia = \"", _JULIA_COMPAT, "\" (#246)."))
+                        "julia = \"",
+                        _JULIA_COMPAT,
+                        "\" (#246).",
+                    ),
+                )
             end
         end
     end
@@ -3212,14 +3789,24 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     if isdir(wf_dir)
         for f in sort(readdir(wf_dir))
             endswith(f, ".yaml") || endswith(f, ".yml") || continue
-            legs = _julia_versions_below_floor(read(joinpath(wf_dir, f), String))
-            isempty(legs) || push!(warnings,
-                string(".github/workflows/", f, " tests Julia ",
-                    join(legs, ", "), ", below the ", _JULIA_FLOOR,
+            legs = _julia_versions_below_floor(
+                read(joinpath(wf_dir, f), String)
+            )
+            isempty(legs) || push!(
+                warnings,
+                string(
+                    ".github/workflows/",
+                    f,
+                    " tests Julia ",
+                    join(legs, ", "),
+                    ", below the ",
+                    _JULIA_FLOOR,
                     " the managed standard needs: `[sources]` is ignored there, ",
                     "so that leg resolves the registered kit rather than the ",
                     "pinned rev and tests a stale kit while appearing to test ",
-                    "this one. Drop it (#246)."))
+                    "this one. Drop it (#246).",
+                ),
+            )
         end
     end
     # A Julia standard library is not implicitly available in a test
@@ -3233,15 +3820,22 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # test/Project.toml is package-owned (the kit cannot just add the dep), so a
     # warning pointing at the exact missing stdlib is the durable, general fix.
     stdlibs = _undeclared_test_stdlibs(target_dir)
-    isempty(stdlibs) || push!(warnings,
-        string("test/ uses the standard librar",
-            length(stdlibs) == 1 ? "y " : "ies ", join(stdlibs, ", "),
-            " but ", length(stdlibs) == 1 ? "it is" : "they are",
+    isempty(stdlibs) || push!(
+        warnings,
+        string(
+            "test/ uses the standard librar",
+            length(stdlibs) == 1 ? "y " : "ies ",
+            join(stdlibs, ", "),
+            " but ",
+            length(stdlibs) == 1 ? "it is" : "they are",
             " declared in neither test/Project.toml nor Project.toml. A Julia ",
             "stdlib must be an explicit dep to load in the test environment, ",
             "so the whole env fails to resolve on every platform with an ",
-            "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
-            " to test/Project.toml `[deps]` (#263)."))
+            "opaque error. Add ",
+            length(stdlibs) == 1 ? "it" : "them",
+            " to test/Project.toml `[deps]` (#263).",
+        ),
+    )
     # `.gitignore` is managed between markers so package-owned additions below
     # the block survive `update` (#65). Reported separately for the same
     # reason as `readme`/`license`/`workspace` above.
@@ -3256,13 +3850,22 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # separately, like `license`/`logo`, so the template manifest stays
     # template-driven.
     org_branding_action = _apply_org_branding(target_dir, org_branding)
-    return (created = created, updated = updated, preserved = preserved,
-        removed = removed, readme = readme_action, license = license_action,
-        workspace = workspace_action, gitignore = gitignore_action,
-        logo = logo_action, standard_sections = sections_action,
-        citation = citation_action, org_branding = org_branding_action,
-        extension_pages = (created = ext_created, preserved = ext_preserved),
-        warnings = warnings)
+    return (
+        created=created,
+        updated=updated,
+        preserved=preserved,
+        removed=removed,
+        readme=readme_action,
+        license=license_action,
+        workspace=workspace_action,
+        gitignore=gitignore_action,
+        logo=logo_action,
+        standard_sections=sections_action,
+        citation=citation_action,
+        org_branding=org_branding_action,
+        extension_pages=(created=ext_created, preserved=ext_preserved),
+        warnings=warnings,
+    )
 end
 
 # The non-JLL standard libraries shipped with the running Julia, read from
@@ -3273,7 +3876,7 @@ function _julia_stdlibs()
     dir = Sys.STDLIB
     (dir isa AbstractString && isdir(dir)) || return Set{String}()
     entries = filter(readdir(dir)) do n
-        !endswith(n, "_jll") && isdir(joinpath(dir, n))
+        return !endswith(n, "_jll") && isdir(joinpath(dir, n))
     end
     return Set{String}(entries)
 end
@@ -3360,9 +3963,11 @@ function _undeclared_test_stdlibs(target_dir::AbstractString)
     available = _manifest_packages(joinpath(test_dir, "Manifest.toml"))
     isempty(available) && return String[]
     # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
-    available = union(available,
+    available = union(
+        available,
         _declared_deps(joinpath(test_dir, "Project.toml")),
-        _declared_deps(joinpath(target_dir, "Project.toml")))
+        _declared_deps(joinpath(target_dir, "Project.toml")),
+    )
     used = Set{String}()
     for (root, _, files) in walkdir(test_dir)
         for f in files
@@ -3546,16 +4151,30 @@ pages as a `(created, preserved)` pair of path vectors (#319; both empty for
 a package with no `[extensions]`), and non-fatal `warnings` raised while
 applying (a `Vector{String}`).
 """
-function scaffold(target_dir::AbstractString; force::Bool = false,
-        ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
-        downgrade_compat::Union{Nothing, Bool} = nothing,
-        kwargs...)
+function scaffold(
+    target_dir::AbstractString;
+    force::Bool=false,
+    ad::Bool=true,
+    benchmarks::Union{Nothing,Bool}=nothing,
+    downgrade_compat::Union{Nothing,Bool}=nothing,
+    kwargs...,
+)
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
-    dg = downgrade_compat === nothing ?
-         _detect_downgrade_compat(target_dir) : downgrade_compat
-    return _apply(target_dir; managed_only = false, force = force, ad = ad,
-        benchmarks = bench, downgrade_compat = dg, inputs = inputs)
+    dg = if downgrade_compat === nothing
+        _detect_downgrade_compat(target_dir)
+    else
+        downgrade_compat
+    end
+    return _apply(
+        target_dir;
+        managed_only=false,
+        force=force,
+        ad=ad,
+        benchmarks=bench,
+        downgrade_compat=dg,
+        inputs=inputs,
+    )
 end
 
 """
@@ -3683,15 +4302,29 @@ the org-branding asset action, the per-extension docs pages as a
 pages are package-owned, and only `scaffold` seeds them, #319), and non-fatal
 warnings raised while applying (a `Vector{String}`).
 """
-function update(target_dir::AbstractString; ad::Bool = true,
-        benchmarks::Union{Nothing, Bool} = nothing,
-        downgrade_compat::Union{Nothing, Bool} = nothing, kwargs...)
+function update(
+    target_dir::AbstractString;
+    ad::Bool=true,
+    benchmarks::Union{Nothing,Bool}=nothing,
+    downgrade_compat::Union{Nothing,Bool}=nothing,
+    kwargs...,
+)
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
-    dg = downgrade_compat === nothing ?
-         _detect_downgrade_compat(target_dir) : downgrade_compat
-    return _apply(target_dir; managed_only = true, force = false, ad = ad,
-        benchmarks = bench, downgrade_compat = dg, inputs = inputs)
+    dg = if downgrade_compat === nothing
+        _detect_downgrade_compat(target_dir)
+    else
+        downgrade_compat
+    end
+    return _apply(
+        target_dir;
+        managed_only=true,
+        force=false,
+        ad=ad,
+        benchmarks=bench,
+        downgrade_compat=dg,
+        inputs=inputs,
+    )
 end
 
 """
@@ -3712,48 +4345,58 @@ const scaffold_update = update
 # Write a minimal package skeleton (Project.toml + src/<Package>.jl) into
 # `target_dir`, so a fresh package has the source files `scaffold` needs to
 # substitute placeholders from. Returns nothing.
-function _emit_package_skeleton(target_dir::AbstractString, package::AbstractString,
-        uuid::AbstractString, authors_array::AbstractString)
+function _emit_package_skeleton(
+    target_dir::AbstractString,
+    package::AbstractString,
+    uuid::AbstractString,
+    authors_array::AbstractString,
+)
     mkpath(joinpath(target_dir, "src"))
     proj = joinpath(target_dir, "Project.toml")
-    write(proj, """
-    name = "$package"
-    uuid = "$uuid"
-    authors = $authors_array
-    version = "0.1.0"
+    write(
+        proj,
+        """
+name = "$package"
+uuid = "$uuid"
+authors = $authors_array
+version = "0.1.0"
 
-    [deps]
-    DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+[deps]
+DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 
-    [compat]
-    DocStringExtensions = "0.9.5"
-    julia = "$(_JULIA_COMPAT)"
-    """)
-    write(joinpath(target_dir, "src", "$package.jl"), """
-    \"\"\"
-        $package
+[compat]
+DocStringExtensions = "0.9.5"
+julia = "$(_JULIA_COMPAT)"
+""",
+    )
+    write(
+        joinpath(target_dir, "src", "$package.jl"),
+        """
+\"\"\"
+    $package
 
-    A fresh EpiAware package. Replace this skeleton with the package's API.
+A fresh EpiAware package. Replace this skeleton with the package's API.
 
-    # Example
+# Example
 
-    ```@example
-    using $package
-    ```
-    \"\"\"
-    module $package
+```@example
+using $package
+```
+\"\"\"
+module $package
 
-    # All genuine module-scope `using`/`import` statements live here, in
-    # the main module file, rather than scattered across included files.
-    using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
-                               TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
+# All genuine module-scope `using`/`import` statements live here, in
+# the main module file, rather than scattered across included files.
+using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
+                           TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
-    # Register the standard EpiAware docstring conventions before any
-    # docstrings are defined (see src/docstrings.jl).
-    include("docstrings.jl")
+# Register the standard EpiAware docstring conventions before any
+# docstrings are defined (see src/docstrings.jl).
+include("docstrings.jl")
 
-    end # module $package
-    """)
+end # module $package
+""",
+    )
     return nothing
 end
 
@@ -3785,12 +4428,17 @@ Remaining keyword arguments (`org`, `repo`, `reviewer`, `year`, `license`, ...)
 are forwarded to [`scaffold_inputs`](@ref); e.g. `license = "Apache-2.0"` writes
 the Apache licence. Returns the `scaffold` manifest.
 """
-function scaffold_generate(target_dir::AbstractString, package::AbstractString;
-        authors::AbstractVector{<:AbstractString} = String[],
-        uuid::AbstractString = string(UUIDs.uuid4()),
-        ad::Bool = true, benchmarks::Bool = false, kwargs...)
+function scaffold_generate(
+    target_dir::AbstractString,
+    package::AbstractString;
+    authors::AbstractVector{<:AbstractString}=String[],
+    uuid::AbstractString=string(UUIDs.uuid4()),
+    ad::Bool=true,
+    benchmarks::Bool=false,
+    kwargs...,
+)
     mkpath(target_dir)
     authors_array = "[" * join(("\"" * a * "\"" for a in authors), ", ") * "]"
     _emit_package_skeleton(target_dir, package, uuid, authors_array)
-    return scaffold(target_dir; ad = ad, benchmarks = benchmarks, kwargs...)
+    return scaffold(target_dir; ad=ad, benchmarks=benchmarks, kwargs...)
 end

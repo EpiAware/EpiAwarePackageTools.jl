@@ -17,7 +17,7 @@ end
 @testitem "Quality: ExplicitImports" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
-    test_explicit_imports(QA_CONFIG.mod; ignore = QA_CONFIG.ei_ignore)
+    test_explicit_imports(QA_CONFIG.mod; ignore=QA_CONFIG.ei_ignore)
 end
 
 @testitem "Quality: import centralisation" tags=[:quality] begin
@@ -29,9 +29,11 @@ end
 @testitem "Quality: docstring format" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
-    test_docstring_format(QA_CONFIG.mod;
-        crossref_ignore = QA_CONFIG.crossref_ignore,
-        QA_CONFIG.docstring...)
+    test_docstring_format(
+        QA_CONFIG.mod;
+        crossref_ignore=QA_CONFIG.crossref_ignore,
+        QA_CONFIG.docstring...,
+    )
 end
 
 @testitem "Quality: README sections" tags=[:quality] begin
@@ -46,12 +48,13 @@ end
         QA_CONFIG.readme
     else
         @warn "QA_CONFIG has no `readme` field; checking the repo-root " *
-              "README with the standard sections. Add one to qa_config.jl " *
-              "to configure (or confirm) this."
-        (; path = joinpath(@__DIR__, "..", ".."))
+            "README with the standard sections. Add one to qa_config.jl " *
+            "to configure (or confirm) this."
+        (; path=joinpath(@__DIR__, "..", ".."))
     end
-    test_readme_sections(cfg.path;
-        (k => v for (k, v) in pairs(cfg) if k !== :path)...)
+    test_readme_sections(
+        cfg.path; (k => v for (k, v) in pairs(cfg) if k !== :path)...
+    )
 end
 
 @testitem "Quality: doctest" tags=[:quality] begin
@@ -74,18 +77,18 @@ end
         QA_CONFIG.formatter_env
     else
         @warn "QA_CONFIG has no `formatter_env` field; checking formatting " *
-              "in-process against the shared test environment, whose " *
-              "JuliaFormatter version floats with the CI Julia in use. Add " *
-              "one to qa_config.jl to pin it via the isolated formatter env."
+            "in-process against the shared test environment, whose " *
+            "JuliaFormatter version floats with the CI Julia in use. Add " *
+            "one to qa_config.jl to pin it via the isolated formatter env."
         nothing
     end
-    test_formatting(QA_CONFIG.mod; env = env)
+    test_formatting(QA_CONFIG.mod; env=env)
 end
 
 @testitem "Quality: linting (JET)" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
-    test_linting(QA_CONFIG.mod; env = QA_CONFIG.jet_env)
+    test_linting(QA_CONFIG.mod; env=QA_CONFIG.jet_env)
 end
 
 @testitem "Quality: extension ambiguities" tags=[:quality] begin
@@ -96,9 +99,12 @@ end
         for trigger in ext.triggers
             Base.require(Main, Symbol(trigger))
         end
-        test_ext_ambiguities(QA_CONFIG.mod, ext.name;
-            prefixes = ext.prefixes,
-            expect_phantoms = get(ext, :expect_phantoms, false),
-            broken = get(ext, :broken, false))
+        test_ext_ambiguities(
+            QA_CONFIG.mod,
+            ext.name;
+            prefixes=ext.prefixes,
+            expect_phantoms=get(ext, :expect_phantoms, false),
+            broken=get(ext, :broken, false),
+        )
     end
 end

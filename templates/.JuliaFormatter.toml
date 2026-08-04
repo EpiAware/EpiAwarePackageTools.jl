@@ -1,2 +1,14 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
-style = "sciml"
+#
+# Blue, not sciml/YAS. sciml and YAS force a choice between stability (pin a
+# JuliaFormatter version forever) and correctness (track the latest, and accept
+# that fixing their bugs changes the formatting output). Blue and default are
+# the styles JuliaFormatter keeps stable, so a version bump does not churn
+# every file. See ComposableTuringIDModels.jl#200 for the recommendation.
+style = "blue"
+
+# Blue's own margin is 92 and it reflows rather than keeping the author's line
+# breaks (`join_lines_based_on_source = false`), so without this every file
+# would be rewrapped to 92. The org convention is 80, which is also what the
+# existing code is written to, so keep the formatter on 80.
+margin = 80

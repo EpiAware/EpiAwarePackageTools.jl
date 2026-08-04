@@ -9,11 +9,17 @@
 
 using EpiAwarePackageTools.Benchmarks: compare_comment
 
-const BACKEND_ORDER = ["ForwardDiff", "ReverseDiff (tape)", "Mooncake reverse",
-    "Mooncake forward", "Enzyme reverse", "Enzyme forward"]
+const BACKEND_ORDER = [
+    "ForwardDiff",
+    "ReverseDiff (tape)",
+    "Mooncake reverse",
+    "Mooncake forward",
+    "Enzyme reverse",
+    "Enzyme forward",
+]
 
 pr_file, base_file, out_file = ARGS[1], ARGS[2], ARGS[3]
 
-comment = compare_comment(pr_file, base_file; backend_order = BACKEND_ORDER)
+comment = compare_comment(pr_file, base_file; backend_order=BACKEND_ORDER)
 write(out_file, comment)
 println("Wrote benchmark comparison to ", out_file)

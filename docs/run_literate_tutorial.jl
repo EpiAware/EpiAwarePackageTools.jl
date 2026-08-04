@@ -19,8 +19,8 @@ outdir = ARGS[2]
 Literate.markdown(
     input,
     outdir;
-    flavor = Literate.DocumenterFlavor(),
-    execute = true,
-    mdstrings = true,
-    credit = false
+    flavor=Literate.DocumenterFlavor(),
+    execute=true,
+    mdstrings=true,
+    credit=false,
 )
