@@ -19,7 +19,9 @@
 #     Tutorials (#299/#305),
 #   - generates `src/index.md` from the README (badges stripped, any
 #     `INDEX_STRIP_SECTIONS` removed, link rewrites applied),
-#   - generates `src/release-notes.md` from a project-root `NEWS.md`,
+#   - generates `src/release-notes.md` from the repo's published GitHub
+#     releases, fetched at build time (a link-out when they cannot be
+#     read),
 #   - generates `src/benchmarks/over-time.md` (a tight skeleton + the
 #     package-owned `docs/benchmarks.md` prose hook + the rendered
 #     performance history),

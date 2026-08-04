@@ -317,21 +317,190 @@
         @test !occursin("@example readme", out)
     end
 
-    @testset "build_release_notes: header + NEWS, else skipped" begin
+    # A minimal package-owned header, and the releases page every generated
+    # release-notes page links back to.
+    _plain_header = "const RELEASE_NOTES_HEADER = \"# Release notes\\n\\n\"\n"
+    _releases_url = "https://github.com/Org/Pkg.jl/releases"
+
+    @testset "build_release_notes: renders the fetched GitHub releases" begin
         dir = mktempdir()
-        news = joinpath(dir, "NEWS.md")
         header = joinpath(dir, "header.jl")
-        write(news, "## 1.0\n- a change\n")
-        write(header, "const RELEASE_NOTES_HEADER = \"# Release notes\\n\\n\"\n")
+        write(header, _plain_header)
+        # The shape `_fetch_releases` returns: the decoded API array, already
+        # converted to plain containers.
+        releases = Any[
+            Dict{String, Any}("tag_name" => "v1.1.0",
+                "published_at" => "2026-02-03T09:00:00Z",
+                "html_url" => "$(_releases_url)/tag/v1.1.0",
+                "body" =>
+                    "## Pkg v1.1.0\n\nA milestone.\n\n" *
+                    "**Merged pull requests:**\n- one (#1)\n"),
+            Dict{String, Any}("tag_name" => "v1.0.0-rc1",
+                "published_at" => "2026-01-02T09:00:00Z", "prerelease" => true,
+                "body" => ""),
+            Dict{String, Any}("tag_name" => "v0.9.0-draft", "draft" => true,
+                "body" => "never published")
+        ]
         dest = joinpath(dir, "release-notes.md")
-        @test DB.build_release_notes(;
-            news = news, header_file = header, dest = dest) == dest
+        @test DB.build_release_notes(; repo = "Org/Pkg.jl",
+            header_file = header, dest = dest, releases = releases) == dest
         out = read(dest, String)
         @test startswith(out, "# Release notes")
-        @test occursin("- a change", out)
-        # Missing NEWS -> nothing written.
-        @test DB.build_release_notes(; news = joinpath(dir, "none.md"),
-            header_file = header, dest = joinpath(dir, "x.md")) === nothing
+        # Newest first, one `##` heading per tag, with date and release link.
+        @test occursin("## v1.1.0", out)
+        @test occursin("Released 2026-02-03.", out)
+        @test occursin("[Read it on GitHub]($(_releases_url)/tag/v1.1.0).",
+            out)
+        @test findfirst("## v1.1.0", out) < findfirst("## v1.0.0-rc1", out)
+        # TagBot repeats the tag as the body's own title; it is dropped rather
+        # than rendered directly under the heading that already says it.
+        @test !occursin("Pkg v1.1.0", out)
+        @test occursin("A milestone.", out)
+        # A prerelease says so; an empty body still gets a line of its own.
+        @test occursin("Pre-release.", out)
+        @test occursin("This release was published without notes.", out)
+        # Drafts are not published, so they are not release notes.
+        @test !occursin("v0.9.0-draft", out)
+        # The page always ends with the way to the rest.
+        @test occursin("https://github.com/Org/Pkg.jl/releases)", out)
+    end
+
+    @testset "build_release_notes: heading demotion and comment stripping" begin
+        dir = mktempdir()
+        header = joinpath(dir, "header.jl")
+        write(header, _plain_header)
+        body = "# Top level\n\nprose\n\n<!-- a hidden note -->\n" *
+               "## Second level\n\n```\n# not a heading\n" *
+               "<!-- not a comment -->\n```\n"
+        dest = joinpath(dir, "release-notes.md")
+        DB.build_release_notes(; repo = "Org/Pkg.jl", header_file = header,
+            dest = dest,
+            releases = Any[Dict{String, Any}("tag_name" => "v2.0.0",
+                "body" => body)])
+        out = read(dest, String)
+        @test occursin("### Top level", out)
+        @test occursin("#### Second level", out)
+        # HTML comments would render as literal text once VitePress turns the
+        # `--` into an en-dash (#297), so they are stripped outside code.
+        @test !occursin("a hidden note", out)
+        # Fenced code survives verbatim, comment syntax and all.
+        @test occursin("# not a heading", out)
+        @test occursin("<!-- not a comment -->", out)
+    end
+
+    @testset "build_release_notes: an open fence cannot swallow the page" begin
+        dir = mktempdir()
+        header = joinpath(dir, "header.jl")
+        write(header, _plain_header)
+        dest = joinpath(dir, "release-notes.md")
+        # Release bodies are concatenated onto one page, so a body that never
+        # closes its fence would take every release below it with it.
+        DB.build_release_notes(; repo = "Org/Pkg.jl", header_file = header,
+            dest = dest,
+            releases = Any[
+                Dict{String, Any}("tag_name" => "v2.0.0",
+                    "body" => "```julia\nf(x) = x\n"),
+                Dict{String, Any}("tag_name" => "v1.0.0",
+                    "body" => "Still readable.\n")
+            ])
+        out = read(dest, String)
+        @test count("```", out) == 2
+        @test occursin("## v1.0.0", out)
+        @test occursin("Still readable.", out)
+    end
+
+    @testset "build_release_notes: degrades without a fetch" begin
+        dir = mktempdir()
+        header = joinpath(dir, "header.jl")
+        write(header, _plain_header)
+        # Fetch failed (`releases === nothing`): the page is still written.
+        dest = joinpath(dir, "release-notes.md")
+        @test DB.build_release_notes(; repo = "Org/Pkg.jl",
+            header_file = header, dest = dest, fetch = false) == dest
+        out = read(dest, String)
+        @test startswith(out, "# Release notes")
+        @test occursin("could not be fetched", out)
+        @test occursin("https://github.com/Org/Pkg.jl/releases)", out)
+        # Fetched successfully but the repo has no releases yet: a different
+        # message, because nothing is wrong.
+        empty_dest = joinpath(dir, "empty.md")
+        DB.build_release_notes(; repo = "Org/Pkg.jl", header_file = header,
+            dest = empty_dest, releases = Any[])
+        empty_out = read(empty_dest, String)
+        @test occursin("No releases have been published yet.", empty_out)
+        @test occursin("https://github.com/Org/Pkg.jl/releases)", empty_out)
+        # No header file at all -> the standard header, still a whole page.
+        no_header = joinpath(dir, "no-header.md")
+        DB.build_release_notes(; repo = "Org/Pkg.jl",
+            header_file = joinpath(dir, "missing.jl"), dest = no_header,
+            fetch = false)
+        @test occursin("# Release notes", read(no_header, String))
+    end
+
+    @testset "build_release_notes: a NEWS.md header is replaced" begin
+        dir = mktempdir()
+        header = joinpath(dir, "header.jl")
+        # The pre-#286 seed, still shipped in every adopter that predates this
+        # change: it introduces a changelog file the page no longer renders.
+        write(header,
+            "const RELEASE_NOTES_HEADER = " *
+            "\"# Old\\n\\nSee NEWS.md below.\\n\\n\"\n")
+        dest = joinpath(dir, "release-notes.md")
+        @test_logs (:warn, r"NEWS.md") match_mode=:any DB.build_release_notes(;
+            repo = "Org/Pkg.jl", header_file = header, dest = dest,
+            fetch = false)
+        out = read(dest, String)
+        @test !occursin("See NEWS.md below.", out)
+        @test occursin("# Release notes", out)
+        @test occursin("EditURL = \"$(_releases_url)\"", out)
+    end
+
+    @testset "_fetch_releases: an unreachable API is not an error" begin
+        # Port 1 on the loopback interface refuses immediately, so this is the
+        # offline path without waiting for a network timeout.
+        @test DB._fetch_releases("Org/Pkg.jl"; api = "http://127.0.0.1:1") ===
+              nothing
+    end
+
+    # A `file://` URL for a fixed body, so the `Downloads.download` + `JSON`
+    # decode path in `_fetch_releases` runs against a real response without
+    # depending on the network. `api` plus the fixed `/repos/$repo/releases`
+    # suffix `_fetch_releases` builds must resolve to the file on disk.
+    _file_url(path) = "file://" * (Sys.iswindows() ? "/" : "") *
+                      replace(abspath(path), "\\" => "/")
+
+    @testset "_fetch_releases: decodes a well-formed response" begin
+        dir = mktempdir()
+        endpoint = joinpath(dir, "repos", "Org", "Pkg.jl")
+        mkpath(endpoint)
+        write(joinpath(endpoint, "releases"),
+            "[{\"tag_name\": \"v1.0.0\", \"draft\": false}]")
+        releases = DB._fetch_releases("Org/Pkg.jl"; api = _file_url(dir),
+            token = nothing)
+        @test releases isa AbstractVector
+        @test length(releases) == 1
+        @test releases[1]["tag_name"] == "v1.0.0"
+    end
+
+    @testset "_fetch_releases: a non-array response is not an error" begin
+        dir = mktempdir()
+        endpoint = joinpath(dir, "repos", "Org", "Pkg.jl")
+        mkpath(endpoint)
+        write(joinpath(endpoint, "releases"), "{\"message\": \"nope\"}")
+        @test DB._fetch_releases("Org/Pkg.jl"; api = _file_url(dir),
+            token = nothing) === nothing
+    end
+
+    @testset "_github_token: GITHUB_TOKEN, then GH_TOKEN, else nothing" begin
+        withenv("GITHUB_TOKEN" => nothing, "GH_TOKEN" => nothing) do
+            @test DB._github_token() === nothing
+        end
+        withenv("GITHUB_TOKEN" => "ghtok", "GH_TOKEN" => nothing) do
+            @test DB._github_token() == "ghtok"
+        end
+        withenv("GITHUB_TOKEN" => nothing, "GH_TOKEN" => "ghcli") do
+            @test DB._github_token() == "ghcli"
+        end
     end
 
     @testset "build_benchmark_page: tight skeleton + fallback" begin

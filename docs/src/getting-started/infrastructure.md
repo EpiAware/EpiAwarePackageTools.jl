@@ -22,8 +22,7 @@ Every file the kit writes is one of two kinds.
   header; do not edit them by hand.
 - Package-owned files are written once and never overwritten: the package's
   unit tests, its QA config values, the navigation tree (`docs/pages.jl`), the
-  README body, `LICENSE`, `CITATION.cff` (your citation metadata), `NEWS.md`
-  (see the [changelog convention](@ref changelog) for its shape), and the docs
+  README body, `LICENSE`, `CITATION.cff` (your citation metadata), and the docs
   source pages such as this one.
   These are yours to edit.
 
@@ -208,8 +207,10 @@ refreshes a single labelled issue that reports the released vs
 link and a short recent-commit list, and whether a version bump is still
 needed or only registration is outstanding.
 The issue spells out the next steps: comment `/version patch`, `/version
-minor`, or `/version major` on a pull request to bump, update `NEWS.md`,
-then either comment `/register` or run the Register workflow manually.
+minor`, or `/version major` on a pull request to bump, then either comment
+`/register` or run the Register workflow manually.
+The notes for the release are written on the GitHub release once it exists,
+not before it (see the [release notes convention](@ref release-notes)).
 When nothing is unreleased it closes any open nudge issue instead.
 
 An open nudge issue is never edited in place.

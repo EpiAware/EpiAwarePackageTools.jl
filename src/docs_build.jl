@@ -18,8 +18,8 @@
 #   - `src/index.md` generated from the package README (badge block stripped,
 #     optional package-named sections stripped, ```julia blocks turned into
 #     `@example readme`, link rewrites applied),
-#   - `src/release-notes.md` generated from a project-root `NEWS.md` + the
-#     package-owned header,
+#   - `src/release-notes.md` generated from the repo's published GitHub
+#     Releases (fetched at build time) + the package-owned header,
 #   - `src/benchmarks/over-time.md`: a tight managed skeleton (page heading +
 #     the package-owned prose hook + a data-driven performance-history
 #     section that renders the published timeline) — no package-specific
@@ -52,6 +52,7 @@ module DocsBuild
 import Pkg
 
 import ..EpiAwarePackageTools: _require_pkg
+import Downloads
 import Statistics
 
 export build_docs, build_index, build_release_notes, build_benchmark_page,
@@ -80,6 +81,15 @@ end
 # other docs dependency here.
 function _plots()
     _require_pkg("91a5bcdd-55d7-5caf-9e0b-520d859cae80", "Plots")
+end
+# `JSON` parses the GitHub Releases API response for the release-notes page.
+# It is not declared by the docs environment and does not need to be: it is a
+# dependency of Documenter, DocumenterVitepress and Literate, so it is in every
+# adopter's docs manifest already, and `Base.require` resolves a manifest entry
+# by UUID whether it is a direct or an indirect dependency. A build where it
+# cannot be loaded degrades to the link-out page like any other fetch failure.
+function _json()
+    _require_pkg("682c06a0-de6a-54ab-a142-c8b1cf79cde6", "JSON")
 end
 
 # ---- empty-anchor inventory guard (#232) ----------------------------------
@@ -470,34 +480,305 @@ end
 
 # ---- release-notes.md -----------------------------------------------------
 
-"""
-    build_release_notes(; news, header_file, dest)
+# How many releases the page renders. GitHub's own release bodies list every
+# merged pull request, so a page of the last ten is already long; everything
+# older is one click away behind the link the page always carries.
+const _RELEASE_NOTES_COUNT = 10
 
-Generate `dest` from a project-root `news` file prefixed with the package-owned
-release-notes header defined in `header_file` (which must set
-`RELEASE_NOTES_HEADER`). Both are optional: if either is missing nothing is
-written and `nothing` is returned.
+# The GitHub REST API root. A kwarg only so the offline degradation path is
+# testable without a network (point it at a closed port).
+const _GITHUB_API = "https://api.github.com"
+
+# A token for the Releases request, or `nothing`. Unauthenticated calls are
+# capped at 60/hour/IP, which a busy org's docs builds can exhaust; CI already
+# has `GITHUB_TOKEN` in the environment, and a local build often has `GH_TOKEN`
+# from the `gh` CLI. Only public release metadata is read, so no token is ever
+# required -- it just buys the higher rate limit.
+function _github_token()
+    for key in ("GITHUB_TOKEN", "GH_TOKEN")
+        value = get(ENV, key, "")
+        isempty(value) || return value
+    end
+    return nothing
+end
+
 """
-function build_release_notes(; news::AbstractString, header_file::AbstractString,
-        dest::AbstractString)
-    if isfile(news) && isfile(header_file)
-        # Evaluate the header file in a throwaway module and take the value it
-        # returns (its trailing `const RELEASE_NOTES_HEADER = "..."`). Using the
-        # include return value rather than reading the binding back avoids the
-        # stricter global-binding world-age rules in Julia >= 1.12.
-        header = Base.include(Module(:ReleaseNotesHeader), header_file)
-        open(dest, "w") do io
-            print(io, header)
-            for line in eachline(news)
-                println(io, line)
-            end
-        end
-        println("Generated release-notes.md from header + NEWS.md")
-        return dest
-    else
-        println("No NEWS.md / release-notes header found; skipping release notes")
+    _fetch_releases(repo; limit, token, api)
+
+The `repo`'s published releases, newest first, or `nothing` when they could not
+be fetched.
+
+Returns the decoded JSON array from GitHub's `/repos/{repo}/releases`
+endpoint (an empty array when the repo has no releases yet). Every failure --
+offline, rate-limited, repo not found, `JSON` not loadable, a response that is
+not an array -- is caught and reported as `nothing` plus an `@info`, because a
+docs build must not depend on GitHub being reachable.
+"""
+function _fetch_releases(repo::AbstractString;
+        limit::Integer = _RELEASE_NOTES_COUNT,
+        token::Union{Nothing, AbstractString} = _github_token(),
+        api::AbstractString = _GITHUB_API)
+    url = "$api/repos/$repo/releases?per_page=$limit"
+    headers = ["Accept" => "application/vnd.github+json",
+        "X-GitHub-Api-Version" => "2022-11-28"]
+    token === nothing || push!(headers, "Authorization" => "Bearer $token")
+    try
+        JSON = _json()
+        buf = IOBuffer()
+        Downloads.download(url, buf; headers = headers, timeout = 30)
+        parsed = Base.invokelatest(JSON.parse, String(take!(buf)))
+        parsed = Base.invokelatest(_plain_json, parsed)
+        parsed isa AbstractVector && return parsed
+        @info "release notes: unexpected response from the GitHub releases " *
+              "API; rendering the fallback link" repo
+        return nothing
+    catch err
+        @info "release notes: could not fetch the published releases " *
+              "(offline, rate-limited, or the repo has no API access); the " *
+              "page will link to the releases page instead" repo exception=err
         return nothing
     end
+end
+
+# Convert a decoded JSON value into plain `Dict`/`Vector`/scalars. JSON.jl 1.x
+# returns its own `JSON.Object` type, whose `get`/`iterate` methods live in the
+# world age created by the lazy `Base.require` and so cannot be called from
+# here; converting once (under `invokelatest`, where they are visible) means
+# the rendering below is ordinary Julia over ordinary containers, and the test
+# fixtures are the same plain `Dict`s a real response becomes.
+function _plain_json(x)
+    x isa AbstractDict &&
+        return Dict{String, Any}(string(k) => _plain_json(v) for (k, v) in x)
+    x isa AbstractVector && return Any[_plain_json(v) for v in x]
+    return x
+end
+
+# The `YYYY-MM-DD` part of a release's ISO 8601 `published_at`, or `""`. Taking
+# the date off the front of the string rather than parsing it keeps the page
+# free of a timezone question nobody asked: a release date is a day, not an
+# instant.
+function _release_date(release)
+    stamp = get(release, "published_at", nothing)
+    stamp isa AbstractString || return ""
+    return length(stamp) >= 10 ? String(first(stamp, 10)) : ""
+end
+
+# Rewrite a release body for inclusion under a `##` release heading.
+#
+# Three things have to happen. Headings shift down two levels so a body written
+# against the top of a GitHub release page nests under the heading this page
+# gives it (and a `#` body heading does not compete with the page title).
+# TagBot opens every body with a `## <Package> vX.Y.Z` title that would then
+# repeat the heading immediately above it, so a leading heading naming the tag
+# is dropped. HTML comments are stripped for the same reason `build_index`
+# strips them: DocumenterVitepress' typographic pass turns the `--` inside a
+# surviving comment into an en-dash, and the marker then renders as literal
+# text on the built page (#297).
+#
+# Fenced code in a body is left exactly as written -- a release note showing a
+# `#` comment or a `<!-- -->` in an example must survive verbatim. A body that
+# leaves a fence open is closed at the end of that body: release bodies are
+# concatenated onto one page, so an unterminated fence would otherwise swallow
+# every release below it.
+function _normalise_release_body(body::AbstractString, tag::AbstractString)
+    text = replace(String(body), "\r\n" => "\n", "\r" => "\n")
+    out = IOBuffer()
+    in_fence = false
+    fence = ""
+    opened = ""
+    in_comment = false
+    dropped_title = false
+    seen_content = false
+    for line in split(text, '\n')
+        if in_comment
+            rest, in_comment = _strip_line_comments(line, true)
+            println(out, rest)
+            continue
+        end
+        m = match(r"^\s{0,3}(`{3,}|~{3,})", line)
+        if m !== nothing
+            marker = String(something(m.captures[1]))
+            if !in_fence
+                in_fence = true
+                fence = string(marker[1])
+                opened = marker
+            elseif startswith(marker, fence)
+                in_fence = false
+            end
+            seen_content = true
+            println(out, line)
+            continue
+        end
+        if in_fence
+            println(out, line)
+            continue
+        end
+        line, in_comment = _strip_line_comments_outside_code_spans(line,
+            in_comment)
+        h = match(r"^(#{1,6})\s+(.*?)\s*$", line)
+        if h !== nothing
+            level = length(something(h.captures[1]))
+            title = something(h.captures[2])
+            if !seen_content && !dropped_title &&
+               occursin(lowercase(tag), lowercase(title))
+                dropped_title = true
+                continue
+            end
+            seen_content = true
+            println(out, "#"^min(level + 2, 6), " ", title)
+            continue
+        end
+        isempty(strip(line)) || (seen_content = true)
+        println(out, line)
+    end
+    in_fence && println(out, opened)
+    # Stripped comments leave runs of blank lines behind; collapse them so the
+    # generated page reads tidily when diffed directly.
+    return strip(replace(String(take!(out)), r"\n{3,}" => "\n\n"))
+end
+
+# Render `releases` (the decoded API array) into `io`, newest first, and return
+# how many were written. Drafts are skipped: they are not published, so they
+# are not release notes.
+function _render_releases(io, releases, repo::AbstractString;
+        limit::Integer = _RELEASE_NOTES_COUNT)
+    shown = 0
+    for release in releases
+        shown >= limit && break
+        release isa AbstractDict || continue
+        get(release, "draft", false) === true && continue
+        tag = get(release, "tag_name", nothing)
+        (tag isa AbstractString && !isempty(tag)) || continue
+        url = get(release, "html_url", nothing)
+        url isa AbstractString && !isempty(url) ||
+            (url = "https://github.com/$repo/releases/tag/$tag")
+        println(io, "## ", tag)
+        println(io)
+        meta = String[]
+        date = _release_date(release)
+        isempty(date) || push!(meta, "Released $date.")
+        get(release, "prerelease", false) === true &&
+            push!(meta, "Pre-release.")
+        push!(meta, "[Read it on GitHub]($url).")
+        println(io, join(meta, " "))
+        println(io)
+        body = get(release, "body", nothing)
+        body = body isa AbstractString ? _normalise_release_body(body, tag) : ""
+        println(io, isempty(body) ?
+                    "This release was published without notes." : body)
+        println(io)
+        shown += 1
+    end
+    return shown
+end
+
+# The page body when nothing was rendered. `fetched` distinguishes the two
+# reasons, because they ask different things of the reader: a repo with no
+# releases yet is waiting for its first tag, whereas a failed fetch means this
+# build could not reach GitHub and the page is simply out of date.
+function _write_release_fallback(io, repo::AbstractString, fetched::Bool)
+    if fetched
+        println(io, "No releases have been published yet.")
+        println(io, "They will appear here once the first one is tagged.")
+    else
+        println(io,
+            "The published releases could not be fetched when this page was")
+        println(io, "built, so they are not shown here.")
+    end
+    println(io)
+    println(io, "Read them on the [releases page]" *
+                "(https://github.com/$repo/releases).")
+    return nothing
+end
+
+# The header used when a package has no `docs/release_notes_header.jl`, and
+# when the one it has still describes the retired NEWS.md convention (#286):
+# such a header introduces a changelog file that is no longer rendered, so
+# honouring it would caption the page with a description of something else.
+function _default_release_notes_header(repo::AbstractString)
+    return """
+    ```@meta
+    EditURL = "https://github.com/$repo/releases"
+    ```
+
+    # Release notes
+
+    Every release of this package is published as a GitHub release.
+    The most recent are reproduced below, as they were written there.
+
+    """
+end
+
+# The package-owned header, or the managed default. A header that still refers
+# to NEWS.md predates the move to GitHub Releases; it is replaced rather than
+# rendered, and the warning names the file so the fix is one edit.
+function _release_notes_header(header_file::AbstractString,
+        repo::AbstractString)
+    isfile(header_file) || return _default_release_notes_header(repo)
+    # Evaluate the header file in a throwaway module and take the value it
+    # returns (its trailing `const RELEASE_NOTES_HEADER = "..."`). Using the
+    # include return value rather than reading the binding back avoids the
+    # stricter global-binding world-age rules in Julia >= 1.12.
+    header = Base.include(Module(:ReleaseNotesHeader), header_file)
+    if header isa AbstractString && occursin("NEWS.md", header)
+        @warn "release notes: $(header_file) still describes the retired " *
+              "NEWS.md convention, so the standard header is used instead; " *
+              "rewrite it to introduce the GitHub releases shown on the page"
+        return _default_release_notes_header(repo)
+    end
+    return header
+end
+
+"""
+    build_release_notes(; repo, header_file, dest, fetch=true,
+                        limit=$(_RELEASE_NOTES_COUNT), releases=nothing)
+
+Generate `dest` (the release-notes page) from `repo`'s published GitHub
+releases, prefixed with the package-owned header defined in `header_file`
+(which must set `RELEASE_NOTES_HEADER`).
+
+The releases are fetched at build time, so the page is written once and the
+notes stay wherever they were authored -- there is no changelog file to keep in
+step with the tags. The most recent $(_RELEASE_NOTES_COUNT) are rendered, each
+under its tag heading, with a link to the rest.
+
+The page is always written, whatever GitHub says. When the releases cannot be
+fetched (offline, rate-limited, no API access) or the repo has no releases yet,
+the page degrades to a short note and a link to the releases page rather than
+failing the build. `fetch=false` skips the request entirely, and `releases`
+supplies a decoded array directly; both exist for tests and offline builds.
+
+`header_file` is optional. A package that has none, or whose header still
+describes the retired NEWS.md convention, gets the standard header instead
+(with a warning in the second case, naming the file to rewrite).
+"""
+function build_release_notes(; repo::AbstractString,
+        header_file::AbstractString, dest::AbstractString,
+        fetch::Bool = true, limit::Integer = _RELEASE_NOTES_COUNT,
+        releases = nothing)
+    mkpath(dirname(dest))
+    header = _release_notes_header(header_file, repo)
+    if releases === nothing && fetch
+        releases = _fetch_releases(repo; limit = limit)
+    end
+    shown = 0
+    open(dest, "w") do io
+        print(io, header)
+        if releases !== nothing
+            shown = _render_releases(io, releases, repo; limit = limit)
+        end
+        if shown == 0
+            _write_release_fallback(io, repo, releases !== nothing)
+        else
+            println(io, "Every release, including any older than those above,")
+            println(io, "is listed on the [releases page]" *
+                        "(https://github.com/$repo/releases).")
+        end
+    end
+    println(shown == 0 ?
+            "Generated release-notes.md (no releases shown; linking out)" :
+            "Generated release-notes.md from $shown GitHub release(s)")
+    return dest
 end
 
 # ---- benchmark history page -----------------------------------------------
@@ -2052,7 +2333,9 @@ Run the standard EpiAware documentation build for package module `mod`. All
 paths derive from `pkgdir(mod)`, so the managed `docs/make.jl` only forwards the
 package-owned config. Generates the home page, release notes, benchmark page,
 and API pages, processes the Literate tutorials, then renders with
-`DocumenterVitepress` and (when `deploy`) deploys. Under `skip_notebooks`,
+`DocumenterVitepress` and (when `deploy`) deploys. The release-notes page is
+fetched from `repo`'s GitHub releases at build time and degrades to a link when
+they cannot be read (see [`build_release_notes`](@ref)). Under `skip_notebooks`,
 light tutorials still render in-process (cheap: seconds, not minutes) and only
 the heavy tutorials fall back to `tutorial_stubs` heading stubs — the flag
 exists to skip the slow ones, not the cheap ones. Independent of
@@ -2139,7 +2422,7 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         dest = joinpath(src_dir, "index.md"), repo = repo,
         execute = readme_execute, rewrites = index_rewrites,
         strip_sections = index_strip_sections)
-    build_release_notes(; news = joinpath(project_root, "NEWS.md"),
+    build_release_notes(; repo = repo,
         header_file = joinpath(docs_dir, "release_notes_header.jl"),
         dest = joinpath(src_dir, "release-notes.md"))
     benchmark_linkcheck = Regex[]

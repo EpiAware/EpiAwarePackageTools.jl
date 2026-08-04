@@ -438,7 +438,7 @@
             # to pages the package writes or `make.jl` generates, for both the
             # AD and no-AD navs.
             generated = ["index.md", "lib/public.md", "lib/internals.md",
-                "benchmarks/over-time.md"]
+                "benchmarks/over-time.md", "release-notes.md"]
             for ad in (true, false)
                 mktempdir() do dir
                     _fake_pkg(dir; name = "Wombat")
@@ -3399,10 +3399,17 @@
                 dp = read(_dest(dir, "docs/Project.toml"), String)
                 @test occursin("DocumenterCitations", dp)
                 @test occursin("Literate", dp)
-                # The release-notes header is parameterised on the repo.
+                # The release-notes header is parameterised on the repo and
+                # introduces the fetched GitHub releases, not a changelog file.
                 rh = read(_dest(dir, "docs/release_notes_header.jl"), String)
                 @test occursin("EpiAware/Wombat.jl", rh)
                 @test !occursin("{{", rh)
+                @test !occursin("NEWS", rh)
+                @test occursin("EpiAware/Wombat.jl/releases", rh)
+                # The generated page is in the nav, so the releases are
+                # reachable from the site rather than only by URL.
+                @test occursin("\"Release notes\" => \"release-notes.md\"",
+                    read(_dest(dir, "docs/pages.jl"), String))
                 # The benchmark-history page: a package-owned prose hook, a nav
                 # entry, and the managed make.jl generation + config flag.
                 @test isfile(_dest(dir, "docs/benchmarks.md"))
@@ -3626,18 +3633,19 @@
             end
         end
 
-        @testset "NEWS.md is package-owned (write-once)" begin
+        @testset "no NEWS.md is seeded, and an existing one is left alone" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                res = scaffold(dir)
+                scaffold(dir)
                 news = joinpath(dir, "NEWS.md")
-                @test isfile(news)
-                @test news in res.created
-                @test occursin("Unreleased", read(news, String))
-                # Package-owned: a caller's own entry survives `update`.
+                # Release notes live on the GitHub release, so there is no
+                # changelog file to seed.
+                @test !isfile(news)
+                # A repo that already has one keeps it: the kit no longer
+                # writes, reads, or removes it.
                 write(news, "## v1.0.0\n\nFirst release.\n")
-                res2 = update(dir)
-                @test news ∉ res2.updated
+                res = update(dir)
+                @test news ∉ res.updated
                 @test read(news, String) == "## v1.0.0\n\nFirst release.\n"
             end
         end
