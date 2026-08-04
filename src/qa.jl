@@ -23,10 +23,9 @@ function test_doctest(mod::Module)
     # See `test_aqua` for why this goes through `invokelatest`.
     Documenter = _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4",
         "Documenter")
-    # Bind `mod` into `Main` under its own name so `@meta CurrentModule = <mod>`
-    # blocks in the docs pages resolve when doctest runs inside a TestItemRunner
-    # sandbox module (where `Main` would otherwise lack the binding). Set it
-    # when absent so a real `Main.<mod>` is never clobbered.
+    # Bind `mod` into `Main` so `@meta CurrentModule` resolves under a
+    # TestItemRunner sandbox; set only when absent so a real binding is
+    # never clobbered.
     name = nameof(mod)
     isdefined(Main, name) ||
         Core.eval(Main, Expr(:(=), name, mod))
@@ -86,10 +85,9 @@ function test_formatting(dirs; style::AbstractString = "sciml",
 end
 
 # Run the formatter check in an isolated subprocess via the shared
-# `_validate_isolated_env`/`_run_isolated_env` (cf. `test_jet`'s `env` path, in
-# quality.jl): validate `env`, then run its `runtests.jl` and assert a zero
-# exit. Validation happens before the `@testset` so a malformed `env` raises
-# directly rather than as a testset failure (see `_validate_isolated_env`).
+# `_validate_isolated_env`/`_run_isolated_env` (cf. `test_jet`'s `env` path
+# in quality.jl). Validation happens before the `@testset` so a malformed
+# `env` raises directly rather than as a testset failure.
 function _test_formatting_env(env::AbstractString)
     runner = _validate_isolated_env(env, "formatter")
     return @testset "formatting" begin

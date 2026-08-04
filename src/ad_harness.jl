@@ -1,14 +1,8 @@
-# Generic AD-gradient harness scaffolding.
-#
-# This is the package-agnostic core of an AD test suite: given a set of
-# gradient scenarios (each carrying a ForwardDiff reference) and a list of
-# backends, it drives `DifferentiationInterfaceTest.test_differentiation` over
-# the working scenarios for a backend and marks the rest broken. The scenarios
-# themselves (the package's distributions / models) stay in the package; this
-# module only owns the run logic that every package would otherwise copy.
-#
-# The harness talks to a package's fixtures through the `ADRegistry` contract
-# below, so it has no dependency on any particular package's types.
+# Generic AD-gradient harness scaffolding: given gradient scenarios (each
+# carrying a ForwardDiff reference) and a list of backends, drives
+# `DifferentiationInterfaceTest.test_differentiation` over the working
+# scenarios and marks the rest broken. Scenarios stay package-owned; the
+# harness talks to them only through the `ADRegistry` contract below.
 
 """
     ADRegistry
