@@ -1673,8 +1673,9 @@ looking red check days later. Pushes one message per matching job onto
 `warnings` (mutated in place, mirroring the `test/ad/setup.jl` divergence
 warning in `_apply`).
 """
-function _warn_local_caller_override!(warnings::Vector{String},
-        to::AbstractString, dest::AbstractString)
+function _warn_local_caller_override!(
+    warnings::Vector{String}, to::AbstractString, dest::AbstractString
+)
     isfile(to) || return nothing
     text = read(to, String)
     for m in eachmatch(_LOCAL_CALLER_JOB, text)
@@ -1690,11 +1691,16 @@ function _warn_local_caller_override!(warnings::Vector{String},
             job = String(something(jm.captures[1]))
         end
         job === nothing && continue
-        msg = string(dest, " job \"", job, "\" has `uses:` pointing at a ",
+        msg = string(
+            dest,
+            " job \"",
+            job,
+            "\" has `uses:` pointing at a ",
             "repo-local reusable workflow with its own `with:` inputs. ",
             "`_CALLER_JOB` only keys the org's shared reusable, so this ",
             "job cannot be preserved — the next resync will silently drop ",
-            "those inputs and revert it to the shared reusable (#325).")
+            "those inputs and revert it to the shared reusable (#325).",
+        )
         push!(warnings, msg)
         @warn msg
     end
@@ -3653,7 +3659,8 @@ function _apply(
         # (#325), so the `_emit` below is about to silently drop any
         # `with:` inputs it carries. Warn before that happens rather than
         # letting the loss ride along unnoticed in the sync output.
-        exists && t.managed &&
+        exists &&
+            t.managed &&
             _warn_local_caller_override!(warnings, to, t.dest)
         _emit(from, to, t.substitute, inputs)
         push!(exists ? updated : created, to)

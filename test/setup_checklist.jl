@@ -57,8 +57,9 @@
             @test occursin("SomeOrg/OtherPkg.jl", text)
             # The genkeys call splits the slug, so the override has to reach
             # both halves rather than only the rendered slug.
-            @test occursin("genkeys(user=\"SomeOrg\", repo=\"OtherPkg.jl\")",
-                text)
+            @test occursin(
+                "genkeys(user=\"SomeOrg\", repo=\"OtherPkg.jl\")", text
+            )
         end
     end
 

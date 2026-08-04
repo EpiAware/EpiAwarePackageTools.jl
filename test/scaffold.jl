@@ -527,9 +527,7 @@
                 # deploy_url carries an https:// scheme so DocumenterVitepress
                 # builds a root base (a scheme-less host is baked into the base
                 # and 404s every asset).
-                @test occursin(
-                    "deploy_url=\"https://wombat.epiaware.org\"", mk
-                )
+                @test occursin("deploy_url=\"https://wombat.epiaware.org\"", mk)
                 @test !occursin("deploy_url=nothing", mk)
                 @test !occursin("{{", mk)
                 txt = read(joinpath(dir, "README.md"), String)
@@ -2017,8 +2015,8 @@
                 # before the Documentation section.
                 @test occursin("## Related packages", txt)
                 @test findfirst("## Getting started", txt)[1] <
-                      findfirst("## Related packages", txt)[1] <
-                      findfirst("## Where to learn more", txt)[1]
+                    findfirst("## Related packages", txt)[1] <
+                    findfirst("## Where to learn more", txt)[1]
                 @test occursin("## Where to learn more", txt)
                 # The BibTeX citation is no longer inlined in the seed — the
                 # citation content lives in CITATION.cff (#67).
@@ -2956,18 +2954,23 @@
             # `_CALLER_JOB` to key local paths too), but warn so the loss is
             # visible.
             mktempdir() do dir
-                _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; ad = false)
+                _fake_pkg(dir; name="Wombat")
+                scaffold(dir; ad=false)
                 caller = _dest(dir, ".github/workflows/test.yaml")
                 before = read(caller, String)
                 @test occursin(
                     "uses: EpiAware/.github/.github/workflows/downgrade.yml",
-                    before)
-                localised = replace(before,
+                    before,
+                )
+                localised = replace(
+                    before,
                     r"uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+" => "uses: ./.github/workflows/downgrade.yaml",
-                    r"(?m)^(      )julia_version: '1'$" => s"\1projects: '., test'")
+                    r"(?m)^(      )julia_version: '1'$" =>
+                        s"\1projects: '., test'",
+                )
                 @test occursin(
-                    "uses: ./.github/workflows/downgrade.yaml", localised)
+                    "uses: ./.github/workflows/downgrade.yaml", localised
+                )
                 @test occursin("projects: '., test'", localised)
                 write(caller, localised)
                 # `downgrade_compat = true` explicitly, matching what the
@@ -2979,55 +2982,66 @@
                 # file (deliberately not `.yml`, to prove path/extension
                 # do not matter to this warning) does not satisfy.
                 local res
-                @test_logs (:warn,
-                    r"downgrade-compat.*local reusable workflow"is) match_mode=:any begin
-                    res = scaffold_update(dir; ad = false, downgrade_compat = true)
+                @test_logs (
+                    :warn, r"downgrade-compat.*local reusable workflow"is
+                ) match_mode=:any begin
+                    res = scaffold_update(dir; ad=false, downgrade_compat=true)
                 end
                 # The loss is now visible ...
                 @test !isempty(res.warnings)
                 @test any(
-                    w -> occursin(".github/workflows/test.yaml", w) &&
-                         occursin("downgrade-compat", w), res.warnings)
+                    w ->
+                        occursin(".github/workflows/test.yaml", w) &&
+                        occursin("downgrade-compat", w),
+                    res.warnings,
+                )
                 # ... but the job still reverts: no change to what gets
                 # emitted, only new diagnostic output.
                 after = read(caller, String)
                 @test occursin(
                     "uses: EpiAware/.github/.github/workflows/downgrade.yml",
-                    after)
+                    after,
+                )
                 @test !occursin("projects:", after)
                 @test caller in res.updated
             end
             # A local caller with no `with:` block (nothing package-owned
             # to lose) does not warn.
             mktempdir() do dir
-                _fake_pkg(dir; name = "Wombat2")
-                scaffold(dir; ad = false)
+                _fake_pkg(dir; name="Wombat2")
+                scaffold(dir; ad=false)
                 caller = _dest(dir, ".github/workflows/test.yaml")
                 before = read(caller, String)
-                localised = replace(before,
-                    r"(?m)^  downgrade-compat:\n    uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+\n    with:\n      julia_version: '1'\n    secrets: inherit  # pragma: allowlist secret$" => "  downgrade-compat:\n    uses: ./.github/workflows/downgrade.yaml\n    secrets: inherit  # pragma: allowlist secret")
+                localised = replace(
+                    before,
+                    r"(?m)^  downgrade-compat:\n    uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+\n    with:\n      julia_version: '1'\n    secrets: inherit  # pragma: allowlist secret$" => "  downgrade-compat:\n    uses: ./.github/workflows/downgrade.yaml\n    secrets: inherit  # pragma: allowlist secret",
+                )
                 @test occursin(
-                    "uses: ./.github/workflows/downgrade.yaml", localised)
+                    "uses: ./.github/workflows/downgrade.yaml", localised
+                )
                 @test !occursin("with:", localised) ||
-                      !occursin(
+                    !occursin(
                     r"uses: \./\.github/workflows/downgrade\.yaml\n    with:",
-                    localised)
+                    localised,
+                )
                 write(caller, localised)
-                res = scaffold_update(dir; ad = false)
+                res = scaffold_update(dir; ad=false)
                 @test isempty(res.warnings)
             end
             # A normal org-reusable caller repointed via `_preserve_caller_with_inputs`
             # (the #73 case) is unaffected: it is preserved, not reverted,
             # and does not spuriously trigger this warning.
             mktempdir() do dir
-                _fake_pkg(dir; name = "Wombat3")
-                scaffold(dir; ad = false)
+                _fake_pkg(dir; name="Wombat3")
+                scaffold(dir; ad=false)
                 caller = _dest(dir, ".github/workflows/test.yaml")
                 before = read(caller, String)
-                overridden = replace(before,
-                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'")
+                overridden = replace(
+                    before,
+                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'",
+                )
                 write(caller, overridden)
-                res = scaffold_update(dir; ad = false)
+                res = scaffold_update(dir; ad=false)
                 @test isempty(res.warnings)
                 @test occursin("julia_version: '1.12'", read(caller, String))
             end
@@ -3037,10 +3051,10 @@
             # also has a `with:` block, must not be mistaken for a
             # local-reusable-workflow caller job.
             mktempdir() do dir
-                _fake_pkg(dir; name = "Wombat4")
-                res = scaffold(dir; ad = false)
+                _fake_pkg(dir; name="Wombat4")
+                res = scaffold(dir; ad=false)
                 @test isempty(res.warnings)
-                res2 = scaffold_update(dir; ad = false)
+                res2 = scaffold_update(dir; ad=false)
                 @test isempty(res2.warnings)
             end
         end
@@ -3133,11 +3147,12 @@
 
         @testset "a failed sync opens one tracking issue (#352)" begin
             mktempdir() do dir
-                _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; ad = false)
+                _fake_pkg(dir; name="Wombat")
+                scaffold(dir; ad=false)
                 sync = read(
                     joinpath(dir, ".github/workflows/template-sync.yaml"),
-                    String)
+                    String,
+                )
                 # A scheduled run has no audience: a red X on the Actions tab
                 # recurs every week until someone happens to look. The failing
                 # run must tell the maintainer instead, via an issue on their
@@ -3156,13 +3171,15 @@
                 # pull-request no-op leg (which cannot fail, and whose token
                 # could not open an issue anyway).
                 @test occursin(
-                    "failure() && github.event_name != 'pull_request'", sync)
+                    "failure() && github.event_name != 'pull_request'", sync
+                )
                 # The two routes out are both named: fix the drift here, or ask
                 # the kit for the flexibility. Silently pinning/patching the
                 # managed file locally is the thing the issue must steer away
                 # from, since the next sync reverts it.
                 @test occursin(
-                    "github.com/EpiAware/EpiAwarePackageTools.jl", sync)
+                    "github.com/EpiAware/EpiAwarePackageTools.jl", sync
+                )
                 @test occursin("issues/new", sync)
                 # The remediation must re-apply the same standard the sync
                 # itself applies, so it carries this package's own options. A

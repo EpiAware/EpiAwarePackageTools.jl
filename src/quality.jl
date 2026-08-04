@@ -442,7 +442,8 @@ The one entry today is the pre-#292 `What packages work well with X?`, replaced
 by `## Related packages`.
 """
 const STALE_README_HEADINGS = [
-    r"what packages work well with"i => "Related packages"]
+    r"what packages work well with"i => "Related packages"
+]
 
 # Render one section group as a human-readable label for failure messages.
 _section_label(group::Tuple) = join(group, " / ")
@@ -592,8 +593,10 @@ test_readme_sections(pkgdir(MyPackage);
 ```
 """
 function test_readme_sections(
-    path::AbstractString; required=STANDARD_README_SECTIONS, order::Bool=true,
-    stale=STALE_README_HEADINGS
+    path::AbstractString;
+    required=STANDARD_README_SECTIONS,
+    order::Bool=true,
+    stale=STALE_README_HEADINGS,
 )
     file = _readme_file(path)
     return @testset "README sections: $(_readme_label(file))" begin
@@ -685,8 +688,9 @@ const _README_SENTINEL = "PkgNameSentinel"
 # placeholder, and the sentinel occurrences inside one become `.+` so the seeded
 # text still matches once the package's real name is substituted in.
 function _seed_readme_placeholders()
-    body = _seed_readme_body("EpiAware/" * _README_SENTINEL * ".jl",
-        _README_SENTINEL, nothing)
+    body = _seed_readme_body(
+        "EpiAware/" * _README_SENTINEL * ".jl", _README_SENTINEL, nothing
+    )
     patterns = Regex[]
     for m in eachmatch(r"_[^_\n]+_", body)
         parts = split(m.match, _README_SENTINEL)
@@ -718,8 +722,9 @@ placeholder must therefore be written as an italic `_..._` span to be tracked.
 test_readme_placeholders(pkgdir(MyPackage))
 ```
 """
-function test_readme_placeholders(path::AbstractString;
-        patterns = _seed_readme_placeholders())
+function test_readme_placeholders(
+    path::AbstractString; patterns=_seed_readme_placeholders()
+)
     file = _readme_file(path)
     return @testset "README placeholders: $(_readme_label(file))" begin
         if !isfile(file)
@@ -761,20 +766,39 @@ legitimate when they name a specific thing (a test harness, a named framework)
 and padding when they stand in for one. A package that uses either as a domain
 term drops it from its own `banned` list rather than dropping the check.
 """
-const BANNED_README_WORDS = ["comprehensive", "cornerstone",
-    "current approaches", "facilitate", "foster", "framework", "harness",
-    "landscape", "leverage", "multifaceted", "novel", "nuanced", "overarching",
-    "pivotal", "practitioner", "robust", "streamline", "synergy", "utilise",
-    "utilize"]
+const BANNED_README_WORDS = [
+    "comprehensive",
+    "cornerstone",
+    "current approaches",
+    "facilitate",
+    "foster",
+    "framework",
+    "harness",
+    "landscape",
+    "leverage",
+    "multifaceted",
+    "novel",
+    "nuanced",
+    "overarching",
+    "pivotal",
+    "practitioner",
+    "robust",
+    "streamline",
+    "synergy",
+    "utilise",
+    "utilize",
+]
 
 # Entries the stem rule below gets wrong, as the body of their own regex.
 # `novel` needs a closed suffix list, since an open one reaches `novelist`.
 # `synergy` and `current approaches` need a shorter stem than trimming a
 # trailing `e` gives, to reach `synergies`, `synergistic`, and the singular
 # `current approach`.
-const _BANNED_WORD_PATTERNS = Dict("novel" => "novel(?:s|ly|ty|ties)?",
+const _BANNED_WORD_PATTERNS = Dict(
+    "novel" => "novel(?:s|ly|ty|ties)?",
     "synergy" => "synerg(?:y|ies|i[sz]e[sd]?|i[sz]ing|istic(?:ally)?)",
-    "current approaches" => "current\\s+approach(?:es)?")
+    "current approaches" => "current\\s+approach(?:es)?",
+)
 
 # A banned word or phrase as a regex: case-insensitive, anchored at a word
 # boundary, any suffix allowed, and tolerant of how a phrase happens to be
@@ -816,7 +840,7 @@ end
 # Scrubbed within a line: see `_scrub_markup`. Line numbers are the README's
 # own, so a failure points at the source line.
 function _readme_prose_lines(body::AbstractString)
-    lines = Tuple{Int, String}[]
+    lines = Tuple{Int,String}[]
     in_fence = false
     in_comment = false
     for (i, raw) in enumerate(split(body, '\n'))
@@ -856,7 +880,7 @@ end
 # bullets are never measured as one run-on sentence. Each block is
 # `(first line number, joined text)`.
 function _prose_blocks(lines)
-    blocks = Tuple{Int, String}[]
+    blocks = Tuple{Int,String}[]
     current = String[]
     start = 0
     for (i, text) in lines
@@ -896,8 +920,9 @@ const _SENTENCE_BREAK = r"(?<=[.!?])\s+(?=[A-Z0-9(\[\"'])"
 function _sentences(text::AbstractString)
     protected = text
     for abbrev in _PROSE_ABBREVIATIONS
-        protected = replace(protected, abbrev => replace(abbrev, '.' =>
-            _DOT_LEADER))
+        protected = replace(
+            protected, abbrev => replace(abbrev, '.' => _DOT_LEADER)
+        )
     end
     sentences = String[]
     for part in split(protected, _SENTENCE_BREAK)
@@ -938,8 +963,11 @@ test_readme_prose(pkgdir(MyPackage);
     banned = filter(!=("harness"), EpiAwarePackageTools.BANNED_README_WORDS))
 ```
 """
-function test_readme_prose(path::AbstractString;
-        banned = BANNED_README_WORDS, max_sentence_words::Integer = 40)
+function test_readme_prose(
+    path::AbstractString;
+    banned=BANNED_README_WORDS,
+    max_sentence_words::Integer=40,
+)
     file = _readme_file(path)
     return @testset "README prose: $(_readme_label(file))" begin
         if !isfile(file)
@@ -948,7 +976,7 @@ function test_readme_prose(path::AbstractString;
         end
         lines = _readme_prose_lines(read(file, String))
         @testset "banned words" begin
-            hits = Tuple{Int, String, String}[]
+            hits = Tuple{Int,String,String}[]
             for word in banned
                 pattern = _banned_word_regex(word)
                 for (i, text) in lines
@@ -962,7 +990,7 @@ function test_readme_prose(path::AbstractString;
             @test isempty(hits)
         end
         @testset "sentence length" begin
-            long = Tuple{Int, Int, String}[]
+            long = Tuple{Int,Int,String}[]
             for (i, block) in _prose_blocks(lines)
                 for sentence in _sentences(block)
                     words = length(split(sentence))
@@ -971,8 +999,13 @@ function test_readme_prose(path::AbstractString;
                 end
             end
             for (line, words, sentence) in long
-                @error("README sentence over the word limit",
-                    line, words, max_sentence_words, sentence)
+                @error(
+                    "README sentence over the word limit",
+                    line,
+                    words,
+                    max_sentence_words,
+                    sentence
+                )
             end
             @test isempty(long)
         end
@@ -986,7 +1019,7 @@ end
 # worked example is not read as a section bullet. Empty when the section is
 # absent.
 function _readme_section_lines(body::AbstractString, group::Tuple)
-    lines = Tuple{Int, String}[]
+    lines = Tuple{Int,String}[]
     in_fence = false
     inside = false
     for (i, raw) in enumerate(split(body, '\n'))
@@ -1019,7 +1052,7 @@ end
 # a non-indented line that is not itself a bullet, closes the bullet being
 # folded, so prose framing the list is never mistaken for part of it.
 function _section_bullets(lines)
-    bullets = Tuple{Int, String}[]
+    bullets = Tuple{Int,String}[]
     folding = false
     for (i, line) in lines
         if occursin(r"^[-*+]\s+\S", line)
@@ -1083,9 +1116,12 @@ report one drift twice.
 test_readme_bullets(pkgdir(MyPackage))
 ```
 """
-function test_readme_bullets(path::AbstractString;
-        heading::Tuple = first(STANDARD_README_SECTIONS),
-        min_bullets::Integer = 3, max_bullets::Integer = 6)
+function test_readme_bullets(
+    path::AbstractString;
+    heading::Tuple=first(STANDARD_README_SECTIONS),
+    min_bullets::Integer=3,
+    max_bullets::Integer=6,
+)
     file = _readme_file(path)
     label = _section_label(heading)
     return @testset "README bullets: $(_readme_label(file))" begin
@@ -1102,29 +1138,42 @@ function test_readme_bullets(path::AbstractString;
         @testset "bullet count" begin
             found = length(bullets)
             in_range = min_bullets <= found <= max_bullets
-            in_range || @error("$label bullet count outside range (#292)",
-                found, min_bullets, max_bullets)
+            in_range || @error(
+                "$label bullet count outside range (#292)",
+                found,
+                min_bullets,
+                max_bullets
+            )
             @test in_range
         end
         @testset "motivation, not a feature inventory" begin
-            labelled = filter(b -> occursin(_BULLET_FEATURE_LABEL, b[2]),
-                bullets)
+            labelled = filter(
+                b -> occursin(_BULLET_FEATURE_LABEL, b[2]), bullets
+            )
             for (line, text) in labelled
-                @error("$label bullet is a bold feature label rather than " *
-                       "a motivation sentence (#292)", line, text)
+                @error(
+                    "$label bullet is a bold feature label rather than " *
+                        "a motivation sentence (#292)",
+                    line,
+                    text
+                )
             end
             @test isempty(labelled)
         end
         @testset "one sentence per bullet" begin
-            multi = Tuple{Int, Int, String}[]
+            multi = Tuple{Int,Int,String}[]
             for (i, text) in bullets
                 sentences = _sentences(_bullet_prose(text))
                 length(sentences) > 1 &&
                     push!(multi, (i, length(sentences), text))
             end
             for (line, sentences, text) in multi
-                @error("$label bullet runs to more than one sentence (#292)",
-                    line, sentences, text)
+                @error(
+                    "$label bullet runs to more than one sentence (#292)",
+                    line,
+                    sentences,
+                    text
+                )
             end
             @test isempty(multi)
         end
