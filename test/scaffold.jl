@@ -1069,6 +1069,24 @@
             end
         end
 
+        @testset "CLAUDE.md stale standards block is overwritten" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "CLAUDE.md")
+                stale = replace(
+                    read(path, String),
+                    "Comment the reason, not the action." => "Stale wording."
+                )
+                write(path, stale)
+                res = update(dir)
+                @test res.claude === :refreshed
+                txt = read(path, String)
+                @test occursin("Comment the reason, not the action.", txt)
+                @test !occursin("Stale wording.", txt)
+            end
+        end
+
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
