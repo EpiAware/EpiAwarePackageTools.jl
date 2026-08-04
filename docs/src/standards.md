@@ -59,11 +59,11 @@ The README pitch and its equivalent on the getting-started overview page are wha
 - Why: narration duplicates the code and then rots against it ([#331](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/331)).
 - Not enforced, reviewed by hand.
 
-### 8. NEWS.md follows one shape
+### 8. Release notes live on the GitHub release
 
-- Rule: `## Unreleased`, `### <category>` subsections, one sentence per line, full `Closes [#N](url)` links, promoted to a version heading at release, as set out in [Changelog convention](@ref changelog).
-- Why: the convention had forked four ways across the org, so the changelogs could not be read as a set ([#286](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/286)).
-- Not enforced, reviewed by hand; [#329](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/329) tracks whether entry size needs managing too.
+- Rule: notes are written on the release itself, on top of TagBot's merged-PR list, and the docs page renders them by fetching the published releases at build time, as set out in [Release notes convention](@ref release-notes).
+- Why: a changelog file in the repo has to be kept in step with the tags by hand, and the shape it should take had already forked four ways across the org ([#286](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/286)). The release is the one copy that cannot drift from what shipped.
+- Not enforced, reviewed by hand.
 
 ## Code and design
 

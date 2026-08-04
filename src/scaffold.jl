@@ -250,12 +250,11 @@ const SCAFFOLD_TEMPLATES = Template[
     # before its docstrings are defined for the templates to take effect (see
     # CensoredDistributions.jl `src/docstrings.jl`).
     Template("src/docstrings.jl", "src/docstrings.jl", false, false),
-    # The NEWS.md seed: an empty `## Unreleased` section, per the org
-    # changelog convention (docs/src/getting-started/changelog.md) — see
-    # `docs/release_notes_header.jl` / `docs/make.jl`'s release-notes.md
-    # step, which reads this file when present. Package-owned so a
-    # package's own entries are never touched.
-    Template("NEWS.md", "NEWS.md", false, false),
+    # No NEWS.md seed: release notes are written on the GitHub release itself
+    # and the docs page fetches them at build time (see
+    # `docs/release_notes_header.jl` and `build_release_notes`), so there is no
+    # changelog file to seed or to keep in step with the tags. A package that
+    # already has a NEWS.md keeps it — the kit no longer reads it.
     Template("docs/Project.toml", "docs/Project.toml", false, true),
     # A placeholder logo, seeded once at this exact path so a package can drop
     # in a real logo without any further wiring: `docs/make.jl`'s README ->
@@ -277,7 +276,8 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("docs/src/getting-started/index.md",
         "docs/src/getting-started/index.md", false, true),
     # The optional Literate/tutorial + README-rewrite config `make.jl` reads
-    # (empty by default), and the release-notes page header (NEWS.md prepend).
+    # (empty by default), and the release-notes page header (printed above the
+    # fetched releases).
     # Substituted so `BENCHMARK_PAGE` defaults to the `benchmarks` flag.
     Template("docs/docs_config.jl", "docs/docs_config.jl", false, true),
     Template("docs/release_notes_header.jl",
@@ -3398,8 +3398,8 @@ adopts the whole kit in one call. Two kinds of file are written:
   - package-owned skeletons — written only when absent, never overwritten:
     `test/runtests.jl`, `test/Project.toml` (the test env), `test/package/
     qa_config.jl` (the QA config values the managed testset reads), `LICENSE`
-    (the `license`-selected licence text — see below), `NEWS.md` (the
-    hybrid-changelog seed), `docs/src/assets/logo.svg` (a placeholder logo —
+    (the `license`-selected licence text — see below),
+    `docs/src/assets/logo.svg` (a placeholder logo —
     see the `logo` return value below), `test/ad/scenarios.jl` +
     `test/ad/Project.toml`, an `ADFixtures` registry skeleton implementing the
     `ADRegistry` contract (`test/ADFixtures/Project.toml` +

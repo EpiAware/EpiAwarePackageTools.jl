@@ -1,1 +1,0 @@
-Github releases contain news updates.
