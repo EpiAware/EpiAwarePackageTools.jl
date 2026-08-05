@@ -683,13 +683,14 @@ build time after a best-effort `git fetch`, degrading to a link to the branch
 when it does not exist yet.
 
 The raw `table.md` is one flat table per leaf benchmark, unreadable spliced
-verbatim at realistic suite sizes (#193). It is reshaped into two layers by
-[`_render_benchmark_overview`](@ref): a `## Benchmark summary (overall)` table
-plus a combined trend plot, and the per-suite ratio tables and plot wall
-collapsed behind a `<details>`. Both cap to the last `history_commits`
-revisions, with columns relabelled by commit date, and `history_suites` (when
-non-empty) restricts them to the named headline suites. `overall_plot_dest` is
-where the combined trend plot PNG is written, skipped when `nothing`.
+verbatim at realistic suite sizes (#193). It is reshaped by
+[`_render_benchmark_overview`](@ref) into a `## Summary` table plus a combined
+trend plot, then one open `##` section per suite carrying that suite's ratio
+tables, with the per-benchmark plot wall collapsed below them. Both cap to the
+last `history_commits` revisions, with columns relabelled by commit date, and
+`history_suites` (when non-empty) restricts them to the named headline suites.
+`overall_plot_dest` is where the combined trend plot PNG is written, skipped
+when `nothing`.
 """
 function _embed_benchmark_history(io, repo::AbstractString,
         project_root::AbstractString; fetch::Bool = true,
@@ -1025,17 +1026,21 @@ function _write_history_subtable(io, col_labels, subrows)
     return
 end
 
-# Write the reshaped per-suite detail: a caption, one `###` section per suite,
-# or a "no suites matched" note when `history_suites` filtered everything out.
-# Each suite renders separate `#### Time` / `#### Memory` sub-tables (#231); a
-# single-metric suite skips the `####` heading. Takes the already reshaped
-# suite-first detail so the caller need not re-parse `table.md` and re-shell
-# out to `git show` once per column.
-function _write_reshaped_detail(io, col_labels, suite_detail)
-    if !isempty(col_labels)
-        n = length(col_labels)
-        println(io, "_Most recent ", n, n == 1 ? " revision" : " revisions",
-            ", columns labelled by commit date._")
+# Write the reshaped per-suite results: one section per suite (at
+# `heading_level`, `##` on the page proper so each suite reads as its own
+# section under the summary), or a "no suites matched" note when
+# `history_suites` filtered everything out. Each suite renders separate
+# `Time` / `Memory` sub-tables one level down (#231); a single-metric suite
+# skips the sub-heading. `caption` controls whether the revision-window line
+# is emitted here -- the page proper prints it as the closing line of
+# `## Summary` instead. Takes the already reshaped suite-first detail so the
+# caller need not re-parse `table.md` and re-shell out to `git show`.
+function _write_reshaped_detail(io, col_labels, suite_detail;
+        heading_level::Integer = 3, caption::Bool = true)
+    suite_h = "#"^heading_level
+    metric_h = "#"^(heading_level + 1)
+    if caption && !isempty(col_labels)
+        println(io, _history_window_caption(col_labels))
         println(io)
     end
     if isempty(suite_detail)
@@ -1045,16 +1050,25 @@ function _write_reshaped_detail(io, col_labels, suite_detail)
         return
     end
     for (suite, per_metric) in suite_detail
-        println(io, "### ", suite)
+        println(io, suite_h, " ", suite)
         println(io)
         single = length(per_metric) == 1
         for (metric, subrows) in per_metric
-            single || (println(io, "#### ", metric); println(io))
+            single || (println(io, metric_h, " ", metric); println(io))
             _write_history_subtable(io, col_labels, subrows)
             println(io)
         end
     end
     return
+end
+
+# The one-line caption naming the revision window every per-suite table below
+# shares. Emitted once, as the closing line of `## Summary`.
+function _history_window_caption(col_labels)
+    n = length(col_labels)
+    return string("_Tables below show the most recent ", n,
+        n == 1 ? " revision" : " revisions",
+        ", columns labelled by commit date._")
 end
 
 # Give a pipe table's header its benchmark-name label when the first cell is
@@ -1091,7 +1105,7 @@ end
 # skimmable (#193). benchpkgplot names plots with no suite in the filename, so
 # they cannot be grouped; they are shown as one block of raw-GitHub images.
 function _embed_history_plots(io, repo::AbstractString, pngs)
-    println(io, "### Per-benchmark timelines")
+    println(io, "## Per-benchmark timelines")
     println(io)
     println(io, "<details>")
     println(io, "<summary>Show ", length(pngs),
@@ -1201,11 +1215,14 @@ function _benchmark_summary_rows(series_by_suite;
     return rows
 end
 
-# Write the `## Benchmark summary (overall)` table: one row per suite, its
-# ratio against the oldest shown revision, a trend arrow and a regression
-# flag. Leads the page, above the collapsed per-suite detail.
+# Write the `## Summary` table: one row per suite, its ratio against the
+# oldest shown revision, a trend arrow and a regression flag. Leads the page,
+# above the per-suite sections.
 function _write_benchmark_summary(io, rows)
-    println(io, "## Benchmark summary (overall)")
+    println(io, "## Summary")
+    println(io)
+    println(io,
+        "Each benchmark suite's headline timing across recent revisions.")
     println(io)
     if isempty(rows)
         println(io, "_No benchmark suites to summarise._")
@@ -1310,7 +1327,7 @@ end
 function _write_benchmark_notes(io, notes::AbstractString,
         auto::AbstractVector{<:AbstractString} = String[])
     (isempty(strip(notes)) && isempty(auto)) && return
-    println(io, "### Skipped & broken benchmarks")
+    println(io, "## Skipped & broken benchmarks")
     println(io)
     isempty(strip(notes)) || (println(io, notes); println(io))
     if !isempty(auto)
@@ -1321,12 +1338,15 @@ function _write_benchmark_notes(io, notes::AbstractString,
     return
 end
 
-# Orchestrates the `## Performance history` body: the summary table, trend
-# plot and notes, then the per-suite ratio detail and plot wall collapsed
-# behind one `<details>`. An unparseable `table.md` falls back to the
-# unreshaped splice so a format change never blanks the page.
-# `plot_dest === nothing` skips plot generation. Reshapes `table.md` once and
-# reuses the result for both layers.
+# Orchestrates the page body as a presentation of results: a `## Summary`
+# table and combined trend plot across the package, then one `##` section per
+# suite ([`_write_reshaped_detail`](@ref)), then the notes and the
+# per-benchmark plot wall ([`_embed_history_plots`](@ref), still collapsed --
+# a wall of images, not a section read top to bottom). The per-suite tables
+# used to sit behind one `<details>`, which hid every measurement the page
+# existed to show. An unparseable `table.md` falls back to the unreshaped
+# splice so a format change never blanks the page. `plot_dest === nothing`
+# skips plot generation. Reshapes `table.md` once and reuses the result.
 function _render_benchmark_overview(io, md::AbstractString,
         project_root::AbstractString, pngs, repo::AbstractString;
         last_n::Integer = 5, suites = String[],
@@ -1334,11 +1354,11 @@ function _render_benchmark_overview(io, md::AbstractString,
         plot_dest::Union{Nothing, AbstractString} = nothing,
         notes::AbstractString = "")
     if isempty(_history_table_parts(md)[2])
-        _write_benchmark_notes(io, notes)
-        println(io, "### Ratio summary")
+        println(io, "## Ratio summary")
         println(io)
         _render_ratio_table(io, md, project_root; last_n = last_n,
             suites = suites)
+        _write_benchmark_notes(io, notes)
         !isempty(pngs) && _embed_history_plots(io, repo, pngs)
         return
     end
@@ -1347,12 +1367,6 @@ function _render_benchmark_overview(io, md::AbstractString,
     # A single metric, never a median mixing timings with allocations (#231).
     headline = _headline_groups(metric_groups)
     series_by_suite = _suite_ratio_series_by_group(headline, length(col_labels))
-    # One orienting line so the caller's `## Performance history` is never an
-    # empty heading sitting directly above the summary heading (#282).
-    println(io,
-        "The summary tracks each benchmark suite's headline timing across " *
-        "recent revisions.")
-    println(io)
     _write_benchmark_summary(io,
         _benchmark_summary_rows(series_by_suite;
             regression_threshold = regression_threshold))
@@ -1361,16 +1375,17 @@ function _render_benchmark_overview(io, md::AbstractString,
         println(io, "![Overall benchmark trend](", basename(plot_dest), ")")
         println(io)
     end
+    # Closes `## Summary` by naming the revision window every per-suite table
+    # below shares, so the caption introduces those sections instead of
+    # orphaning itself under whichever heading happens to precede them.
+    if !isempty(col_labels)
+        println(io, _history_window_caption(col_labels))
+        println(io)
+    end
+    _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups);
+        heading_level = 2, caption = false)
     _write_benchmark_notes(io, notes, _unparsed_benchmarks(headline))
-    println(io, "<details>")
-    println(io, "<summary>Per-suite detail</summary>")
-    println(io)
-    println(io, "### Ratio summary")
-    println(io)
-    _write_reshaped_detail(io, col_labels, _suite_metric_detail(metric_groups))
     !isempty(pngs) && _embed_history_plots(io, repo, pngs)
-    println(io, "</details>")
-    println(io)
     return
 end
 
@@ -1390,49 +1405,57 @@ end
 
 """
     build_benchmark_page(; dest, repo, package, prose_file, embed_history=true,
-                         project_root=dirname(dirname(dest)),
-                         notes_file=joinpath(dirname(dirname(dest)),
+                         project_root=dirname(dirname(dirname(dirname(dest)))),
+                         notes_file=joinpath(dirname(dirname(dirname(dest))),
                                               "benchmarks_notes.md"),
                          history_suites=String[], history_commits=5,
                          history_regression_threshold=1.1)
 
-Generate `dest` (the benchmark docs page). The managed skeleton is the page
-heading, the package-owned `prose_file` spliced verbatim (minus any leading
-HTML comment), and a data-driven `## Performance history` section rendering
-the timeline published to the repo's `benchmarks` branch (see
-[`_embed_benchmark_history`](@ref)).
+Generate `dest` (the performance-over-time docs page).
 
-`notes_file` is a second package-owned seed for hand-written notes on skipped
-or broken benchmarks, spliced under a "Skipped & broken benchmarks" heading
-below the overall summary and trend plot; any benchmark with no parseable data
-across the shown revisions is auto-appended there. `history_suites` (when
-non-empty) restricts the history to the named headline suites,
-`history_commits` caps the ratio table and trend plot to that many most-recent
-revisions, and `history_regression_threshold` sets the summary ratio at or
-above which a suite's `Status` flags "⚠ reg". Returns the linkcheck-ignore
-regexes for the history URLs, whose branch may not be live yet.
+The page is a presentation of results, not a how-to: a one-line managed
+intro, then the timeline published to the repo's `benchmarks` branch (see
+[`_embed_benchmark_history`](@ref)) as a `## Summary` across the package
+followed by one `##` section per benchmark suite. The package-owned
+`prose_file` is spliced verbatim (minus any leading HTML comment, which is
+stripped so the seed's authoring guidance never renders) at the *foot* of the
+page under `## About these benchmarks`, so what the suite covers and how to
+run it is available without leading the page ahead of the numbers.
+
+`notes_file` is a second package-owned seed (`docs/benchmarks_notes.md`) for
+hand-written notes on skipped or broken benchmarks, spliced under a
+"Skipped & broken benchmarks" heading below the per-suite sections; any
+benchmark with no parseable data across the shown revisions is auto-appended
+there too. `history_suites` (when non-empty) restricts the history to the
+named headline suites, `history_commits` caps the per-suite tables and trend
+plot to that many most-recent revisions, and `history_regression_threshold`
+sets the summary ratio (relative to the oldest shown revision) at or above
+which a suite's `Status` flags "⚠ reg". Returns the list of linkcheck-ignore
+regexes for the history URLs (the branch may not be live yet).
 """
 function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
         package::AbstractString, prose_file::AbstractString,
         embed_history::Bool = true,
-        project_root::AbstractString = dirname(dirname(dest)),
+        project_root::AbstractString = dirname(
+            dirname(dirname(dirname(dest)))),
         notes_file::AbstractString = joinpath(
-            dirname(dirname(dest)), "benchmarks_notes.md"),
+            dirname(dirname(dirname(dest))), "benchmarks_notes.md"),
         history_suites = String[], history_commits::Integer = 5,
         history_regression_threshold::Real = 1.1)
     prose = _read_seed(prose_file, "Performance benchmarks for `$package`.")
     notes = _read_seed(notes_file, "")
+    intro = "How `$package`'s benchmark suites have moved across recent " *
+            "revisions: an overall summary across the package first, then " *
+            "one section per suite."
     mkpath(dirname(dest))
-    # A build artefact regenerated on every docs build, so it lives in the
-    # built `src/` tree rather than on the `benchmarks` branch alongside the
-    # externally pre-rendered per-benchmark plots.
+    # A build artefact regenerated on every docs build, so it lives beside
+    # `dest` in the built `src/` tree rather than on the `benchmarks` branch
+    # alongside the externally pre-rendered per-benchmark plots.
     plot_dest = joinpath(dirname(dest), "overall_trend.png")
     open(dest, "w") do io
-        println(io, "# [Benchmarks](@id benchmarks)")
+        println(io, "# [Performance over time](@id benchmarks)")
         println(io)
-        println(io, prose)
-        println(io)
-        println(io, "## Performance history")
+        println(io, intro)
         println(io)
         if embed_history
             _embed_benchmark_history(io, repo, project_root;
@@ -1444,8 +1467,14 @@ function build_benchmark_page(; dest::AbstractString, repo::AbstractString,
             println(io,
                 "A performance timeline is published on each release.")
         end
+        if !isempty(strip(prose))
+            println(io)
+            println(io, "## About these benchmarks")
+            println(io)
+            println(io, prose)
+        end
     end
-    println("Generated benchmarks.md (benchmark history page)")
+    println("Generated $(basename(dest)) (benchmark history page)")
     esc = replace(repo, "." => "\\.", "/" => "/")
     return Regex[
         Regex("raw\\.githubusercontent\\.com/$esc/benchmarks"),
@@ -1942,17 +1971,40 @@ function _strip_extensions_nav(pages, src_dir::AbstractString)
     return kept
 end
 
-# Remove any `... => "benchmarks.md"` leaf from a `pages` nav tree, at any
-# depth, for a package that disabled the page but still lists it in its
-# package-owned `pages.jl`.
-function _strip_benchmark_nav(pages)
+# A benchmark nav target: any page under `benchmarks/`, plus the legacy flat
+# `benchmarks.md` the performance-history page used to live at. The legacy
+# form has to count: Documenter hard-errors on a nav entry with no page, so an
+# adopter who has not yet edited their package-owned `pages.jl` would lose
+# their docs build outright rather than just a sidebar entry.
+function _is_benchmark_nav_target(target::AbstractString)
+    (startswith(target, "benchmarks/") || target == "benchmarks.md") &&
+        endswith(target, ".md")
+end
+
+# Remove any benchmark leaf whose page is absent under `src_dir`, at any
+# depth, and any group left empty by that removal -- mirroring
+# `_strip_extensions_nav`, not gated on `benchmark_page`. Two package-owned
+# files decide whether a leaf has a page: `pages.jl` names it,
+# `docs_config.jl` registers it for rendering. `update` warns when either is
+# stale, but nothing stops an adopter fixing one and not the other, so judge
+# on the page and every combination self-heals.
+function _strip_benchmark_nav(pages, src_dir::AbstractString)
     kept = Any[]
     for entry in pages
         if entry isa Pair && entry.second isa AbstractString
-            endswith(entry.second, "benchmarks.md") && continue
+            target = entry.second
+            if _is_benchmark_nav_target(target) &&
+               !isfile(joinpath(src_dir, split(target, '/')...))
+                continue
+            end
             push!(kept, entry)
         elseif entry isa Pair && entry.second isa AbstractVector
-            push!(kept, entry.first => _strip_benchmark_nav(entry.second))
+            inner = _strip_benchmark_nav(entry.second, src_dir)
+            # A group left with no entries by that removal -- "Benchmarks"
+            # with only one of over-time.md/ad-comparison.md ever built --
+            # is itself dropped.
+            isempty(inner) && !isempty(entry.second) && continue
+            push!(kept, entry.first => inner)
         else
             push!(kept, entry)
         end
@@ -1990,6 +2042,7 @@ end
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
+               heavy_benchmarks=[], benchmark_stubs=[],
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
                index_strip_sections=[], benchmark_page=true,
                history_suites=[], history_commits=5,
@@ -2008,13 +2061,15 @@ Under `skip_notebooks` the light tutorials still render in-process and only
 the heavy ones fall back to `tutorial_stubs` headings. Independent of that,
 any `heavy_tutorials` entry named in `force_stub_tutorials` never executes:
 for one with a problem of its own (e.g. a model that does not terminate), so
-it need not block its siblings. `deploy=false` builds without deploying and
-`build_vitepress=false` runs Documenter without the final npm pass; both are
-used by tests and fast local builds. On the benchmark page, `history_suites`
-(when non-empty) restricts the summary and detail to the named headline
-suites, `history_commits` caps both to that many most-recent revisions, and
-`history_regression_threshold` sets the regression-flag cutoff (see
-[`_embed_benchmark_history`](@ref)).
+it need not block its siblings. `heavy_benchmarks`/`benchmark_stubs` drive the
+same pipeline again over `src/benchmarks/`, so a benchmark report renders
+under its own top-level "Benchmarks" nav group rather than under Tutorials.
+`deploy=false` builds without deploying and `build_vitepress=false` runs
+Documenter without the final npm pass; both are used by tests and fast local
+builds. On the benchmark page, `history_suites` (when non-empty) restricts the
+summary and detail to the named headline suites, `history_commits` caps both
+to that many most-recent revisions, and `history_regression_threshold` sets
+the regression-flag cutoff (see [`_embed_benchmark_history`](@ref)).
 
 The owning modules of `mod`'s re-exported docstrings are auto-discovered (see
 `api_owning_modules`) and folded into Documenter's `modules` so those `@docs`
@@ -2037,6 +2092,8 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
         light_tutorials = String[], heavy_tutorials = String[],
         tutorial_stubs = Pair{String, String}[],
         force_stub_tutorials = String[],
+        heavy_benchmarks = String[],
+        benchmark_stubs = Pair{String, String}[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
         readme_execute::Bool = true, index_strip_sections = String[],
         benchmark_page::Bool = true, history_suites = String[],
@@ -2052,10 +2109,22 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     docs_dir = joinpath(project_root, "docs")
     src_dir = joinpath(docs_dir, "src")
     tutorials_dir = joinpath(src_dir, tutorials_subdir)
+    benchmarks_dir = joinpath(src_dir, "benchmarks")
 
-    # --- tutorials ---------------------------------------------------------
+    # --- tutorials -----------------------------------------------------
     _render_tutorials(docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
         heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials)
+
+    # --- docs/src/benchmarks/ (e.g. the AD-comparison report) --------------
+    # Same pipeline, its own directory, so a benchmark report renders under
+    # its own top-level "Benchmarks" nav group rather than under Tutorials
+    # (#299/#305). Heavy-only: nothing currently needs a light benchmark
+    # page, but `_render_tutorials` costs nothing extra to call generically.
+    # Shares `force_stub_tutorials` with the tutorials pipeline above -- it
+    # is matched against whichever `heavy` list is passed at each call site,
+    # so one config list parks a heavy page in either directory by name.
+    _render_tutorials(docs_dir, benchmarks_dir, skip_notebooks, String[],
+        heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials)
 
     # --- generated pages ---------------------------------------------------
     build_index(; readme = joinpath(project_root, "README.md"),
@@ -2068,18 +2137,22 @@ function build_docs(mod::Module; repo::AbstractString, authors::AbstractString,
     benchmark_linkcheck = Regex[]
     if benchmark_page
         benchmark_linkcheck = build_benchmark_page(;
-            dest = joinpath(src_dir, "benchmarks.md"), repo = repo,
+            dest = joinpath(benchmarks_dir, "over-time.md"), repo = repo,
             package = string(mod),
             prose_file = joinpath(docs_dir, "benchmarks.md"),
+            notes_file = joinpath(docs_dir, "benchmarks_notes.md"),
             project_root = project_root, history_suites = history_suites,
             history_commits = history_commits,
             history_regression_threshold = history_regression_threshold)
     else
         println("BENCHMARK_PAGE = false; skipping benchmark history page")
-        pages = _strip_benchmark_nav(pages)
     end
-    # Unconditional, unlike the benchmark strip: there is no flag to gate on
-    # (#319).
+    # Judged on the built page existing, not on `benchmark_page` alone, so a
+    # Benchmarks nav leaf left dangling by either package-owned file
+    # (`pages.jl` naming a page `docs_config.jl` never registers, or vice
+    # versa) is dropped whichever of the two `update` warnings the adopter
+    # acted on (see `_strip_benchmark_nav`).
+    pages = _strip_benchmark_nav(pages, src_dir)
     pages = _strip_extensions_nav(pages, src_dir)
     build_api_pages(mod, joinpath(src_dir, "lib"))
 

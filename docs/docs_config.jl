@@ -59,9 +59,10 @@ const README_EXECUTE = false
 # No README section is dropped from the kit's home page.
 const INDEX_STRIP_SECTIONS = String[]
 
-# Whether the build generates the benchmark page (`src/benchmarks.md`): the
-# package-owned `docs/benchmarks.md` prose hook plus the rendered performance
-# history (the timeline published to the repo's `benchmarks` branch). The kit
-# has no active benchmark suite, so it opts out (`benchmarks = false`); set
-# `true` and add a `pages.jl` "Benchmarks" nav entry to enable it.
+# Whether the build generates the benchmark page
+# (`src/benchmarks/over-time.md`): the package-owned `docs/benchmarks.md`
+# prose hook plus the rendered performance history (the timeline published to
+# the repo's `benchmarks` branch). The kit has no active benchmark suite, so
+# it opts out (`benchmarks = false`); set `true` and add a `pages.jl`
+# "Benchmarks" nav entry to enable it.
 const BENCHMARK_PAGE = false

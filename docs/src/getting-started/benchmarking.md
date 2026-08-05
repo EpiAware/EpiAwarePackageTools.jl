@@ -81,10 +81,16 @@ Documenter force-pushes the `gh-pages` branch on every docs build, so writing
 the timeline there would clobber it;
 a dedicated branch keeps the two independent.
 
-The rendered timeline is spliced into the documentation site's benchmark page.
-That page combines a managed skeleton, your package-owned prose in
-`docs/benchmarks.md`, and the rendered performance history, so the narrative you
-write sits above the accumulated timeline.
+The rendered timeline becomes the "Performance over time" page under the
+site's Benchmarks section.
+That page is a presentation of results, not a how-to.
+It opens with a summary across the package (one row per suite, its ratio
+against the oldest shown revision, a trend arrow and a regression flag) and a
+combined trend plot, then gives each benchmark suite its own section with the
+timing and allocation tables for that suite.
+Your package-owned prose in `docs/benchmarks.md` is spliced at the foot of the
+page under "About these benchmarks", so what the suite covers and how to run
+it is there without standing between the reader and the numbers.
 
 ### Unregistered `[sources]` dependencies
 
@@ -145,5 +151,5 @@ Because the comparison workflow benchmarks each revision from its own checkout,
 a new scenario is measured on both sides of a pull request automatically once it
 is on the pull request branch.
 Describe what the suite covers and how to read the timeline in
-`docs/benchmarks.md`, which is spliced verbatim into the generated benchmark
-page.
+`docs/benchmarks.md`, which is spliced verbatim at the foot of the generated
+"Performance over time" page.

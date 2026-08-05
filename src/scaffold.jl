@@ -196,9 +196,23 @@ const SCAFFOLD_TEMPLATES = Template[
     # declarations) is read at docs-build time from the package-owned
     # `test/ADFixtures` registry, so a package never edits this file. Its
     # registration and docs-env deps live in the package-owned docs seeds,
-    # filled via the `AD_*` fragments (see `_ad_heavy_tutorials`).
+    # filled via the `AD_*` fragments (see `_ad_heavy_tutorials`). Its
+    # backend-comparison benchmark lives on the sibling `ad-comparison.jl`
+    # page under `docs/src/benchmarks/`.
     Template("docs/src/getting-started/tutorials/ad-backends.jl",
         "docs/src/getting-started/tutorials/ad-backends.jl", true, true,
+        :ad_only),
+    # The AD backend-comparison benchmark, split out of `ad-backends.jl`
+    # (#299) so the cost report gets its own top-level "Benchmarks" nav group
+    # (alongside the performance-over-time page, when the package has one)
+    # rather than reading as a how-to guide under Tutorials -- physically
+    # under `docs/src/benchmarks/`, not nested inside Tutorials (#305, the
+    # shape EpiAwareADTools#28 asked for). Same management/registration
+    # story as `ad-backends.jl` above, but via `HEAVY_BENCHMARKS`/
+    # `BENCHMARK_STUBS` (see `_ad_heavy_benchmarks` etc.), not
+    # `HEAVY_TUTORIALS`/`TUTORIAL_STUBS`.
+    Template("docs/src/benchmarks/ad-comparison.jl",
+        "docs/src/benchmarks/ad-comparison.jl", true, true,
         :ad_only),
 
     # --- package-owned skeletons (written once, never overwritten) ---
@@ -218,8 +232,9 @@ const SCAFFOLD_TEMPLATES = Template[
     # page. Package-owned like LICENSE — replace the file, never regenerated.
     Template("docs/src/assets/logo.svg",
         "docs/src/assets/logo.svg", false, true),
-    # Substituted so the benchmark nav entry is present only when
-    # `benchmarks = true`; package-owned so a package extends the tree.
+    # Substituted so the "Benchmarks" nav group is present when `benchmarks`
+    # or `ad` is enabled (see `_benchmarks_nav`); package-owned so a package
+    # extends the tree.
     Template("docs/pages.jl", "docs/pages.jl", false, true),
     # The authored quickstart, distinct from the README-derived home page.
     # Docs about the kit itself are not seeded here: they describe the kit,
@@ -1407,15 +1422,19 @@ _ad_cov_table(repo::AbstractString) = join(_ad_cov_flag_table(repo), "\n")
 
 # --- the ad=true docs surface -----------------------------------------------
 #
-# The managed AD-backends tutorial page needs three package-owned docs seeds:
-# `docs/docs_config.jl` registers it with the Literate pipeline,
-# `docs/pages.jl` adds its nav entry, and `docs/Project.toml` reaches the
-# `ADFixtures` registry by path and carries the page's execution deps. Each
+# The managed AD-backends tutorial page and its AD-comparison benchmark
+# sibling need three package-owned docs seeds: `docs/docs_config.jl`
+# registers each with its own Literate pipeline (`HEAVY_TUTORIALS` for
+# `ad-backends.jl`, `HEAVY_BENCHMARKS` for `ad-comparison.jl`),
+# `docs/pages.jl` adds their nav entries, and `docs/Project.toml` reaches the
+# `ADFixtures` registry by path and carries both pages' execution deps. Each
 # helper below renders the fragment substituted into those seeds, empty for
 # `ad = false`, mirroring the `BENCHMARKS_NAV` pattern.
 
-# The `HEAVY_TUTORIALS` entry: the page runs DIT benchmarks over every registry
-# backend plus CairoMakie plotting, the workload the heavy pipeline exists for.
+# The `HEAVY_TUTORIALS` entry: `ad-backends.jl`'s support-table setup gets
+# fresh-subprocess isolation like every other heavy tutorial. Its
+# `ad-comparison.jl` sibling is a `HEAVY_BENCHMARKS` entry instead (see
+# `_ad_heavy_benchmarks`).
 function _ad_heavy_tutorials(ad::Bool)
     ad || return ""
     return "\n    \"ad-backends.jl\"\n"
@@ -1429,7 +1448,27 @@ function _ad_tutorial_stubs(ad::Bool)
            "backends](@id ad-backends)\"\n"
 end
 
-# The Getting started nav entry for the rendered page.
+# The `HEAVY_BENCHMARKS` entry for `ad-comparison.jl` -- it executes DIT
+# benchmarks over every registry backend plus CairoMakie plotting, exactly
+# the workload the heavy (one fresh subprocess per page) pipeline exists
+# for. Rendered under `docs/src/benchmarks/`, not `TUTORIALS_SUBDIR` (#305).
+function _ad_heavy_benchmarks(ad::Bool)
+    ad || return ""
+    return "\n    \"ad-comparison.jl\"\n"
+end
+
+# The fast-build stub for `ad-comparison.jl`, same convention as
+# `_ad_tutorial_stubs`.
+function _ad_benchmark_stubs(ad::Bool)
+    ad || return ""
+    return "\n    \"ad-comparison.md\" => \"# [AD backend " *
+           "comparison](@id ad-comparison)\"\n"
+end
+
+# The Getting started nav entry for the AD-backends page. `ad-comparison.md`
+# is not listed here: it gets its own top-level Benchmarks nav group instead
+# (#299/#305, see `_benchmarks_nav`), which is the entire point of the
+# split -- a cost report reads as a how-to guide if left under Tutorials.
 function _ad_tutorials_nav(ad::Bool)
     ad || return ""
     return ",\n        \"Tutorials\" => [\n" *
@@ -1447,7 +1486,6 @@ function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
     ad || return ""
     return string(
         "ADFixtures = \"", adfix_uuid, "\"\n",
-        "AlgebraOfGraphics = \"cbdf2221-f076-402e-a563-3d30da359d67\"\n",
         "CairoMakie = \"13f3f980-e62b-5c42-98c6-ff1f3baf88f0\"\n",
         "Chairmarks = \"0ca39b1e-fe0b-4e98-acfc-b1656634c4de\"\n",
         "DataFramesMeta = \"1313f7d8-7da2-5740-9ea0-a2ca25f37964\"\n",
@@ -1689,13 +1727,71 @@ end
 function _ad_docs_compat(ad::Bool)
     ad || return ""
     return string(
-        "AlgebraOfGraphics = \"0.13\"\n",
         "CairoMakie = \"0.15\"\n",
         "Chairmarks = \"1\"\n",
         "DataFramesMeta = \"0.15\"\n",
         "DifferentiationInterfaceTest = \"0.9, 0.10, 0.11\"\n",
         "Markdown = \"1\"\n",
         "Statistics = \"1\"\n")
+end
+
+# `docs/docs_config.jl` is package-owned, so `update` cannot add the
+# `ad-comparison.jl` Literate registration to an existing `ad = true`
+# adopter's file: `AD_HEAVY_TUTORIALS`/`AD_TUTORIAL_STUBS`/
+# `AD_HEAVY_BENCHMARKS`/`AD_BENCHMARK_STUBS` above only reach a
+# package-owned file on first scaffold (#299/#305). An adopter who synced
+# before the split still only has `ad-backends.jl` registered (and no
+# `HEAVY_BENCHMARKS`/`BENCHMARK_STUBS` consts at all), so the managed
+# `ad-comparison.jl` page this sync writes is never Literate-processed or
+# stubbed into a `.md` page, and `ad-backends.md`'s cross-references to it
+# dangle. Detected the same way as the diverged `test/ad/setup.jl` case:
+# scan the destination and warn rather than silently leaving the page
+# unbuilt.
+function _ad_benchmarks_config_gap(target_dir::AbstractString, ad::Bool)
+    ad || return nothing
+    cfg = joinpath(target_dir, "docs", "docs_config.jl")
+    isfile(cfg) || return nothing
+    txt = read(cfg, String)
+    occursin("\"ad-backends.jl\"", txt) || return nothing
+    occursin("\"ad-comparison.jl\"", txt) && return nothing
+    return string(
+        "docs/docs_config.jl registers \"ad-backends.jl\" but has no ",
+        "HEAVY_BENCHMARKS entry for \"ad-comparison.jl\": the managed ",
+        "ad-comparison.jl page (#299/#305) is written but never rendered, ",
+        "and ad-backends.md's cross-references to it will not resolve. ",
+        "Add \"ad-comparison.jl\" to HEAVY_BENCHMARKS and ",
+        "\"ad-comparison.md\" => \"# [AD backend comparison](@id ",
+        "ad-comparison)\" to BENCHMARK_STUBS in docs/docs_config.jl (a ",
+        "docs_config.jl that predates #305 has neither const yet -- add ",
+        "both, mirroring HEAVY_TUTORIALS/TUTORIAL_STUBS above them).")
+end
+
+# `docs/Project.toml` is package-owned and write-once, so dropping a dep from
+# `_ad_docs_deps`/`_ad_docs_compat` only takes effect on a fresh scaffold
+# (#299/#305). `AlgebraOfGraphics` is the case that matters: the AD-comparison
+# page's plots were rewritten in plain CairoMakie precisely because AoG's
+# `mapping`/`visual` calls pull `DimensionalData` in via Makie, which
+# conflicts with FlexiChains' compat range in any package that hard-deps both
+# (kit#283). An existing adopter keeps AoG in `[deps]`/`[compat]` after this
+# sync, so they keep the exact resolver conflict the removal exists to fix,
+# now with nothing in the docs build using it. Warn like the two other
+# write-once gaps rather than leaving it to be found as an unrelated-looking
+# resolver failure.
+const _STALE_AD_DOCS_DEPS = ("AlgebraOfGraphics",)
+
+function _ad_docs_deps_gap(target_dir::AbstractString, ad::Bool)
+    ad || return nothing
+    proj = joinpath(target_dir, "docs", "Project.toml")
+    isfile(proj) || return nothing
+    txt = read(proj, String)
+    stale = filter(d -> occursin(d, txt), collect(_STALE_AD_DOCS_DEPS))
+    isempty(stale) && return nothing
+    return string(
+        "docs/Project.toml still lists ", join(stale, ", "),
+        ": the AD-comparison page no longer uses it, and it pulls ",
+        "DimensionalData in via Makie, which conflicts with FlexiChains in ",
+        "a package that hard-deps both (kit#283). Remove it from [deps] and ",
+        "[compat] in docs/Project.toml.")
 end
 
 # The docs-env `[deps]` fragment the benchmark page's trend plot needs
@@ -1710,6 +1806,66 @@ end
 function _bench_docs_compat(benchmarks::Bool)
     benchmarks || return ""
     return "Plots = \"1\"\n"
+end
+
+# The top-level "Benchmarks" nav entry (#299/#305): its own group, a
+# sibling of "Getting started"/"API reference"/"Extensions", never nested
+# inside Tutorials -- the shape EpiAwareADTools#28 asked for ("Benchmarks:
+# Performance over time, AD comparison"), rather than five one-off per-repo
+# nav edits. "Performance over time" appears with `benchmarks = true`, "AD
+# comparison" with `ad = true`, both under `docs/src/benchmarks/`. Either
+# alone still gets its own single-entry dropdown -- consistent with
+# `_extensions_nav`, which never special-cases a lone entry either -- so the
+# group reads as its own header drop down regardless of how many pages it
+# holds, rather than a bare flat link for the single-page case. A package
+# with neither flag gets no entry and no group.
+function _benchmarks_nav(benchmarks::Bool, ad::Bool)
+    entries = String[]
+    benchmarks && push!(entries,
+        "\"Performance over time\" => \"benchmarks/over-time.md\"")
+    ad && push!(entries,
+        "\"AD comparison\" =>\n            \"benchmarks/ad-comparison.md\"")
+    isempty(entries) && return ""
+    return ",\n    \"Benchmarks\" => [\n        " *
+           join(entries, ",\n        ") * "\n    ]"
+end
+
+# `docs/pages.jl` is package-owned and write-once, the same as
+# `docs/docs_config.jl` (see `_ad_benchmarks_config_gap` above), so `update`
+# cannot add the `{{BENCHMARKS_NAV}}` entry a fresh scaffold seeds to an
+# existing adopter's file (#299/#305). Two ways an existing adopter's
+# `pages.jl` can now be stale: an `ad = true` adopter who synced before the
+# AD-comparison split has no nav entry pointing at
+# `benchmarks/ad-comparison.md` at all, and ANY `benchmarks = true` adopter
+# (regardless of `ad`) who synced before #305 still has the pre-#305 flat
+# `"Benchmarks" => "benchmarks.md"` entry, which now points at a path the
+# build no longer writes (the performance-history page moved to
+# `benchmarks/over-time.md`). Either gap leaves a page that still builds
+# (and, for AD comparison, is still cross-linked from `ad-backends.md`) but
+# does not appear in the docs sidebar. NEWS.md documents the fix; warn at
+# update time too, so it is not discoverable only by reading NEWS.md.
+function _benchmarks_nav_gap(
+        target_dir::AbstractString, benchmarks::Bool, ad::Bool)
+    (benchmarks || ad) || return nothing
+    pages = joinpath(target_dir, "docs", "pages.jl")
+    isfile(pages) || return nothing
+    txt = read(pages, String)
+    missing_history = benchmarks && !occursin("benchmarks/over-time.md", txt)
+    missing_ad = ad && !occursin("benchmarks/ad-comparison.md", txt)
+    (missing_history || missing_ad) || return nothing
+    missing = String[]
+    missing_history && push!(missing,
+        "benchmarks/over-time.md (Performance over time)")
+    missing_ad && push!(missing,
+        "benchmarks/ad-comparison.md (AD comparison)")
+    entry = lstrip(_benchmarks_nav(benchmarks, ad), [',', '\n', ' '])
+    return string(
+        "docs/pages.jl has no \"Benchmarks\" nav entry for ",
+        join(missing, " or "), " -- a pages.jl that predates #305 may ",
+        "still carry a stale flat \"Benchmarks\" => \"benchmarks.md\" ",
+        "entry pointing at a path the build no longer writes. Replace any ",
+        "existing \"Benchmarks\" entry in the pages array in ",
+        "docs/pages.jl with: ", entry)
 end
 
 # The conventional custom-subdomain docs host for a package, e.g.
@@ -2561,9 +2717,11 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
                    _detect_org_branding(target_dir)
     # The AD/benchmarks/downgrade-compat flags are exposed as substitution
     # values so the scheduled template-sync re-applies the standard with the
-    # same choices the package adopted.
-    bench_nav = benchmarks ?
-                ",\n    \"Benchmarks\" => \"benchmarks.md\"" : ""
+    # same choices the package adopted. `BENCHMARKS_NAV` is the top-level
+    # "Benchmarks" group, present when either `benchmarks` or `ad` is on.
+    bench_nav = _benchmarks_nav(benchmarks, ad)
+    # The `benchmark-history.yaml` `on:` triggers preserve a package's parked
+    # state across a resync (#153), detected from the committed workflow.
     inputs = merge(inputs,
         (AD = string(ad), BENCHMARKS = string(benchmarks),
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
@@ -2575,6 +2733,11 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             AD_HEAVY_TUTORIALS = _ad_heavy_tutorials(ad),
             AD_TUTORIAL_STUBS = _ad_tutorial_stubs(ad),
             AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
+            # The AD-comparison page's registration in the sibling
+            # `docs/src/benchmarks/` pipeline, not the Tutorials one above;
+            # its nav entry is part of `BENCHMARKS_NAV`.
+            AD_HEAVY_BENCHMARKS = _ad_heavy_benchmarks(ad),
+            AD_BENCHMARK_STUBS = _ad_benchmark_stubs(ad),
             EXTENSIONS_NAV = _extensions_nav(target_dir),
             AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
             AD_DOCS_SOURCES = _ad_docs_sources(ad),
@@ -2739,6 +2902,30 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
             "so the whole env fails to resolve on every platform with an ",
             "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
             " to test/Project.toml `[deps]` (#263)."))
+    # An existing `ad = true` adopter's package-owned `docs/docs_config.jl`
+    # may predate the `ad-comparison.jl` split (#299/#305): `update` cannot
+    # add the missing HEAVY_BENCHMARKS/BENCHMARK_STUBS registration itself,
+    # so surface the gap instead of leaving the new page silently unbuilt.
+    gap = _ad_benchmarks_config_gap(target_dir, ad)
+    if gap !== nothing
+        push!(warnings, gap)
+        @warn gap
+    end
+    # `docs/pages.jl` has the same package-owned, write-once gap for the
+    # `{{BENCHMARKS_NAV}}` entry — see `_benchmarks_nav_gap`.
+    nav_gap = _benchmarks_nav_gap(target_dir, benchmarks, ad)
+    if nav_gap !== nothing
+        push!(warnings, nav_gap)
+        @warn nav_gap
+    end
+    # `docs/Project.toml` is write-once too, so a dep this kit version drops
+    # from `_ad_docs_deps` stays in an existing adopter's env — see
+    # `_ad_docs_deps_gap`.
+    deps_gap = _ad_docs_deps_gap(target_dir, ad)
+    if deps_gap !== nothing
+        push!(warnings, deps_gap)
+        @warn deps_gap
+    end
     # Managed between markers so package-owned additions below the block
     # survive `update` (#65).
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
@@ -2912,22 +3099,26 @@ the one-off manual setup a fresh repo needs.
 
 `ad` controls whether the AD CI caller and AD test infrastructure are
 scaffolded, so a numerical package opts in and a tooling package opts out. It
-defaults to `true`. When `ad = true` the managed AD-backends tutorial page is
-also written: its body stays kit-current across syncs, while the scenarios,
-backends and broken/skip declarations it reports are read at docs-build time
-from the package-owned `test/ADFixtures` registry (via
-[`ad_backend_support_table`](@ref)), and its registration plus docs-env deps
-are seeded into the package-owned docs seeds. When `ad = false` none of the AD
-infra is written, and the files whose content depends on AD (`Taskfile.yml`,
-`codecov.yml`, `test/Project.toml`, the docs seeds) are emitted in their no-AD
-variants. Pass the same `ad` value to [`update`](@ref).
+defaults to `true`. When `ad = true` two managed docs pages are written: the
+AD-backends tutorial page, which reports which backends work and how to
+configure and debug them, and its AD-comparison sibling under
+`docs/src/benchmarks/`, which benchmarks what each backend costs. Both bodies
+stay kit-current across syncs, while the scenarios, backends and broken/skip
+declarations they report are read at docs-build time from the package-owned
+`test/ADFixtures` registry (via [`ad_backend_support_table`](@ref)), and their
+registration plus docs-env deps are seeded into the package-owned docs seeds.
+When `ad = false` none of the AD infra is written, and the files whose content
+depends on AD (`Taskfile.yml`, `codecov.yml`, `test/Project.toml`, the docs
+seeds) are emitted in their no-AD variants. Pass the same `ad` value to
+[`update`](@ref).
 
 `benchmarks` controls the opt-in benchmark suite: the benchmark CI callers,
-the `benchmark/` suite + compare script, and the docs benchmark page with its
-nav entry and the two package-owned prose hooks. It defaults to `nothing`,
-which detects the target's current state from the benchmark workflows so
-re-scaffolding preserves an opt-in; a fresh package has none, so the default
-is opt-out. [`update`](@ref) detects and preserves the state.
+the `benchmark/` suite + compare script, and the docs performance-over-time
+page (`docs/src/benchmarks/over-time.md`) with its nav entry and the two
+package-owned prose hooks. It defaults to `nothing`, which detects the
+target's current state from the benchmark workflows so re-scaffolding
+preserves an opt-in; a fresh package has none, so the default is opt-out.
+[`update`](@ref) detects and preserves the state.
 
 `downgrade_compat` controls the opt-in `downgrade-compat` CI job in
 `test.yaml`, which resolves the oldest compatible dep versions. A package

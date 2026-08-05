@@ -13,7 +13,8 @@ const LIGHT_TUTORIALS = String[]
 # Heavy tutorials (live MCMC fits, multi-backend AD, plotting) each run once
 # in a fresh subprocess so native/memory state cannot accumulate. The
 # `ad-backends.jl` entry is seeded when scaffolded with `ad = true`: the page
-# itself is kit-managed; only this registration is package-owned.
+# itself is kit-managed; only this registration is package-owned. Its
+# `ad-comparison.jl` sibling is registered in `HEAVY_BENCHMARKS` below.
 const HEAVY_TUTORIALS = String[{{AD_HEAVY_TUTORIALS}}]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -28,8 +29,22 @@ const TUTORIAL_STUBS = Pair{String, String}[{{AD_TUTORIAL_STUBS}}]
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a
 # tutorial with its own problem (e.g. a model that never terminates). Leave
-# empty; every heavy tutorial without such a problem should execute.
+# empty; every heavy tutorial without such a problem should execute. Shared
+# with the `docs/src/benchmarks/` pipeline below, so `ad-comparison.jl` is
+# parked by naming it here too.
 const FORCE_STUB_TUTORIALS = String[]
+
+# The `docs/src/benchmarks/` Literate pipeline: its own heavy list and stubs,
+# mirroring `HEAVY_TUTORIALS`/`TUTORIAL_STUBS` above but rooted at
+# `docs/src/benchmarks`, so a benchmark report gets its own top-level
+# "Benchmarks" nav group rather than reading as a how-to under Tutorials. The
+# `ad-comparison.jl` entry is seeded when scaffolded with `ad = true`: the
+# page itself is kit-managed; only this registration is package-owned.
+const HEAVY_BENCHMARKS = String[{{AD_HEAVY_BENCHMARKS}}]
+
+# Fast-build stubs for `HEAVY_BENCHMARKS`, same convention as
+# `TUTORIAL_STUBS`.
+const BENCHMARK_STUBS = Pair{String, String}[{{AD_BENCHMARK_STUBS}}]
 
 # Whether this package advertises itself as part of the EpiAware ecosystem: a
 # "Part of the EpiAware ecosystem" README section, and the EpiAware logo + org
@@ -57,13 +72,13 @@ const README_EXECUTE = true
 # empty to keep the whole README.
 const INDEX_STRIP_SECTIONS = String[]
 
-# Whether the build generates the benchmark page (`src/benchmarks.md`): the
-# package-owned `docs/benchmarks.md` prose hook plus a summary table, trend
-# plot, and per-suite detail rendered from the `benchmarks` branch timeline.
-# Defaults to the `benchmarks` scaffold flag; `false` drops the page and its
-# `pages.jl` nav entry. The trend plot needs `Plots` in `docs/Project.toml`
-# (lazily loaded; degrades to a table-only page with an `@info` note when
-# absent).
+# Whether the build generates the benchmark page
+# (`src/benchmarks/over-time.md`): the package-owned `docs/benchmarks.md`
+# prose hook plus a summary table, trend plot, and one section per suite,
+# rendered from the `benchmarks` branch timeline. Defaults to the
+# `benchmarks` scaffold flag; `false` drops the page and its `pages.jl` nav
+# entry. The trend plot needs `Plots` in `docs/Project.toml` (lazily loaded;
+# degrades to a table-only page with an `@info` note when absent).
 const BENCHMARK_PAGE = {{BENCHMARK_PAGE}}
 
 # Headline benchmark suites to keep on the performance-history page. A suite

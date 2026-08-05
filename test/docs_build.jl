@@ -1,6 +1,9 @@
 # Unit tests for the generic docs-build machinery (EpiAwarePackageTools.DocsBuild).
-# These exercise the page generators in isolation — the heavy makedocs orchestration
-# is covered by each package's own docs build, not re-run here.
+# These exercise the page generators in isolation. One testitem
+# ("build_docs: benchmarks pipeline + shipped nav") drives the full
+# `build_docs` orchestration, for the two steps with no other observable
+# surface: which directory each Literate pipeline renders into, and which
+# nav the shipped VitePress sidebar carries.
 
 @testitem "DocsBuild page generators" begin
     using Test
@@ -509,19 +512,44 @@
         lc = DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        # Managed skeleton: anchored heading + Performance history only.
-        @test occursin("# [Benchmarks](@id benchmarks)", out)
-        @test occursin("## Performance history", out)
-        # Prose hook spliced verbatim; no managed free-text "Running" section.
+        # Managed skeleton: anchored heading + a one-line intro.
+        @test occursin("# [Performance over time](@id benchmarks)", out)
+        @test !occursin("## Performance history", out)
+        # Prose hook spliced verbatim, at the FOOT of the page under its own
+        # heading, so the results lead and the narrative supports them (#305).
+        @test occursin("## About these benchmarks", out)
         @test occursin("Narrative here.", out)
         @test occursin("## Structure", out)
         @test !occursin("## Running benchmarks", out)
+        @test first(findfirst("## About these benchmarks", out)) <
+              first(findfirst("Narrative here.", out))
         # No benchmarks branch yet -> graceful fallback link.
         @test occursin("`benchmarks` branch", out)
         @test occursin(
             "https://github.com/Org/Pkg.jl/tree/benchmarks/history", out)
         # Linkcheck-ignore regexes returned for the history URLs.
         @test any(r -> occursin(r, "raw.githubusercontent.com/Org/Pkg.jl/benchmarks"), lc)
+    end
+
+    @testset "build_benchmark_page: project_root/notes_file defaults " begin
+        dir = mktempdir()
+        run(pipeline(`git -C $dir init -q`; stdout = devnull, stderr = devnull))
+        mkpath(joinpath(dir, "docs"))
+        prose = joinpath(dir, "docs", "benchmarks.md")
+        write(prose, "Narrative here.\n")
+        notes = joinpath(dir, "docs", "benchmarks_notes.md")
+        write(notes, "Some skipped-benchmark note.\n")
+        dest = joinpath(dir, "docs", "src", "benchmarks", "over-time.md")
+        # Neither `project_root` nor `notes_file` is passed: the defaults
+        # must resolve `dir` (project_root) and
+        # `dir/docs/benchmarks_notes.md` (notes_file) from `dest` alone, one
+        # directory deeper than the pre-#305 `docs/src/benchmarks.md` shape.
+        DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
+            package = "Pkg", prose_file = prose)
+        out = read(dest, String)
+        @test occursin("# [Performance over time](@id benchmarks)", out)
+        @test occursin("Narrative here.", out)
+        @test occursin("Some skipped-benchmark note.", out)
     end
 
     @testset "build_benchmark_page: strips the seed's leading comment" begin
@@ -541,7 +569,7 @@
         @test !occursin("PACKAGE-OWNED", out)
         @test occursin("Real narrative.", out)
         # The heading still leads the page (comment did not push it down).
-        @test startswith(out, "# [Benchmarks](@id benchmarks)")
+        @test startswith(out, "# [Performance over time](@id benchmarks)")
     end
 
     @testset "build_benchmark_page: renders grouped published history" begin
@@ -584,10 +612,15 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        # Ratio table grouped into per-suite `###` sections (#193).
-        @test occursin("### Ratio summary", out)
-        @test occursin("### AD gradients", out)
-        @test occursin("### Baseline", out)
+        # Ratio tables grouped into per-suite sections (#193), now open `##`
+        # sections of the page rather than a collapsed `<details>` block
+        # (#305): the measurements ARE the page.
+        @test occursin("## AD gradients", out)
+        @test occursin("## Baseline", out)
+        @test !occursin("<summary>Per-suite detail</summary>", out)
+        # The summary leads, the suites follow.
+        @test first(findfirst("## Summary", out)) <
+              first(findfirst("## AD gradients", out))
         # Row labels have the suite prefix stripped.
         @test occursin("| Enzyme forward | 1.0 |", out)
         @test occursin("| ForwardDiff | 2.0 |", out)
@@ -598,7 +631,7 @@
         @test occursin(cdate, out)
         @test !occursin("$short...", out)
         # Plots collapsed behind <details>, each still embedded (sorted).
-        @test occursin("### Per-benchmark timelines", out)
+        @test occursin("## Per-benchmark timelines", out)
         @test occursin("<details>", out)
         @test occursin("<summary>", out)
         @test occursin(
@@ -643,8 +676,8 @@
             history_suites = ["AD gradients"])
         out = read(dest, String)
         # Only the named headline suite is rendered.
-        @test occursin("### AD gradients", out)
-        @test !occursin("### Baseline", out)
+        @test occursin("## AD gradients", out)
+        @test !occursin("## Baseline", out)
         @test !occursin("allocations", out)
     end
 
@@ -763,13 +796,13 @@
         ]
         DB._write_benchmark_summary(io, rows)
         out = String(take!(io))
-        @test occursin("## Benchmark summary (overall)", out)
+        @test occursin("## Summary", out)
         @test occursin("| AD gradients | 2.0 | ↗ | ⚠ reg |", out)
         @test occursin("| Baseline | n/a | → | n/a |", out)
         # Empty input still writes the heading + a graceful message.
         io2 = IOBuffer()
         DB._write_benchmark_summary(io2, [])
-        @test occursin("## Benchmark summary (overall)", String(take!(io2)))
+        @test occursin("## Summary", String(take!(io2)))
         # Every suite `n/a` (single-revision) -> a note replaces the table
         # (#282), never a wall of `n/a` rows.
         io5 = IOBuffer()
@@ -823,19 +856,23 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        # The overall summary leads the page, above the collapsed detail.
-        summary_pos = findfirst("## Benchmark summary (overall)", out)
-        detail_pos = findfirst("<summary>Per-suite detail</summary>", out)
+        # The across-the-package summary leads the page, above the per-suite
+        # sections.
+        summary_pos = findfirst("## Summary", out)
+        detail_pos = findfirst("## AD gradients", out)
         @test summary_pos !== nothing
         @test detail_pos !== nothing
         @test first(summary_pos) < first(detail_pos)
         @test occursin("| AD gradients | 2.1 | ↗ | ⚠ reg |", out)
         @test occursin("| Baseline | 0.5 | ↘ | ok |", out)
         @test occursin("| time_to_load | 1.01 | → | ok |", out)
-        # The existing #196 detail (per-suite tables + collapsed plots) still
-        # renders, now inside the outer `<details>`.
-        @test occursin("### Ratio summary", out)
-        @test occursin("### AD gradients", out)
+        # The revision-window caption closes the summary section, above the
+        # first per-suite section it describes (#305).
+        caption_pos = findfirst("Tables below show the most recent", out)
+        @test caption_pos !== nothing
+        @test first(summary_pos) < first(caption_pos) < first(detail_pos)
+        # The per-suite tables are open sections, not a collapsed block.
+        @test !occursin("<summary>Per-suite detail</summary>", out)
         # The combined trend plot was generated and embedded.
         png = joinpath(dirname(dest), "overall_trend.png")
         @test isfile(png)
@@ -889,19 +926,20 @@
         DB.build_benchmark_page(; dest = dest, repo = "Org/Pkg.jl",
             package = "Pkg", prose_file = prose, project_root = dir)
         out = read(dest, String)
-        @test occursin("## Benchmark summary (overall)", out)
+        @test occursin("## Summary", out)
         # Single revision -> no ratios, so a note replaces the all-`n/a`
         # table (#282) rather than a row of `n/a` cells.
         @test occursin("Not enough comparable revisions", out)
         @test !occursin("| Baseline | n/a | → | n/a |", out)
-        # `## Performance history` is never an empty heading above the
-        # summary heading -- a one-line intro sits between them (#282).
-        hist_pos = findfirst("## Performance history", out)
-        intro_pos = findfirst("summary tracks each benchmark suite", out)
-        summary_pos = findfirst("## Benchmark summary (overall)", out)
-        @test hist_pos !== nothing && intro_pos !== nothing &&
-              summary_pos !== nothing
-        @test first(hist_pos) < first(intro_pos) < first(summary_pos)
+        # No heading on the page is ever empty: the managed intro sits under
+        # the page title (#282), and a lead line sits under `## Summary`.
+        title_pos = findfirst("# [Performance over time](@id benchmarks)", out)
+        intro_pos = findfirst("benchmark suites have moved", out)
+        summary_pos = findfirst("## Summary", out)
+        lead_pos = findfirst("headline timing across recent revisions", out)
+        @test all(!isnothing, (title_pos, intro_pos, summary_pos, lead_pos))
+        @test first(title_pos) < first(intro_pos) < first(summary_pos) <
+              first(lead_pos)
         @test !isfile(joinpath(dirname(dest), "overall_trend.png"))
         @test !occursin("Overall benchmark trend", out)
     end
@@ -910,13 +948,13 @@
         io = IOBuffer()
         DB._write_benchmark_notes(io, "`slow_path` is skipped: see #123.")
         out = String(take!(io))
-        @test occursin("### Skipped & broken benchmarks", out)
+        @test occursin("## Skipped & broken benchmarks", out)
         @test occursin("`slow_path` is skipped", out)
         # Auto-detected rows are appended, quoted, comma-joined.
         io2 = IOBuffer()
         DB._write_benchmark_notes(io2, "", ["Baseline/flaky", "time_to_load"])
         out2 = String(take!(io2))
-        @test occursin("### Skipped & broken benchmarks", out2)
+        @test occursin("## Skipped & broken benchmarks", out2)
         @test occursin("`Baseline/flaky`", out2)
         @test occursin("`time_to_load`", out2)
         # Neither prose nor an auto-detection -> nothing rendered at all.
@@ -979,7 +1017,7 @@
             package = "Pkg", prose_file = prose, project_root = dir,
             notes_file = notes)
         out = read(dest, String)
-        @test occursin("### Skipped & broken benchmarks", out)
+        @test occursin("## Skipped & broken benchmarks", out)
         @test occursin("`weird_scenario` intentionally excluded.", out)
         @test !occursin("<!-- guidance -->", out)
         # The auto-detected no-data benchmark is appended alongside the
@@ -2205,7 +2243,7 @@ end
                 "Plots" => "extensions/plots.md",
                 "Tables" => "extensions/tables.md"
             ],
-            "Benchmarks" => "benchmarks.md"]
+            "Benchmarks" => "benchmarks/over-time.md"]
         out = DB._strip_extensions_nav(pages, src_dir)
         # The page that exists is kept; the one that does not is dropped, so
         # the built nav carries no dangling link.
@@ -2214,7 +2252,7 @@ end
         @test exts == ["Plots" => "extensions/plots.md"]
         # Nothing outside the extensions pages is touched.
         @test out[1] == ("Home" => "index.md")
-        @test out[end] == ("Benchmarks" => "benchmarks.md")
+        @test out[end] == ("Benchmarks" => "benchmarks/over-time.md")
 
         # With no pages at all the group itself goes: an empty dropdown is
         # worse than none. This is the package-scaffolded-before-#319 case.
@@ -2227,5 +2265,115 @@ end
         plain = ["Home" => "index.md",
             "API reference" => ["Public API" => "lib/public.md"]]
         @test DB._strip_extensions_nav(plain, src_dir) == plain
+    end
+end
+
+@testitem "build_docs: benchmarks pipeline + shipped nav (#305)" begin
+    using Test
+    using EpiAwarePackageTools
+
+    # The only test that drives `build_docs` end to end. Two of its steps
+    # have no other observable surface: which directory each Literate
+    # pipeline renders into, and which nav the shipped VitePress sidebar
+    # ends up carrying. `build_vitepress = false` skips the npm pass and
+    # `deploy = false` the gh-pages push, so this needs nothing but git.
+    # `realpath` collapses macOS's `/var` -> `/private/var` symlink up
+    # front. Without it, Documenter/DocumenterVitepress compute some
+    # absolute paths from the unresolved `/var/folders/...` form and others
+    # (via `realpath`) from the resolved `/private/var/folders/...` form;
+    # the two disagree on directory depth, so a relative path meant to
+    # reach `docs/build/release-notes.md` climbs one level too far and 404s
+    # (`SystemError: opening file ".../release-notes.md": No such file or
+    # directory`) -- macOS-only, since Linux/Windows runners don't symlink
+    # their temp dirs this way.
+    root = realpath(mktempdir())
+    write(joinpath(root, "Project.toml"),
+        """
+        name = "NavProbe"
+        uuid = "8b1b9c1e-5c1d-4f4a-9f0e-2a1f6d5c7b31"
+        version = "0.1.0"
+        """)
+    mkpath(joinpath(root, "src"))
+    write(joinpath(root, "src", "NavProbe.jl"),
+        """
+        \"\"\"
+        NavProbe docstring.
+        \"\"\"
+        module NavProbe
+        "probe docstring"
+        probe
+        probe() = 1
+        export probe
+        end
+        """)
+    write(joinpath(root, "README.md"), "# NavProbe\n\nA probe package.\n")
+    write(joinpath(root, "NEWS.md"), "# Changelog\n\n## Unreleased\n\n- x.\n")
+    docs = mkpath(joinpath(root, "docs"))
+    write(joinpath(docs, "release_notes_header.jl"),
+        "const RELEASE_NOTES_HEADER = \"\"\"\n# Release notes\n\n\"\"\"\n")
+    mkpath(joinpath(docs, "src"))
+    # Documenter needs a git origin and a commit to resolve source links.
+    run(pipeline(`git -C $root init -q`; stdout = devnull, stderr = devnull))
+    run(pipeline(`git -C $root remote add origin
+                  https://github.com/Org/NavProbe.jl.git`;
+        stdout = devnull, stderr = devnull))
+    run(pipeline(`git -C $root add -A`; stdout = devnull, stderr = devnull))
+    run(pipeline(
+        `git -C $root -c user.name=t -c user.email=t@t
+         commit -qm init`; stdout = devnull, stderr = devnull))
+
+    # `pkgdir(mod)` is how `build_docs` finds the project, so the probe has
+    # to be loaded as a real package rather than defined inline.
+    push!(LOAD_PATH, root)
+    try
+        @eval import NavProbe
+        mod = NavProbe
+
+        # A nav that names both benchmark pages, but only `ad-comparison.md`
+        # is ever registered for rendering (`benchmark_page = false` skips
+        # the performance-history page). That is the half-remediated adopter
+        # `_strip_benchmark_nav` exists for.
+        pages = [
+            "Home" => "index.md",
+            "Getting started" => [
+                "Tutorials" => ["Guide" => "tutorials/guide.md"]
+            ],
+            "Benchmarks" => [
+                "Performance over time" => "benchmarks/over-time.md",
+                "AD comparison" => "benchmarks/ad-comparison.md"
+            ],
+            "Release notes" => "release-notes.md"]
+
+        bench_stub = "# [AD comparison](@id ad-comparison)"
+        Base.invokelatest(EpiAwarePackageTools.build_docs, mod;
+            repo = "Org/NavProbe.jl", authors = "Nobody", pages = pages,
+            skip_notebooks = true, tutorials_subdir = "tutorials",
+            heavy_tutorials = ["guide.jl"],
+            tutorial_stubs = ["guide.md" => "# [Guide](@id guide)"],
+            heavy_benchmarks = ["ad-comparison.jl"],
+            benchmark_stubs = ["ad-comparison.md" => bench_stub],
+            benchmark_page = false, build_vitepress = false, deploy = false)
+
+        # The two pipelines render into their own directories: a benchmark
+        # page lands under `src/benchmarks/`, never under the tutorials
+        # subdir, and neither list leaks into the other's directory.
+        src = joinpath(docs, "src")
+        @test isfile(joinpath(src, "benchmarks", "ad-comparison.md"))
+        @test isfile(joinpath(src, "tutorials", "guide.md"))
+        @test !isfile(joinpath(src, "tutorials", "ad-comparison.md"))
+        @test !isfile(joinpath(src, "benchmarks", "guide.md"))
+
+        # And the nav the site actually ships: the "Benchmarks" group keeps
+        # the page that exists and drops the one that was never rendered,
+        # rather than shipping a dangling sidebar link.
+        cfg = joinpath(docs, "build", ".documenter", ".vitepress",
+            "config.mts")
+        @test isfile(cfg)
+        nav = read(cfg, String)
+        @test occursin("text: 'Benchmarks'", nav)
+        @test occursin("link: '/benchmarks/ad-comparison'", nav)
+        @test !occursin("over-time", nav)
+    finally
+        filter!(!=(root), LOAD_PATH)
     end
 end
