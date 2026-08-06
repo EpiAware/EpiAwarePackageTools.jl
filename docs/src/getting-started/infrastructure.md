@@ -27,11 +27,25 @@ Every file the kit writes is one of two kinds.
   These are yours to edit.
 
 The README badge block, the README standard sections (Contributing, How to
-cite, Code of conduct), and the `.gitignore` standard rules are a hybrid: they
+cite, Code of conduct), the `.gitignore` standard rules, and the coding
+standards in `CLAUDE.md` are a hybrid: they
 are managed between markers, so their wording and the ignore rules stay current
 while anything you add outside the markers is preserved. The managed "How to
 cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
 "Cite this repository" widget and the citation content stays yours to edit.
+
+## Coding standards
+
+The root `CLAUDE.md` carries the org's coding standards between the
+`<!-- epiaware-standards:start -->` and `<!-- epiaware-standards:end -->`
+markers.
+They cover comments, docstrings, `@testitem` tests, formatting, and commit
+hygiene, and they apply to coding agents and human contributors alike.
+Every sync re-renders the block, so a change made once in the kit's
+`templates/CLAUDE.md` reaches every adopting package.
+Package-specific agent notes go after the end marker and are never touched.
+A package that already had a `CLAUDE.md` keeps it, moved below the standards
+block on the first sync.
 
 ## Overriding a managed file
 
@@ -57,7 +71,8 @@ What the marker does **not** cover:
 
 - The marker-delimited regions described above, in files that are otherwise
   package-owned: the README badge block, the README standard sections, the
-  `.gitignore` managed block, and the `[workspace]` stanza in `Project.toml`.
+  `.gitignore` managed block, the `CLAUDE.md` standards block, and the
+  `[workspace]` stanza in `Project.toml`.
   Those are refreshed on every sync whether or not the file carries the marker.
   Customise them by editing outside their markers, which is what the markers are
   for. There is no region-level opt-out.

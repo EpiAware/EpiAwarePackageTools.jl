@@ -2506,6 +2506,68 @@ function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
     return (:injected, true)
 end
 
+# --- managed CLAUDE.md block (package additions preserved) -----------------
+#
+# The org's coding standards for agents (comments, tests, formatting, commit
+# hygiene) ship as a managed block in every adopter's root `CLAUDE.md`, so the
+# whole fleet gets one wording and a change to it reaches every repo through
+# the usual sync. A package's own agent notes go after the closing marker and
+# are preserved, exactly as with `.gitignore` and the README sections.
+
+const CLAUDE_START = "<!-- epiaware-standards:start -->"
+const CLAUDE_END = "<!-- epiaware-standards:end -->"
+
+# The managed-block header, written just inside the start marker so it is part
+# of the refreshed region and is never duplicated on a later sync.
+const _CLAUDE_HEADER = string(
+    "<!--\n",
+    "MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n",
+    "These standards are re-rendered on every scaffold_update. Edit them in\n",
+    "the kit's `templates/CLAUDE.md`. Package-specific agent notes go after\n",
+    "the closing marker; they are preserved across updates.\n",
+    "-->")
+
+# Render the managed CLAUDE.md body (without markers) from the bundled
+# template. It carries no placeholders, so nothing is substituted.
+function _render_claude()
+    from = joinpath(_templates_dir(), "CLAUDE.md")
+    isfile(from) || error("missing bundled template CLAUDE.md at $from")
+    return read(from, String)
+end
+
+"""
+    _apply_claude(target_dir)
+
+Apply the managed org coding standards block to `target_dir/CLAUDE.md`.
+
+Returns `(action, changed)` where action is `:created`, `:injected` (markers
+added to a `CLAUDE.md` the package already had, whose content is kept below the
+block), or `:refreshed` (markers present; only the marked region is touched).
+Mirrors `_apply_gitignore`.
+"""
+function _apply_claude(target_dir::AbstractString)
+    path = joinpath(target_dir, "CLAUDE.md")
+    block = CLAUDE_START * "\n" * _CLAUDE_HEADER * "\n\n" *
+            _render_claude() * CLAUDE_END
+    if !isfile(path)
+        write(path, block * "\n")
+        return (:created, true)
+    end
+    text = read(path, String)
+    si = findfirst(CLAUDE_START, text)
+    ei = findlast(CLAUDE_END, text)
+    if si !== nothing && ei !== nothing && first(ei) > last(si)
+        new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
+        new == text && return (:refreshed, false)
+        write(path, new)
+        return (:refreshed, true)
+    end
+    # No markers: a hand-written CLAUDE.md. Put the standards on top and keep
+    # what was there as the package-owned tail rather than dropping it.
+    write(path, block * "\n\n" * text)
+    return (:injected, true)
+end
+
 # Whether a template is emitted for the requested `ad` value: `:always` always,
 # `:ad_only` when `ad = true`, `:noad_only` when `ad = false`.
 function _ad_selected(t::Template, ad::Bool)
@@ -2929,6 +2991,9 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # Managed between markers so package-owned additions below the block
     # survive `update` (#65).
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
+    # `CLAUDE.md` is managed the same way: the org coding standards live
+    # between the markers, a package's own agent notes below them.
+    claude_action = first(_apply_claude(target_dir))
     # Retired files are deleted, not just left unwritten, so a sync converges
     # on the current standard rather than accreting dead infra (#185).
     removed = _remove_retired(target_dir)
@@ -2938,6 +3003,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     return (created = created, updated = updated, preserved = preserved,
         removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
+        claude = claude_action,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
         extension_pages = (created = ext_created, preserved = ext_preserved),
@@ -3146,6 +3212,10 @@ before this behaviour existed) is treated the same way a legacy README is:
 the managed block is inserted at the top and the whole existing file is kept
 below as the tail, so nothing a package added is ever silently dropped.
 
+`CLAUDE.md` works the same way. The org's coding standards for agents live
+between `$(CLAUDE_START)` / `$(CLAUDE_END)`. Package-specific agent notes go
+after the end marker and survive every sync.
+
 `docs_subdomain` selects how the docs site is hosted. The default (`nothing`)
 is a project-pages deploy: `deploy_url = nothing`, so DocumenterVitepress
 derives the base from the repo name and the site renders at
@@ -3173,12 +3243,12 @@ managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, org_branding, extension_pages,
-warnings)` named tuple: destination paths newly written, managed files
-overwritten, package-owned files left in place, retired managed paths deleted
-(`RETIRED_PATHS`, #185), then the action taken by each of the region appliers
-(`:created`/`:injected`/`:refreshed`/`:preserved`/`:skipped`, as each
-docstring records), the seeded per-extension docs pages as a
+gitignore, claude, logo, standard_sections, citation, org_branding,
+extension_pages, warnings)` named tuple: destination paths newly written,
+managed files overwritten, package-owned files left in place, retired managed
+paths deleted (`RETIRED_PATHS`, #185), then the action taken by each of the
+region appliers (`:created`/`:injected`/`:refreshed`/`:preserved`/`:skipped`,
+as each docstring records), the seeded per-extension docs pages as a
 `(created, preserved)` pair of path vectors (#319), and non-fatal `warnings`.
 """
 function scaffold(target_dir::AbstractString; force::Bool = false,
@@ -3223,9 +3293,10 @@ package's current state from the committed workflows so a resync preserves an
 adopter's opt-in rather than stripping it, or reintroducing a job the package
 deliberately removed (#121). Pass `true`/`false` to force either.
 
-The README badge block, the managed `.gitignore` block, the standard-sections
-block and the README logo title are all refreshed as in [`scaffold`](@ref),
-without the package-owned parts of those files being touched.
+The README badge block, the managed `.gitignore` and `CLAUDE.md` blocks, the
+standard-sections block and the README logo title are all refreshed as in
+[`scaffold`](@ref), without the package-owned parts of those files being
+touched.
 
 Every managed file written from a template has a package-owned opt-out (#224):
 `$(_MANAGED_OVERRIDE_MARKER)` in a comment tells `update()` to preserve it
