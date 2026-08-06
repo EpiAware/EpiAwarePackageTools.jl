@@ -28,5 +28,5 @@ concurrency:
 
 jobs:
   registrability:
-    uses: EpiAware/.github/.github/workflows/registrability.yml@e659eac9ee63ae138bf28c64e1c4884c4396ac04
+    uses: EpiAware/.github/.github/workflows/registrability.yml@11263ddd07f3d88c54a6245828a81d10a83fcb29
     secrets: inherit  # pragma: allowlist secret
