@@ -123,6 +123,101 @@
         @test occursin("| ForwardDiff | 2/2 | none | none |", tbl3)
     end
 
+    @testset "run_selected" begin
+        @testset "filters and classifies PASS/MISMATCH/ERROR" begin
+            # A tiny registry covering all three outcomes: a scenario whose
+            # gradient matches its reference (PASS), one whose declared
+            # reference is deliberately wrong (MISMATCH), and one whose
+            # function always throws (ERROR).
+            θ = [1.0, 2.0, 3.0]
+            f_ok(θ) = sum(abs2, θ)
+            # Plain evaluation on a `Float64` vector succeeds (so scenario
+            # construction, which probes `f(x)` eagerly, does not itself
+            # throw), but `Float64.(θ)` cannot accept a `Dual`/`TrackedReal`,
+            # so differentiating this always throws — an AD-unsafe function.
+            f_err(θ) = sum(abs2, Float64.(θ))
+            wrong_ref = zeros(length(θ))
+            true_ref = DifferentiationInterface.gradient(
+                f_ok, AutoForwardDiff(), θ
+            )
+            s_ok = DIT.Scenario{:gradient, :out}(
+                f_ok, θ; name = "ok", res1 = true_ref
+            )
+            s_mismatch = DIT.Scenario{:gradient, :out}(
+                f_ok, θ; name = "mismatch", res1 = wrong_ref
+            )
+            s_error = DIT.Scenario{:gradient, :out}(
+                f_err, θ; name = "erroring", res1 = nothing
+            )
+            run_reg = (
+                scenarios = (; with_reference = true) -> [
+                    s_ok, s_mismatch, s_error,
+                ],
+                backends = () -> [
+                    (name = "ForwardDiff", backend = AutoForwardDiff()),
+                    (
+                        name = "ReverseDiff",
+                        backend = AutoReverseDiff(compile = false),
+                    ),
+                ],
+            )
+
+            # Scenario and backend filters both narrow the run.
+            filtered = run_selected(
+                run_reg; scenarios = ["ok"], backends = ["forward"],
+                verbose = false
+            )
+            @test length(filtered) == 1
+            @test only(filtered).scenario == "ok"
+            @test only(filtered).status == :pass
+
+            results = run_selected(run_reg; verbose = false)
+            @test length(results) == 6
+            byname(scen, back) = only(
+                filter(
+                    r -> r.scenario == scen && r.backend == back, results
+                )
+            )
+            @test byname("ok", "ForwardDiff").status == :pass
+            @test byname("ok", "ReverseDiff").status == :pass
+            @test byname("mismatch", "ForwardDiff").status == :mismatch
+            err = byname("erroring", "ForwardDiff")
+            @test err.status == :error
+            @test startswith(err.detail, "ERROR: ")
+            # ReverseDiff's tracked type is equally unconvertible to Float64.
+            @test byname("erroring", "ReverseDiff").status == :error
+        end
+
+        @testset "errors when a filter matches nothing" begin
+            @test_throws ErrorException run_selected(
+                reg; scenarios = ["nope"], verbose = false
+            )
+            @test_throws ErrorException run_selected(
+                reg; backends = ["nope"], verbose = false
+            )
+        end
+
+        @testset "honours per-backend skip without attempting the call" begin
+            # The skip set must short-circuit before the gradient call, not
+            # merely catch a failure from attempting it — skips exist for
+            # combinations that can crash the process outright.
+            skip_reg = merge(
+                reg,
+                (
+                    backend_skip_scenarios = () -> Dict(
+                        "ForwardDiff" => Set(["centred"])
+                    ),
+                )
+            )
+            results = run_selected(skip_reg; verbose = false)
+            is_skip(r) = r.scenario == "centred" && r.backend == "ForwardDiff"
+            skipped = only(filter(is_skip, results))
+            @test skipped.status == :skipped
+            others = filter(!is_skip, results)
+            @test all(r -> r.status == :pass, others)
+        end
+    end
+
     @testset "optional bookkeeping accessors default to empty" begin
         # A registry that owns no broken/skipped scenarios may omit all three
         # bookkeeping accessors; the harness must treat them as empty rather

@@ -146,6 +146,21 @@ model, so you can compare a suspect backend against the ForwardDiff value
 on the same input (which is what the gradient tests do).
 DIT runs a single function across several backends at once and flags the
 ones that disagree with the reference.
+
+For a single scenario against a single backend, `test/ad/run_selected.jl`
+wraps this in a repeatable command-line filter, so a suspect combination
+can be checked without running the full test suite:
+
+```
+julia --project=test/ad test/ad/run_selected.jl --backend enzyme \
+    --scenario AR
+```
+
+`--backend` and `--scenario` are repeatable, case-insensitive substring
+filters; omit one to check everything.
+Each result prints as PASS, MISMATCH, or ERROR, the same classification
+the gradient tests apply, so a PASS here cannot disagree with CI.
+
 Work bottom-up: differentiate one small piece first (a single `logpdf`,
 then one of this package's own quantities), confirm it, and build up to
 the full model, so the construct a backend chokes on is easy to isolate.
