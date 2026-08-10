@@ -524,11 +524,14 @@ const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # p
 # The seed ref for the release-nudge caller, newer than `_DOWNGRADE_SEED_REF`
 # for the same reason as `_REGISTRABILITY_SEED_REF`.
 #
-# PLACEHOLDER: this is EpiAware/.github's `main` HEAD at the time the caller
-# was written, which does NOT yet contain `release-nudge.yml` and so will not
-# resolve. Update it to the squash-merge SHA of that repo's release-nudge PR
-# before this caller is scaffolded anywhere for real.
-const _RELEASE_NUDGE_SEED_REF = "4ade02869137af2a1799c704df8a0256ef5b5de6"  # pragma: allowlist secret
+# EpiAware/.github's `main` HEAD as of #377/#362: confirmed via the GitHub
+# API to contain `release-nudge.yml`. The original seed
+# (`4ade02869137af2a1799c704df8a0256ef5b5de6`) predated
+# EpiAware/.github#38 adding that reusable, so every fresh scaffold got an
+# unresolvable pin ("workflow was not found") until Dependabot happened to
+# bump it. Verify a replacement resolves before repinning again:
+# `gh api repos/EpiAware/.github/contents/.github/workflows/release-nudge.yml?ref=<sha>`.
+const _RELEASE_NUDGE_SEED_REF = "8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5"  # pragma: allowlist secret
 
 # The seed ref for the `pre-commit.yaml` caller's `runic-check.yml`, newer
 # than `_DOWNGRADE_SEED_REF` for the same reason as `_REGISTRABILITY_SEED_REF`
@@ -1200,12 +1203,18 @@ end
 # floor-respecting default and `_julia_versions_below_floor` warns when an
 # override reaches back below the floor.
 #
+# `tagbot.yml`'s `lookback` is the same kind of package call: how far back to
+# search for unpublished releases is a fact about a package's release cadence,
+# not a standard the kit sets. Omitting it here silently reverted a package's
+# override on every `update()` (#356).
+#
 # Scoped to the reusable that renders the key, not global by name:
 # `codecoverage.yaml`'s caller renders a `julia_version` of its own which IS
 # managed, and a bare-name set would un-manage that too.
 const _WITH_SEED_DEFAULT_KEYS = Dict(
     "tests.yml" => Set(["julia_versions"]),
-    "downgrade.yml" => Set(["julia_version"])
+    "downgrade.yml" => Set(["julia_version"]),
+    "tagbot.yml" => Set(["lookback"])
 )
 
 function _seed_default_keys(workflow::AbstractString)

@@ -5,6 +5,14 @@ on:
   issue_comment:
     types:
       - created
+  schedule:
+    # Daily catch-all (#357): the JuliaTagBot GitHub App comment this
+    # workflow otherwise waits for has never once arrived in org history,
+    # so without this trigger every release is tagged manually. TagBot is
+    # idempotent and re-tags nothing, so a daily run costs one short job.
+    # Offset from the weekly template-sync (Mon 04:00 UTC) and
+    # release-nudge (Mon 06:00 UTC) schedules so runners don't contend.
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       lookback:
@@ -12,7 +20,10 @@ on:
 
 jobs:
   TagBot:
-    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.actor == 'JuliaTagBot'
     uses: {{ORG}}/.github/.github/workflows/tagbot.yml@6fcdcde033ec670ac3832b239427fd2ded591bbc
     with:
       lookback: ${{ github.event.inputs.lookback || '3' }}

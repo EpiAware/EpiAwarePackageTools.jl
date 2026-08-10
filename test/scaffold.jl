@@ -8,7 +8,7 @@
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
         scaffold_inputs, update, scaffold_update,
-        _ad_selected, _bench_selected
+        _ad_selected, _bench_selected, _RELEASE_NUDGE_SEED_REF
     using Dates: year, now
 
     # Absolute native path of a scaffold destination, mirroring the scaffold's
@@ -222,6 +222,27 @@
                 @test occursin("workflow_dispatch", rn)
                 @test occursin(r"cron: '\d+ \d+ \* \* \d+'", rn)
                 @test !occursin("{{ORG}}", rn)
+                # Pinned at a ref the reusable actually exists at, single-
+                # sourced from the constant (#333/#362/#377): the original
+                # seed predated `release-nudge.yml` landing on
+                # `EpiAware/.github`, so every fresh scaffold got an
+                # unresolvable pin.
+                @test occursin(
+                    "release-nudge.yml@" * _RELEASE_NUDGE_SEED_REF, rn
+                )
+                # TagBot's actor gate — workflow_dispatch or a JuliaTagBot
+                # comment — has never once fired in org history (#357), so a
+                # schedule trigger is added alongside (not replacing) it:
+                # the gate still recognises both original cases, plus the
+                # new scheduled one.
+                tb = read(
+                    joinpath(dir, ".github/workflows/TagBot.yaml"), String
+                )
+                @test occursin(r"(?m)^\s*schedule:", tb)
+                @test occursin(r"cron: '\d+ \d+ \* \* \*'", tb)
+                @test occursin("github.event_name == 'schedule'", tb)
+                @test occursin("github.event_name == 'workflow_dispatch'", tb)
+                @test occursin("github.actor == 'JuliaTagBot'", tb)
                 # Coverage hard-fails on upload error (org policy: red on a
                 # missing CODECOV_TOKEN as a loud reminder to add it).
                 cov_caller = read(
@@ -2907,6 +2928,42 @@
                 # check stays green even if this one were quietly un-managed.
                 @test occursin("julia_version: '1'", after)
                 # Idempotent on the merged block.
+                update(dir)
+                @test read(caller, String) == after
+            end
+        end
+
+        @testset "update preserves a package-set TagBot lookback (#356)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # How far back TagBot searches for unpublished releases is a
+                # fact about the package's release cadence, not a standard
+                # the kit sets, so the caller's `with: lookback:` is
+                # seed-default like `julia_versions`/`julia_version` — the
+                # destination's value wins instead of being reverted to the
+                # template's seed on every sync.
+                caller = _dest(dir, ".github/workflows/TagBot.yaml")
+                before = read(caller, String)
+                @test occursin(
+                    "lookback: \${{ github.event.inputs.lookback || '3' }}",
+                    before
+                )
+                # `\S` after the colon distinguishes the `with:` block's
+                # `lookback: <value>` line (the seed-default key) from the
+                # bare `lookback:` under `workflow_dispatch.inputs`, whose
+                # value is the nested `default:` line below it.
+                overridden = replace(
+                    before,
+                    r"(?m)^([ \t]+)lookback: \S.*$" => s"\1lookback: '30'"
+                )
+                @test overridden != before
+                write(caller, overridden)
+                update(dir)
+                after = read(caller, String)
+                @test occursin("lookback: '30'", after)
+                @test !occursin("github.event.inputs.lookback", after)
+                # Idempotent on the preserved override.
                 update(dir)
                 @test read(caller, String) == after
             end
