@@ -2824,69 +2824,67 @@ function _apply_git_blame_ignore(target_dir::AbstractString)
     return (:injected, true)
 end
 
-# --- managed CLAUDE.md block (package additions preserved) -----------------
+# --- managed agent-file blocks (package additions preserved) ---------------
 #
-# The org's coding standards for agents (comments, tests, formatting, commit
-# hygiene) ship as a managed block in every adopter's root `CLAUDE.md`, so the
-# whole fleet gets one wording and a change to it reaches every repo through
-# the usual sync. A package's own agent notes go after the closing marker and
-# are preserved, exactly as with `.gitignore` and the README sections.
+# `AGENTS.md` carries links to the docs an agent should read; `CLAUDE.md` just
+# points at `AGENTS.md`. Neither restates a standard: a copy drifts from the
+# page it was copied from. A package's own notes go after the closing marker
+# and are preserved, exactly as with `.gitignore` and the README sections.
 
-const CLAUDE_START = "<!-- epiaware-standards:start -->"
-const CLAUDE_END = "<!-- epiaware-standards:end -->"
+const AGENTS_START = "<!-- epiaware-standards:start -->"
+const AGENTS_END = "<!-- epiaware-standards:end -->"
 
 # The managed-block header, written just inside the start marker so it is part
 # of the refreshed region and is never duplicated on a later sync.
-const _CLAUDE_HEADER = string(
+_agents_header(template) = string(
     "<!--\n",
     "MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n",
-    "This block is re-rendered on every scaffold_update. Edit it in\n",
-    "the kit's `templates/CLAUDE.md`. Package-specific agent notes go after\n",
-    "the closing marker; they are preserved across updates.\n",
+    "Edit it in the kit's `templates/", template, "`. Package-specific notes\n",
+    "go after the closing marker; they are preserved across updates.\n",
     "-->"
 )
 
-# Render the managed CLAUDE.md body (without markers) from the bundled
-# template. `{{PACKAGE}}`/`{{DOCS_URL}}` are substituted so the block can point
-# an agent at this package's own docs alongside the org-wide standards.
-function _render_claude(inputs)
-    from = joinpath(_templates_dir(), "CLAUDE.md")
-    isfile(from) || error("missing bundled template CLAUDE.md at $from")
+# Render a managed agent-file body (without markers) from the bundled template.
+# `{{PACKAGE}}`/`{{DOCS_URL}}` are substituted so the block can point at this
+# package's own docs alongside the org-wide ones.
+function _render_agent_file(template, inputs)
+    from = joinpath(_templates_dir(), template)
+    isfile(from) || error("missing bundled template $template at $from")
     return _substitute(read(from, String), inputs, from)
 end
 
 """
-    _apply_claude(target_dir, inputs)
+    _apply_agent_file(target_dir, template, inputs)
 
-Apply the managed standards-pointer block to `target_dir/CLAUDE.md`.
+Apply a managed pointer block to `target_dir/\$template`.
 
-The block points an agent at the human-facing standards docs rather than
-restating them, so there is one copy of the standards and it cannot drift.
+`AGENTS.md` points at the human-facing docs; `CLAUDE.md` points at `AGENTS.md`.
+Neither restates a standard, so there is one copy of each and it cannot drift.
 
 Returns `(action, changed)` where action is `:created`, `:injected` (markers
-added to a `CLAUDE.md` the package already had, whose content is kept below the
+added to a file the package already had, whose content is kept below the
 block), or `:refreshed` (markers present; only the marked region is touched).
 Mirrors `_apply_gitignore`.
 """
-function _apply_claude(target_dir::AbstractString, inputs)
-    path = joinpath(target_dir, "CLAUDE.md")
-    block = CLAUDE_START * "\n" * _CLAUDE_HEADER * "\n\n" *
-        _render_claude(inputs) * CLAUDE_END
+function _apply_agent_file(target_dir::AbstractString, template, inputs)
+    path = joinpath(target_dir, template)
+    block = AGENTS_START * "\n" * _agents_header(template) * "\n\n" *
+        _render_agent_file(template, inputs) * AGENTS_END
     if !isfile(path)
         write(path, block * "\n")
         return (:created, true)
     end
     text = read(path, String)
-    si = findfirst(CLAUDE_START, text)
-    ei = findlast(CLAUDE_END, text)
+    si = findfirst(AGENTS_START, text)
+    ei = findlast(AGENTS_END, text)
     if si !== nothing && ei !== nothing && first(ei) > last(si)
         new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
         new == text && return (:refreshed, false)
         write(path, new)
         return (:refreshed, true)
     end
-    # No markers: a hand-written CLAUDE.md. Put the standards on top and keep
-    # what was there as the package-owned tail rather than dropping it.
+    # No markers: a hand-written file. Put the block on top and keep what was
+    # there as the package-owned tail rather than dropping it.
     write(path, block * "\n\n" * text)
     return (:injected, true)
 end
@@ -3352,9 +3350,11 @@ function _apply(
     # Only the header is managed; the SHA list below it is package-owned, one
     # entry per repo's own Runic reformat commit.
     git_blame_ignore_action = first(_apply_git_blame_ignore(target_dir))
-    # `CLAUDE.md` is managed the same way: the standards pointers live between
-    # the markers, a package's own agent notes below them.
-    claude_action = first(_apply_claude(target_dir, inputs))
+    # `AGENTS.md` is managed the same way: the docs pointers live between the
+    # markers, a package's own notes below them. `CLAUDE.md` just points at
+    # `AGENTS.md`.
+    agents_action = first(_apply_agent_file(target_dir, "AGENTS.md", inputs))
+    _apply_agent_file(target_dir, "CLAUDE.md", inputs)
     # Retired files are deleted, not just left unwritten, so a sync converges
     # on the current standard rather than accreting dead infra (#185).
     removed = _remove_retired(target_dir)
@@ -3366,7 +3366,7 @@ function _apply(
         removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
         git_blame_ignore = git_blame_ignore_action,
-        claude = claude_action,
+        agents = agents_action,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
         extension_pages = (created = ext_created, preserved = ext_preserved),
@@ -3584,10 +3584,10 @@ package-owned, one entry per repo's own formatting-only reformat commit
 (e.g. the Runic migration's `style:` commit), so it is never rendered or
 touched by `scaffold`/`update`.
 
-`CLAUDE.md` works the same way. The managed block between `$(CLAUDE_START)` /
-`$(CLAUDE_END)` points an agent at the human-facing standards docs rather than
-restating them; package-specific agent notes go after the end marker and
-survive every sync.
+`AGENTS.md` works the same way. The managed block between `$(AGENTS_START)` /
+`$(AGENTS_END)` points at the human-facing docs rather than restating them, and
+`CLAUDE.md` points at `AGENTS.md`. Package-specific notes go after the end
+marker and survive every sync.
 
 `docs_subdomain` selects how the docs site is hosted. The default (`nothing`)
 is a project-pages deploy: `deploy_url = nothing`, so DocumenterVitepress
@@ -3616,7 +3616,7 @@ managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, git_blame_ignore, claude, logo, standard_sections, citation,
+gitignore, git_blame_ignore, agents, logo, standard_sections, citation,
 org_branding,
 extension_pages, warnings)` named tuple: destination paths newly written,
 managed files overwritten, package-owned files left in place, retired managed
