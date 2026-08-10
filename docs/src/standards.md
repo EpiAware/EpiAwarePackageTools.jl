@@ -75,7 +75,7 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 ### 10. Source is machine formatted
 
-- Rule: [Runic](https://github.com/fredrikekre/Runic.jl), which is unconfigurable — there is one canonical style, so no per-package config file and no line-length gate (Runic has no margin, and measuring 92 chars across the org's repos would fail on ~180 existing lines, most unsplittable pinned SHAs, regexes, and fixture strings). A long line is a review concern, as in Julia Base and Ferrite.jl.
+- Rule: [Runic](https://github.com/fredrikekre/Runic.jl), which is unconfigurable — there is one canonical style, so no per-package config file.
 - Why: no review time is spent on layout, and diffs stay about the change.
 - Enforced by the `runic` pre-commit hook and [`test_formatting`](@ref) (`task test-formatting`).
 

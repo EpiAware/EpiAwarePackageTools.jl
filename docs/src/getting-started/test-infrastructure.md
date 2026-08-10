@@ -166,8 +166,7 @@ The kit therefore runs each in its own environment under `test/jet/` and
 The formatter check reports any file under `src`, `test`, `docs`, `benchmark`,
 or `ext` that is not formatted, without modifying it.
 Runic is unconfigurable — there is one canonical style, so no per-package
-config file and no line-length gate; see [Package standards](@ref standards)
-for why.
+config file; see [Package standards](@ref standards).
 The JET runner fails on any static-analysis report by default.
 A package whose public surface is DynamicPPL `@model` functions can drop a
 package-owned `test/jet/jet_config.jl` defining a `JET_REPORT_FILTER` predicate
