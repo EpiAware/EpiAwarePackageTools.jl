@@ -27,7 +27,9 @@ Two groups are provided.
     works on any registry satisfying the [`ADRegistry`](@ref) contract, and
     [`ad_backend_support_table`](@ref) renders that registry's broken/skip
     declarations as the support table the scaffolded AD-backends docs page
-    shows.
+    shows. [`run_selected`](@ref) runs a named subset of scenarios against a
+    named subset of backends for fast diagnosis, and backs the scaffolded
+    `test/ad/run_selected.jl` driver.
 
 A [`scaffold`](@ref) helper writes the shipped standard configuration and test
 infrastructure into a package — root dev config, CI caller workflows +
@@ -133,6 +135,7 @@ export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
 public update, scaffold_update
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
+export run_selected
 export build_docs
 
 using .DocsBuild: build_docs

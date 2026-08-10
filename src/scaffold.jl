@@ -210,6 +210,12 @@ const SCAFFOLD_TEMPLATES = Template[
         "test/ad/runtests.jl", "test/ad/runtests.jl", true, false,
         :ad_only
     ),
+    # A named-filter diagnostic runner, thin over `run_selected` (#384): fast
+    # iteration on one scenario/backend without the full per-backend suite.
+    Template(
+        "test/ad/run_selected.jl", "test/ad/run_selected.jl", true, true,
+        :ad_only
+    ),
     # The benchmark suite drivers are opt-in (managed, only when
     # `benchmarks = true`).
     Template(
