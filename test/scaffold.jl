@@ -1030,8 +1030,17 @@
                 @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
                 @test occursin("<!-- epiaware-standards:start -->", txt)
                 @test occursin("<!-- epiaware-standards:end -->", txt)
-                @test occursin("@testitem", txt)
-                @test occursin("Comment the reason, not the action.", txt)
+                # The block points at the standards docs rather than
+                # restating them, so a second copy cannot drift (#370).
+                @test occursin("Package standards", txt)
+                @test occursin(
+                    "epiawarepackagetools.epiaware.org/stable/standards", txt
+                )
+                @test occursin("epiaware.github.io", txt)
+                # Substituted, so it names the package and its own docs.
+                @test occursin("Working in Wombat", txt)
+                # The standards themselves are NOT copied in.
+                @test !occursin("Comment the reason, not the action.", txt)
             end
         end
 
@@ -1076,13 +1085,13 @@
                 path = joinpath(dir, "CLAUDE.md")
                 stale = replace(
                     read(path, String),
-                    "Comment the reason, not the action." => "Stale wording."
+                    "Package standards" => "Stale wording."
                 )
                 write(path, stale)
                 res = update(dir)
                 @test res.claude === :refreshed
                 txt = read(path, String)
-                @test occursin("Comment the reason, not the action.", txt)
+                @test occursin("Package standards", txt)
                 @test !occursin("Stale wording.", txt)
             end
         end

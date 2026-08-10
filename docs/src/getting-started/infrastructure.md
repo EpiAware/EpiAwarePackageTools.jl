@@ -27,8 +27,8 @@ Every file the kit writes is one of two kinds.
   These are yours to edit.
 
 The README badge block, the README standard sections (Contributing, How to
-cite, Code of conduct), the `.gitignore` standard rules, and the coding
-standards in `CLAUDE.md` are a hybrid: they
+cite, Code of conduct), the `.gitignore` standard rules, and the standards
+pointers in `CLAUDE.md` are a hybrid: they
 are managed between markers, so their wording and the ignore rules stay current
 while anything you add outside the markers is preserved. The managed "How to
 cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
@@ -36,16 +36,23 @@ cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
 
 ## Coding standards
 
-The root `CLAUDE.md` carries the org's coding standards between the
+The root `CLAUDE.md` carries a managed block between the
 `<!-- epiaware-standards:start -->` and `<!-- epiaware-standards:end -->`
 markers.
-They cover comments, docstrings, `@testitem` tests, formatting, and commit
-hygiene, and they apply to coding agents and human contributors alike.
+It points an agent at the human-facing docs that hold the standards: [Package
+standards](@ref standards), [Test infrastructure](@ref test-infrastructure),
+this page, and the package's own documentation.
+The standards are not copied into it.
+A second copy would drift from the page it was copied from, and the docs are
+where a human reads them anyway.
+The block also carries the few rules that are about how an agent works rather
+than how the code is written, such as not editing a managed file and not
+signing a commit as an agent.
 Every sync re-renders the block, so a change made once in the kit's
 `templates/CLAUDE.md` reaches every adopting package.
 Package-specific agent notes go after the end marker and are never touched.
-A package that already had a `CLAUDE.md` keeps it, moved below the standards
-block on the first sync.
+A package that already had a `CLAUDE.md` keeps it, moved below the block on
+the first sync.
 
 ## Overriding a managed file
 

@@ -2840,33 +2840,38 @@ const CLAUDE_END = "<!-- epiaware-standards:end -->"
 const _CLAUDE_HEADER = string(
     "<!--\n",
     "MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n",
-    "These standards are re-rendered on every scaffold_update. Edit them in\n",
+    "This block is re-rendered on every scaffold_update. Edit it in\n",
     "the kit's `templates/CLAUDE.md`. Package-specific agent notes go after\n",
     "the closing marker; they are preserved across updates.\n",
-    "-->")
+    "-->"
+)
 
 # Render the managed CLAUDE.md body (without markers) from the bundled
-# template. It carries no placeholders, so nothing is substituted.
-function _render_claude()
+# template. `{{PACKAGE}}`/`{{DOCS_URL}}` are substituted so the block can point
+# an agent at this package's own docs alongside the org-wide standards.
+function _render_claude(inputs)
     from = joinpath(_templates_dir(), "CLAUDE.md")
     isfile(from) || error("missing bundled template CLAUDE.md at $from")
-    return read(from, String)
+    return _substitute(read(from, String), inputs, from)
 end
 
 """
-    _apply_claude(target_dir)
+    _apply_claude(target_dir, inputs)
 
-Apply the managed org coding standards block to `target_dir/CLAUDE.md`.
+Apply the managed standards-pointer block to `target_dir/CLAUDE.md`.
+
+The block points an agent at the human-facing standards docs rather than
+restating them, so there is one copy of the standards and it cannot drift.
 
 Returns `(action, changed)` where action is `:created`, `:injected` (markers
 added to a `CLAUDE.md` the package already had, whose content is kept below the
 block), or `:refreshed` (markers present; only the marked region is touched).
 Mirrors `_apply_gitignore`.
 """
-function _apply_claude(target_dir::AbstractString)
+function _apply_claude(target_dir::AbstractString, inputs)
     path = joinpath(target_dir, "CLAUDE.md")
     block = CLAUDE_START * "\n" * _CLAUDE_HEADER * "\n\n" *
-            _render_claude() * CLAUDE_END
+        _render_claude(inputs) * CLAUDE_END
     if !isfile(path)
         write(path, block * "\n")
         return (:created, true)
@@ -3349,7 +3354,7 @@ function _apply(
     git_blame_ignore_action = first(_apply_git_blame_ignore(target_dir))
     # `CLAUDE.md` is managed the same way: the standards pointers live between
     # the markers, a package's own agent notes below them.
-    claude_action = first(_apply_claude(target_dir))
+    claude_action = first(_apply_claude(target_dir, inputs))
     # Retired files are deleted, not just left unwritten, so a sync converges
     # on the current standard rather than accreting dead infra (#185).
     removed = _remove_retired(target_dir)
