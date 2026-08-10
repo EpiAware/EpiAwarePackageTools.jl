@@ -13,19 +13,20 @@
 module ADFixtures
 
 using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
-               AutoMooncakeForward, AutoEnzyme
+    AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
 import DifferentiationInterfaceTest as DIT
 import {{AD_BACKEND_PACKAGES}}
 using {{PACKAGE}}
 
 export scenarios, backends, broken_scenario_names,
-       backend_broken_scenarios, backend_skip_scenarios
+    backend_broken_scenarios, backend_skip_scenarios
 
 # ForwardDiff reference gradient for a scenario function.
 function _reference(f, θ, contexts)
     return DifferentiationInterface.gradient(
-        f, AutoForwardDiff(), θ, contexts...)
+        f, AutoForwardDiff(), θ, contexts...
+    )
 end
 
 """
@@ -44,9 +45,13 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
     #   f = (θ, obs) -> sum(x -> logpdf(SomeDist(θ...), x), obs)
     θ = [1.0, 2.0]
     f = θ -> sum(abs2, θ)
-    push!(out,
-        DIT.Scenario{:gradient, :out}(f, θ; name = "placeholder sum_squares",
-            res1 = with_reference ? _reference(f, θ, ()) : nothing))
+    push!(
+        out,
+        DIT.Scenario{:gradient, :out}(
+            f, θ; name = "placeholder sum_squares",
+            res1 = with_reference ? _reference(f, θ, ()) : nothing
+        )
+    )
     return out
 end
 

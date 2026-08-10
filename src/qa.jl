@@ -21,8 +21,10 @@ fails with `UndefVarError: <mod> not defined in Main`. To make the standard
 """
 function test_doctest(mod::Module)
     # See `test_aqua` for why this goes through `invokelatest`.
-    Documenter = _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4",
-        "Documenter")
+    Documenter = _require_pkg(
+        "e30172f5-a6a5-5a46-863b-614d45cd2de4",
+        "Documenter"
+    )
     # Bind `mod` into `Main` so `@meta CurrentModule` resolves under a
     # TestItemRunner sandbox; set only when absent so a real binding is
     # never clobbered.
@@ -35,51 +37,49 @@ function test_doctest(mod::Module)
 end
 
 """
-    test_formatting(dirs; style = "sciml", verbose = true)
+    test_formatting(dirs; verbose = true)
     test_formatting(mod; ...)
 
-Check that the given source trees are JuliaFormatter-clean.
+Check that the given source trees are Runic-clean.
 
 `dirs` is a collection of directory paths; non-existent entries are skipped, and
 each existing directory is checked without modification. Passing a `Module`
-defaults to checking the `src`, `test`, `docs`, and `benchmark` directories of
-the package that owns `mod`. `style` selects the JuliaFormatter style (the
-EpiAware standard is `"sciml"`); the `.JuliaFormatter.toml` at the package root
-still takes precedence when present.
+defaults to checking the `src`, `test`, `docs`, `benchmark`, and `ext`
+directories of the package that owns `mod`. Runic is unconfigurable — there is
+one canonical style, so no `style` argument and no per-package config file.
 
-The test passes when every directory is already formatted. JuliaFormatter must
-be a dependency of the calling environment; to keep its `JuliaSyntax` pin from
+The test passes when every directory is already formatted. Runic must be a
+dependency of the calling environment; to keep its `JuliaSyntax` pin from
 clashing with JET, run this from an isolated formatter environment (see the
 `templates/Taskfile.yml` `test-formatting` target).
 
-Pass `env` (the path to an isolated formatter project directory holding
-JuliaFormatter) to run the check in a subprocess via that project's
-`runtests.jl`, exactly as [`test_jet`](@ref) isolates JET. The test then passes
-when the subprocess exits zero, and JuliaFormatter need not be a dependency of
-the calling environment — the recommended layout when the test items share an
-environment with JET. `style`/`verbose`/`dirs` are ignored in `env` mode (the
-isolated `runtests.jl` owns that configuration).
+Pass `env` (the path to an isolated formatter project directory holding Runic)
+to run the check in a subprocess via that project's `runtests.jl`, exactly as
+[`test_jet`](@ref) isolates JET. The test then passes when the subprocess exits
+zero, and Runic need not be a dependency of the calling environment — the
+recommended layout when the test items share an environment with JET.
+`verbose`/`dirs` are ignored in `env` mode (the isolated `runtests.jl` owns
+that configuration).
 
-The formatting standard, and the org style decision behind it, are in
-[Package standards](@ref standards).
+The formatting standard is in [Package standards](@ref standards).
 """
-function test_formatting(dirs; style::AbstractString = "sciml",
-        verbose::Bool = true,
-        env::Union{Nothing, AbstractString} = nothing)
+function test_formatting(
+        dirs; verbose::Bool = true,
+        env::Union{Nothing, AbstractString} = nothing
+    )
     env === nothing || return _test_formatting_env(env)
     # See `test_aqua` for why this goes through `invokelatest`.
-    JF = _require_pkg("98e50ef6-434e-11e9-1051-2b60c6c9e899", "JuliaFormatter")
+    Runic = _require_pkg("62bfec6d-59d7-401d-8490-b29ee721c001", "Runic")
     existing = filter(isdir, collect(String, dirs))
     return @testset "formatting" begin
         if isempty(existing)
             @test_skip "no source directories found to format-check"
         else
-            sty = _formatter_style(JF, style)
-            all_ok = all(existing) do dir
-                Base.invokelatest(JF.format, dir;
-                    style = sty, verbose = verbose, overwrite = false)
-            end
-            @test all_ok
+            args = String["--check"]
+            verbose && push!(args, "--diff")
+            append!(args, existing)
+            code = Base.invokelatest(Runic.main, args)
+            @test code == 0
         end
     end
 end
@@ -95,24 +95,14 @@ function _test_formatting_env(env::AbstractString)
     end
 end
 
-# Map a style name to a JuliaFormatter style instance. A `.JuliaFormatter.toml`
-# at the package root still overrides this per directory.
-function _formatter_style(JF, style::AbstractString)
-    s = lowercase(style)
-    # `JF` is loaded at call time via `Base.require`, so its style constructors
-    # live in a newer world age; build through `invokelatest` (cf. `test_aqua`).
-    s == "sciml" && return Base.invokelatest(JF.SciMLStyle)
-    s == "blue" && return Base.invokelatest(JF.BlueStyle)
-    s == "yas" && return Base.invokelatest(JF.YASStyle)
-    s in ("default", "") && return Base.invokelatest(JF.DefaultStyle)
-    error("unknown JuliaFormatter style $style")
-end
-
 function test_formatting(mod::Module; kwargs...)
     src = pathof(mod)
     src === nothing && error("module $(nameof(mod)) has no source path")
     root = dirname(dirname(src))
-    dirs = [joinpath(root, d) for d in ("src", "test", "docs", "benchmark")]
+    dirs = [
+        joinpath(root, d)
+            for d in ("src", "test", "docs", "benchmark", "ext")
+    ]
     return test_formatting(dirs; kwargs...)
 end
 
@@ -218,8 +208,8 @@ function _method_args(obj)
             for arg in (length(names) > 1 ? names[2:end] : Symbol[])
                 s = string(arg)
                 if arg != Symbol("#unused#") && !startswith(s, "#") &&
-                   !startswith(s, "var\"") && arg != Symbol("") &&
-                   !occursin("##", s) && length(s) > 1
+                        !startswith(s, "var\"") && arg != Symbol("") &&
+                        !occursin("##", s) && length(s) > 1
                     push!(args, arg)
                 end
             end
@@ -264,9 +254,11 @@ matching the original package-level check.
 The documentation standard this check enforces is
 [Package standards](@ref standards).
 """
-function test_docstring_format(mod::Module; exported_only_examples::Bool = true,
+function test_docstring_format(
+        mod::Module; exported_only_examples::Bool = true,
         require_field_docs::Bool = true, require_arg_sections::Bool = true,
-        require_examples::Bool = true, crossref_ignore::Tuple = ())
+        require_examples::Bool = true, crossref_ignore::Tuple = ()
+    )
     syms = names(mod)
     types = [s for s in syms if _is_type(mod, s)]
     funcs = [s for s in syms if !_is_type(mod, s)]
@@ -279,8 +271,10 @@ function test_docstring_format(mod::Module; exported_only_examples::Bool = true,
         end
         @testset "functions" begin
             for name in funcs
-                _check_func_docstring(mod, name; exported_only_examples,
-                    require_arg_sections, require_examples)
+                _check_func_docstring(
+                    mod, name; exported_only_examples,
+                    require_arg_sections, require_examples
+                )
             end
         end
         @testset "cross-references" begin
@@ -296,7 +290,7 @@ function _meaningful(doc::AbstractString, name::Symbol)
 end
 
 function _check_type_docstring(mod, name; require_field_docs)
-    @testset "$name" begin
+    return @testset "$name" begin
         obj = try
             getfield(mod, name)
         catch
@@ -324,9 +318,11 @@ function _check_type_docstring(mod, name; require_field_docs)
     end
 end
 
-function _check_func_docstring(mod, name; exported_only_examples,
-        require_arg_sections, require_examples)
-    @testset "$name" begin
+function _check_func_docstring(
+        mod, name; exported_only_examples,
+        require_arg_sections, require_examples
+    )
+    return @testset "$name" begin
         obj = try
             getfield(mod, name)
         catch
@@ -363,7 +359,7 @@ function _check_crossrefs(mod, allnames, ignore)
         end
     end
     # The cross-reference check is advisory (warnings), so it always passes.
-    @test true
+    return @test true
 end
 
 # --- extension ambiguities --------------------------------------------------
@@ -403,14 +399,17 @@ extension modules are named `<Package>...Ext`); pass extra prefixes for trigger
 packages whose methods participate in a legitimate pair (e.g.
 `("MyPkg", "Distributions")`).
 """
-function on_surface_ambiguities(mod::Module, extname::Symbol;
-        prefixes = (string(nameof(mod)),))
+function on_surface_ambiguities(
+        mod::Module, extname::Symbol;
+        prefixes = (string(nameof(mod)),)
+    )
     ext = Base.get_extension(mod, extname)
     ext === nothing && error("extension $extname is not loaded")
     pre = collect(String, prefixes)
     amb = detect_ambiguities(mod, ext; recursive = false)
     return filter(
-        p -> _on_surface(p[1], pre) && _on_surface(p[2], pre), amb)
+        p -> _on_surface(p[1], pre) && _on_surface(p[2], pre), amb
+    )
 end
 
 """
@@ -435,9 +434,11 @@ the extension's trigger package(s) before calling so the extension is loaded.
     quarantining a known, issue-tracked extension-only ambiguity without
     silencing it; the test flips green when the bug is fixed.
 """
-function test_ext_ambiguities(mod::Module, extname::Symbol;
+function test_ext_ambiguities(
+        mod::Module, extname::Symbol;
         prefixes = (string(nameof(mod)),), expect_phantoms::Bool = false,
-        broken::Bool = false)
+        broken::Bool = false
+    )
     return @testset "ext ambiguities: $extname" begin
         expect_phantoms && @test raw_ambiguity_count(mod, extname) > 0
         amb = on_surface_ambiguities(mod, extname; prefixes = prefixes)

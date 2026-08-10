@@ -18,8 +18,10 @@ using EpiAwarePackageTools: run_package_tests
 # (#191). Otherwise a drop-in for TestItemRunner's `@run_package_tests`.
 
 if "skip_quality" in ARGS
-    run_package_tests(@__DIR__;
-        filter = ti -> !(:quality in ti.tags) && !(:ad in ti.tags))
+    run_package_tests(
+        @__DIR__;
+        filter = ti -> !(:quality in ti.tags) && !(:ad in ti.tags)
+    )
 elseif "quality_only" in ARGS
     run_package_tests(@__DIR__; filter = ti -> :quality in ti.tags)
 elseif "readme_only" in ARGS

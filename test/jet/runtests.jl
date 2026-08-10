@@ -20,8 +20,10 @@ const _CONFIG = joinpath(@__DIR__, "jet_config.jl")
 isfile(_CONFIG) && include(_CONFIG)
 
 if @isdefined(JET_REPORT_FILTER)
-    result = JET.report_package(EpiAwarePackageTools;
-        target_modules = (EpiAwarePackageTools,))
+    result = JET.report_package(
+        EpiAwarePackageTools;
+        target_modules = (EpiAwarePackageTools,)
+    )
     kept = filter(JET_REPORT_FILTER, JET.get_reports(result))
     for r in kept
         @info "JET report (not filtered)" report = sprint(show, r)

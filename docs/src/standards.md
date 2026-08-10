@@ -75,9 +75,9 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 ### 10. Source is machine formatted
 
-- Rule: JuliaFormatter with the org style, configured by the managed `.JuliaFormatter.toml` (the org is moving from `sciml` to `blue`, [#318](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/318)).
+- Rule: [Runic](https://github.com/fredrikekre/Runic.jl), which is unconfigurable — there is one canonical style, so no per-package config file.
 - Why: no review time is spent on layout, and diffs stay about the change.
-- Enforced by the `julia-formatter` pre-commit hook and [`test_formatting`](@ref) (`task test-formatting`).
+- Enforced by the `runic` pre-commit hook and [`test_formatting`](@ref) (`task test-formatting`).
 
 ### 11. New variants arrive by dispatch
 

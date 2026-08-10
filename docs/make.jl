@@ -42,15 +42,15 @@ for _f in ("pages.jl", "docs_config.jl")
         include(joinpath(@__DIR__, _f))
     else
         @warn "docs/$(_f) not found; building with defaults " *
-              "(a missing pages.jl leaves the site with a Home-only nav). " *
-              "Write it if this package should own one."
+            "(a missing pages.jl leaves the site with a Home-only nav). " *
+            "Write it if this package should own one."
     end
 end
 
 # Read a package-owned config const, defaulting when a missing or older
 # `docs_config.jl`/`pages.jl` predates it.
 _cfg(sym, default) = isdefined(@__MODULE__, sym) ?
-                     getfield(@__MODULE__, sym) : default
+    getfield(@__MODULE__, sym) : default
 
 build_docs(
     EpiAwarePackageTools;
@@ -59,9 +59,11 @@ build_docs(
     deploy_url = "https://epiawarepackagetools.epiaware.org",
     pages = _cfg(:pages, ["Home" => "index.md"]),
     skip_notebooks = "--skip-notebooks" in ARGS ||
-                     get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
-    tutorials_subdir = _cfg(:TUTORIALS_SUBDIR,
-        joinpath("getting-started", "tutorials")),
+        get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
+    tutorials_subdir = _cfg(
+        :TUTORIALS_SUBDIR,
+        joinpath("getting-started", "tutorials")
+    ),
     light_tutorials = _cfg(:LIGHT_TUTORIALS, String[]),
     heavy_tutorials = _cfg(:HEAVY_TUTORIALS, String[]),
     tutorial_stubs = _cfg(:TUTORIAL_STUBS, Pair{String, String}[]),

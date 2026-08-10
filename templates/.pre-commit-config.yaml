@@ -40,15 +40,17 @@ repos:
     types: [text]
 #####
 # Julia
-# No first-class Julia support, so this needs a local Julia install with
-# JuliaFormatter.jl. Keep `rev` in step with the pinned JuliaFormatter in
-# the formatter test environment and `.JuliaFormatter.toml`.
-- repo: https://github.com/domluna/JuliaFormatter.jl
-  rev: v{{JULIAFORMATTER_VERSION}}
+# Runic builds its own hook environment from `additional_dependencies`, so
+# the pinned version here is the single source `runic-check.yml` greps the
+# repo for. Keep it in step with the isolated formatter test environment.
+- repo: https://github.com/fredrikekre/runic-pre-commit
+  rev: {{RUNIC_PRE_COMMIT_REV}}
   hooks:
-  - id: julia-formatter
-    # See the check-yaml/check-toml excludes above: templates/ placeholder
-    # files aren't parseable until substituted. No-op in a normal package.
+  - id: runic
+    additional_dependencies: ['Runic@{{RUNIC_VERSION}}']
+    # Runic is AST-based and errors rather than skips on the `{{PLACEHOLDER}}`
+    # tokens in templates/, which are not valid Julia until substituted.
+    # No-op in a normal package.
     exclude: '^templates/'
 #####
 # Secrets

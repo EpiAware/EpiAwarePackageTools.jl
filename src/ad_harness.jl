@@ -55,23 +55,23 @@ _backends(reg) = reg.backends()
 # True when `reg` exposes a callable `name` accessor. A module registry exposes
 # its functions as properties; a struct registry would carry them as fields.
 function _has_accessor(reg, name::Symbol)
-    reg isa Module ? isdefined(reg, name) : hasproperty(reg, name)
+    return reg isa Module ? isdefined(reg, name) : hasproperty(reg, name)
 end
 
 # The broken/skip bookkeeping accessors are optional (see `ADRegistry`): a
 # registry that defines none of them is treated as having no broken or skipped
 # scenarios, so a package without such scenarios need not define empty stubs.
 function _global_broken(reg)
-    _has_accessor(reg, :broken_scenario_names) ?
-    reg.broken_scenario_names() : String[]
+    return _has_accessor(reg, :broken_scenario_names) ?
+        reg.broken_scenario_names() : String[]
 end
 function _per_backend_broken(reg)
-    _has_accessor(reg, :backend_broken_scenarios) ?
-    reg.backend_broken_scenarios() : Dict{String, Set{String}}()
+    return _has_accessor(reg, :backend_broken_scenarios) ?
+        reg.backend_broken_scenarios() : Dict{String, Set{String}}()
 end
 function _per_backend_skip(reg)
-    _has_accessor(reg, :backend_skip_scenarios) ?
-    reg.backend_skip_scenarios() : Dict{String, Set{String}}()
+    return _has_accessor(reg, :backend_skip_scenarios) ?
+        reg.backend_skip_scenarios() : Dict{String, Set{String}}()
 end
 
 _entry(reg, name) = only(filter(e -> e.name == name, _backends(reg)))
@@ -87,13 +87,16 @@ A scenario passes (`@test true`) when the gradient is a finite vector matching
 a partial backend record the coverage it does have without an all-or-nothing
 result. `DifferentiationInterface` must be loaded by the caller.
 """
-function check_broken(scenarios_list, backend; rtol = 5e-2, atol = 1e-6)
-    DI = _require_pkg("a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63",
-        "DifferentiationInterface")
+function check_broken(scenarios_list, backend; rtol = 5.0e-2, atol = 1.0e-6)
+    DI = _require_pkg(
+        "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63",
+        "DifferentiationInterface"
+    )
     for scen in scenarios_list
         ok = try
             g = Base.invokelatest(
-                DI.gradient, scen.f, backend, scen.x, scen.contexts...)
+                DI.gradient, scen.f, backend, scen.x, scen.contexts...
+            )
             ref = scen.res1
             g isa AbstractVector && all(isfinite, g) && ref !== nothing &&
                 isapprox(g, ref; rtol = rtol, atol = atol)
@@ -128,22 +131,29 @@ registry's `scenarios` call, e.g. a package's own scenario-group selector
 
 `DifferentiationInterface` and `DifferentiationInterfaceTest` must be loaded.
 """
-function test_working_backend(reg, name::AbstractString;
-        rtol = 5e-2, atol = 1e-6, scenario_intact::Bool = false,
-        scenario_kwargs = (;))
-    DIT = _require_pkg("a82114a7-5aa3-49a8-9643-716bb13727a3",
-        "DifferentiationInterfaceTest")
+function test_working_backend(
+        reg, name::AbstractString;
+        rtol = 5.0e-2, atol = 1.0e-6, scenario_intact::Bool = false,
+        scenario_kwargs = (;)
+    )
+    DIT = _require_pkg(
+        "a82114a7-5aa3-49a8-9643-716bb13727a3",
+        "DifferentiationInterfaceTest"
+    )
     backend = _entry(reg, name).backend
     all_scenarios = _scenarios(
-        reg; with_reference = true, scenario_kwargs = scenario_kwargs)
+        reg; with_reference = true, scenario_kwargs = scenario_kwargs
+    )
     global_broken = Set(_global_broken(reg))
     per_backend = get(_per_backend_broken(reg), name, Set{String}())
     skip = get(_per_backend_skip(reg), name, Set{String}())
     runnable = filter(s -> !(s.name in skip), all_scenarios)
     ok = filter(
-        s -> !(s.name in global_broken) && !(s.name in per_backend), runnable)
+        s -> !(s.name in global_broken) && !(s.name in per_backend), runnable
+    )
     broken_scens = filter(
-        s -> s.name in global_broken || s.name in per_backend, runnable)
+        s -> s.name in global_broken || s.name in per_backend, runnable
+    )
     Base.invokelatest(
         DIT.test_differentiation,
         [backend], ok;
@@ -179,7 +189,8 @@ gradient tests actually mark broken.
 function ad_backend_support_table(reg; scenario_kwargs = (;))
     entries = _backends(reg)
     scens = _scenarios(
-        reg; with_reference = false, scenario_kwargs = scenario_kwargs)
+        reg; with_reference = false, scenario_kwargs = scenario_kwargs
+    )
     names = [String(s.name) for s in scens]
     total = length(names)
     global_broken = Set(String.(_global_broken(reg)))
@@ -188,19 +199,29 @@ function ad_backend_support_table(reg; scenario_kwargs = (;))
     fmt(v) = isempty(v) ? "none" : join(v, ", ")
     lines = [
         "| Backend | Scenarios | Declared broken | Skipped |",
-        "|:---|:---:|:---|:---|"
+        "|:---|:---:|:---|:---|",
     ]
     for e in entries
-        broken = sort!([n
-                        for n in names
-                        if n in global_broken ||
-            n in get(per_broken, e.name, Set{String}())])
-        skipped = sort!([n for n in names
-                         if n in get(per_skip, e.name, Set{String}())])
+        broken = sort!(
+            [
+                n
+                    for n in names
+                    if n in global_broken ||
+                    n in get(per_broken, e.name, Set{String}())
+            ]
+        )
+        skipped = sort!(
+            [
+                n for n in names
+                    if n in get(per_skip, e.name, Set{String}())
+            ]
+        )
         n_ok = total - length(union(Set(broken), Set(skipped)))
-        push!(lines,
+        push!(
+            lines,
             "| " * e.name * " | " * string(n_ok) * "/" * string(total) *
-            " | " * fmt(broken) * " | " * fmt(skipped) * " |")
+                " | " * fmt(broken) * " | " * fmt(skipped) * " |"
+        )
     end
     return join(lines, "\n")
 end
@@ -215,11 +236,14 @@ Each scenario the backend supports passes; the rest are marked `@test_broken`.
 Use this for a backend that cannot run the full `test_differentiation` sweep
 without crashing.
 """
-function test_partial_backend(reg, name::AbstractString;
-        rtol = 5e-2, atol = 1e-6, scenario_kwargs = (;))
+function test_partial_backend(
+        reg, name::AbstractString;
+        rtol = 5.0e-2, atol = 1.0e-6, scenario_kwargs = (;)
+    )
     backend = _entry(reg, name).backend
     scens = _scenarios(
-        reg; with_reference = true, scenario_kwargs = scenario_kwargs)
+        reg; with_reference = true, scenario_kwargs = scenario_kwargs
+    )
     check_broken(scens, backend; rtol = rtol, atol = atol)
     return nothing
 end

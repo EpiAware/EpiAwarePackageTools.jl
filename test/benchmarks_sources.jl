@@ -22,25 +22,29 @@
     end
 
     @testset "no [sources] section" begin
-        dir = write_project("""
-        name = "NoSources"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a01"
-        version = "0.1.0"
-        """)
+        dir = write_project(
+            """
+            name = "NoSources"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a01"
+            version = "0.1.0"
+            """
+        )
         @test isempty(git_sources(dir))
         @test isempty(unregistered_sources(dir))
     end
 
     @testset "git-pinned sources are parsed" begin
-        dir = write_project("""
-        name = "HasSources"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a02"
-        version = "0.1.0"
+        dir = write_project(
+            """
+            name = "HasSources"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a02"
+            version = "0.1.0"
 
-        [sources]
-        Zed = {url = "https://example.invalid/Zed.jl", rev = "v1.2.3"}
-        Alpha = {url = "https://example.invalid/Alpha.jl", rev = "main"}
-        """)
+            [sources]
+            Zed = {url = "https://example.invalid/Zed.jl", rev = "v1.2.3"}
+            Alpha = {url = "https://example.invalid/Alpha.jl", rev = "main"}
+            """
+        )
         srcs = git_sources(dir)
         @test length(srcs) == 2
         # Sorted by name so the bootstrap registers deterministically.
@@ -50,14 +54,16 @@
     end
 
     @testset "a url source with no rev is kept with an empty rev" begin
-        dir = write_project("""
-        name = "NoRev"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a03"
-        version = "0.1.0"
+        dir = write_project(
+            """
+            name = "NoRev"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a03"
+            version = "0.1.0"
 
-        [sources]
-        Alpha = {url = "https://example.invalid/Alpha.jl"}
-        """)
+            [sources]
+            Alpha = {url = "https://example.invalid/Alpha.jl"}
+            """
+        )
         srcs = git_sources(dir)
         @test length(srcs) == 1
         @test srcs[1].rev == ""
@@ -66,27 +72,31 @@
     @testset "path-only sources are ignored" begin
         # A path source needs no registration: it either resolves relative to
         # the environment or is staged into place (the ADFixtures trick, #125).
-        dir = write_project("""
-        name = "PathSources"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a04"
-        version = "0.1.0"
+        dir = write_project(
+            """
+            name = "PathSources"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a04"
+            version = "0.1.0"
 
-        [sources]
-        Fixtures = {path = "test/ADFixtures"}
-        """)
+            [sources]
+            Fixtures = {path = "test/ADFixtures"}
+            """
+        )
         @test isempty(git_sources(dir))
         @test isempty(unregistered_sources(dir))
     end
 
     @testset "a Project.toml path is accepted directly" begin
-        dir = write_project("""
-        name = "Direct"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a05"
-        version = "0.1.0"
+        dir = write_project(
+            """
+            name = "Direct"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a05"
+            version = "0.1.0"
 
-        [sources]
-        Alpha = {url = "https://example.invalid/Alpha.jl", rev = "main"}
-        """)
+            [sources]
+            Alpha = {url = "https://example.invalid/Alpha.jl", rev = "main"}
+            """
+        )
         @test length(git_sources(joinpath(dir, "Project.toml"))) == 1
     end
 
@@ -98,15 +108,17 @@
         # JSON3 is in General (reachable in any environment that runs this
         # suite), so it needs no scratch registration; the invented name is
         # in no registry and must be kept.
-        dir = write_project("""
-        name = "Mixed"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a06"
-        version = "0.1.0"
+        dir = write_project(
+            """
+            name = "Mixed"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a06"
+            version = "0.1.0"
 
-        [sources]
-        JSON3 = {url = "https://github.com/quinnj/JSON3.jl", rev = "main"}
-        NotInAnyRegistry216 = {url = "https://example.invalid/N.jl", rev = "m"}
-        """)
+            [sources]
+            JSON3 = {url = "https://github.com/quinnj/JSON3.jl", rev = "main"}
+            NotInAnyRegistry216 = {url = "https://example.invalid/N.jl", rev = "m"}
+            """
+        )
         @test length(git_sources(dir)) == 2
         names = [s.name for s in unregistered_sources(dir)]
         @test names == ["NotInAnyRegistry216"]
@@ -118,7 +130,7 @@
         # here shows the mechanism against a registry that is really there.
         ignored = unregistered_sources(dir; ignore_registry = "General")
         @test [s.name for s in ignored] ==
-              ["JSON3", "NotInAnyRegistry216"]
+            ["JSON3", "NotInAnyRegistry216"]
     end
 end
 
@@ -131,11 +143,13 @@ end
     # what makes the workflow step safe for every existing package.
     @testset "no [sources] at all" begin
         dir = mktempdir()
-        write(joinpath(dir, "Project.toml"), """
-        name = "Plain"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a07"
-        version = "0.1.0"
-        """)
+        write(
+            joinpath(dir, "Project.toml"), """
+            name = "Plain"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a07"
+            version = "0.1.0"
+            """
+        )
         depot = mktempdir()
         @test bootstrap_sources_registry(dir; depot = depot) == String[]
         @test !isdir(joinpath(depot, "registries"))
@@ -143,21 +157,23 @@ end
 
     @testset "only path and registered sources" begin
         dir = mktempdir()
-        write(joinpath(dir, "Project.toml"), """
-        name = "PlainToo"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a08"
-        version = "0.1.0"
+        write(
+            joinpath(dir, "Project.toml"), """
+            name = "PlainToo"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a08"
+            version = "0.1.0"
 
-        [sources]
-        Fixtures = {path = "test/ADFixtures"}
-        JSON3 = {url = "https://github.com/quinnj/JSON3.jl", rev = "main"}
-        """)
+            [sources]
+            Fixtures = {path = "test/ADFixtures"}
+            JSON3 = {url = "https://github.com/quinnj/JSON3.jl", rev = "main"}
+            """
+        )
         depot = mktempdir()
         # The git pin on a registered name cannot be honoured (the benchmark
         # environment resolves it from the registry), so it warns rather than
         # letting the pin look effective. Nothing is cloned.
         boot() = bootstrap_sources_registry(dir; depot = depot)
-        registered = @test_logs (:warn,) match_mode=:any boot()
+        registered = @test_logs (:warn,) match_mode = :any boot()
         @test registered == String[]
         @test !isdir(joinpath(depot, "registries"))
     end
@@ -182,13 +198,17 @@ end
     root = mktempdir(; cleanup = false)
     pkg = joinpath(root, "DummyDep216.jl")
     mkpath(joinpath(pkg, "src"))
-    write(joinpath(pkg, "Project.toml"), """
-    name = "DummyDep216"
-    uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a09"
-    version = "0.1.0"
-    """)
-    write(joinpath(pkg, "src", "DummyDep216.jl"),
-        "module DummyDep216\nanswer() = 42\nend\n")
+    write(
+        joinpath(pkg, "Project.toml"), """
+        name = "DummyDep216"
+        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a09"
+        version = "0.1.0"
+        """
+    )
+    write(
+        joinpath(pkg, "src", "DummyDep216.jl"),
+        "module DummyDep216\nanswer() = 42\nend\n"
+    )
     run(`git -C $pkg init --quiet -b main`)
     run(`git -C $pkg add -A`)
     git = `git -C $pkg -c user.name=t -c user.email=t@t.invalid`
@@ -201,22 +221,25 @@ end
     # are accepted by TOML, git and Pkg on every platform.
     url = replace(pkg, '\\' => '/')
     consumer = mktempdir(; cleanup = false)
-    write(joinpath(consumer, "Project.toml"), """
-    name = "Consumer216"
-    uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a10"
-    version = "0.1.0"
+    write(
+        joinpath(consumer, "Project.toml"), """
+        name = "Consumer216"
+        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a10"
+        version = "0.1.0"
 
-    [deps]
-    DummyDep216 = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a09"
+        [deps]
+        DummyDep216 = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a09"
 
-    [sources]
-    DummyDep216 = {url = "$url", rev = "$rev"}
-    """)
+        [sources]
+        DummyDep216 = {url = "$url", rev = "$rev"}
+        """
+    )
 
     depot = mktempdir(; cleanup = false)
     work_dir = mktempdir(; cleanup = false)
     registered = bootstrap_sources_registry(
-        consumer; depot = depot, work_dir = work_dir)
+        consumer; depot = depot, work_dir = work_dir
+    )
     @test registered == ["DummyDep216"]
 
     regdir = joinpath(depot, "registries", "EpiAwareScratch")
@@ -246,8 +269,10 @@ end
     print("resolved")
     """
     depots = join([depot; DEPOT_PATH], Sys.iswindows() ? ';' : ':')
-    out = withenv("JULIA_DEPOT_PATH" => depots, "JULIA_LOAD_PATH" => nothing,
-        "JULIA_PROJECT" => nothing) do
+    out = withenv(
+        "JULIA_DEPOT_PATH" => depots, "JULIA_LOAD_PATH" => nothing,
+        "JULIA_PROJECT" => nothing
+    ) do
         read(`$(Base.julia_cmd()) --startup-file=no -e $script`, String)
     end
     @test occursin("resolved", out)
@@ -261,21 +286,31 @@ end
     # new commit, same version. The temp depot goes on `DEPOT_PATH` for this,
     # so the scratch registry really is among the reachable registries the
     # bootstrap consults — otherwise the case under test could not arise.
-    write(joinpath(pkg, "src", "DummyDep216.jl"),
-        "module DummyDep216\nanswer() = 43\nend\n")
+    write(
+        joinpath(pkg, "src", "DummyDep216.jl"),
+        "module DummyDep216\nanswer() = 43\nend\n"
+    )
     run(`$git commit --quiet -a -m moved`)
     rev2 = strip(read(`git -C $pkg rev-parse HEAD`, String))
     @test rev2 != rev
-    write(joinpath(consumer, "Project.toml"),
-        replace(read(joinpath(consumer, "Project.toml"), String),
-            rev => rev2))
+    write(
+        joinpath(consumer, "Project.toml"),
+        replace(
+            read(joinpath(consumer, "Project.toml"), String),
+            rev => rev2
+        )
+    )
 
     push!(DEPOT_PATH, depot)
     try
-        @test any(r -> r.name == "EpiAwareScratch",
-            Pkg.Registry.reachable_registries())
-        moved = bootstrap_sources_registry(consumer; depot = depot,
-            work_dir = mktempdir(; cleanup = false))
+        @test any(
+            r -> r.name == "EpiAwareScratch",
+            Pkg.Registry.reachable_registries()
+        )
+        moved = bootstrap_sources_registry(
+            consumer; depot = depot,
+            work_dir = mktempdir(; cleanup = false)
+        )
         @test moved == ["DummyDep216"]
         versions = Pkg.TOML.parsefile(joinpath(entry, "Versions.toml"))
         tree2 = strip(read(`git -C $pkg rev-parse $(rev2 * "^{tree}")`, String))
@@ -286,11 +321,13 @@ end
         # pin, and the scratch registry must go with it: a cached registry that
         # still carries the name fails the whole depot with a hash mismatch.
         # So a run with nothing to register still cleans up.
-        write(joinpath(consumer, "Project.toml"), """
-        name = "Consumer216"
-        uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a10"
-        version = "0.1.0"
-        """)
+        write(
+            joinpath(consumer, "Project.toml"), """
+            name = "Consumer216"
+            uuid = "1e0d3f8c-9e1e-4a1a-8f8e-8a0a0a0a0a10"
+            version = "0.1.0"
+            """
+        )
         @test bootstrap_sources_registry(consumer; depot = depot) == String[]
         @test !isdir(regdir)
     finally

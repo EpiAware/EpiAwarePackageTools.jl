@@ -14,42 +14,59 @@
 # rather than a module-load-time snapshot.
 function _setup_checklist_steps(pkg::AbstractString, repo::AbstractString)
     return String[
-        string("Enable ", pkg, " on Codecov (https://app.codecov.io/gh/",
+        string(
+            "Enable ", pkg, " on Codecov (https://app.codecov.io/gh/",
             repo, ") and add the `CODECOV_TOKEN` repo secret (Settings -> ",
-            "Secrets and variables -> Actions)."),
-        string("Enable GitHub Pages for ", pkg, "'s `gh-pages` branch ",
-            "(Settings -> Pages) so the docs site deploys."),
-        string("Add a `DOCUMENTER_KEY` deploy key to ", pkg, ", or its ",
+            "Secrets and variables -> Actions)."
+        ),
+        string(
+            "Enable GitHub Pages for ", pkg, "'s `gh-pages` branch ",
+            "(Settings -> Pages) so the docs site deploys."
+        ),
+        string(
+            "Add a `DOCUMENTER_KEY` deploy key to ", pkg, ", or its ",
             "releases will publish no versioned docs. Generate the pair with ",
             "`julia -e 'using DocumenterTools; DocumenterTools.genkeys(user=\"",
             first(split(repo, '/')), "\", repo=\"", last(split(repo, '/')),
             "\")'`, add the public half under Settings -> Deploy keys with ",
             "write access, and the private half as the `DOCUMENTER_KEY` repo ",
             "secret. Recipe and pitfalls: https://epiawarepackagetools.",
-            "epiaware.org/dev/getting-started/infrastructure#documenter-key"),
-        string("If ", pkg, " uses a custom docs subdomain (the ",
+            "epiaware.org/dev/getting-started/infrastructure#documenter-key"
+        ),
+        string(
+            "If ", pkg, " uses a custom docs subdomain (the ",
             "`docs_subdomain` input to `scaffold`/`update`), add a DNS ",
             "CNAME for it and set it as the custom domain in Settings -> ",
-            "Pages; the default project-pages URL needs no DNS."),
-        string("Protect ", pkg, "'s `main` branch (Settings -> Branches): ",
+            "Pages; the default project-pages URL needs no DNS."
+        ),
+        string(
+            "Protect ", pkg, "'s `main` branch (Settings -> Branches): ",
             "require a pull-request review and passing status checks ",
-            "before merge."),
-        string("Once ", pkg, " is ready to publish, register it with the ",
+            "before merge."
+        ),
+        string(
+            "Once ", pkg, " is ready to publish, register it with the ",
             "Julia General Registry: comment `/register` on an issue or ",
             "pull request, or run the managed `Register` workflow ",
-            "manually (Actions -> Register -> Run workflow).")
+            "manually (Actions -> Register -> Run workflow)."
+        ),
     ]
 end
 
 # The suggested tracking-issue body (title + checklist), as a single string
 # ending in a newline, ready to paste into a new GitHub issue.
 function _setup_checklist_issue_body(
-        pkg::AbstractString, steps::AbstractVector{<:AbstractString})
-    lines = String["# Manual setup for $pkg", "",
-        string("Tracking issue for the one-off setup steps `scaffold`/",
+        pkg::AbstractString, steps::AbstractVector{<:AbstractString}
+    )
+    lines = String[
+        "# Manual setup for $pkg", "",
+        string(
+            "Tracking issue for the one-off setup steps `scaffold`/",
             "`scaffold_generate` cannot do on their own (each needs dashboard ",
-            "access). Check each off as it is done."),
-        ""]
+            "access). Check each off as it is done."
+        ),
+        "",
+    ]
     for step in steps
         push!(lines, "- [ ] " * step)
     end
@@ -93,13 +110,17 @@ Returns `nothing`; everything is written to `io`.
 setup_checklist()
 ```
 """
-function setup_checklist(target_dir::AbstractString = ".";
+function setup_checklist(
+        target_dir::AbstractString = ".";
         package::Union{Nothing, AbstractString} = nothing,
         repo::Union{Nothing, AbstractString} = nothing,
         org::AbstractString = DEFAULT_ORG,
-        io::IO = stdout)
-    inputs = scaffold_inputs(target_dir; package = package, repo = repo,
-        org = org)
+        io::IO = stdout
+    )
+    inputs = scaffold_inputs(
+        target_dir; package = package, repo = repo,
+        org = org
+    )
     pkg = something(inputs.PACKAGE, "<package>")
     rp = something(inputs.REPO, "<org>/<package>.jl")
     steps = _setup_checklist_steps(pkg, rp)
@@ -109,9 +130,11 @@ function setup_checklist(target_dir::AbstractString = ".";
         println(io, "- [ ] ", step)
     end
     println(io)
-    println(io,
+    println(
+        io,
         "Suggested tracking issue body (copy into a new issue, or e.g. ",
-        "`gh issue create --body-file -`):")
+        "`gh issue create --body-file -`):"
+    )
     println(io, "-"^72)
     print(io, _setup_checklist_issue_body(pkg, steps))
     return nothing
