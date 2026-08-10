@@ -1355,6 +1355,7 @@
                 for f in (
                         ".github/workflows/ad.yaml",
                         "test/ad/setup.jl", "test/ad/runtests.jl",
+                        "test/ad/run_selected.jl",
                         "test/ad/scenarios.jl", "test/ad/Project.toml",
                         "test/ADFixtures/Project.toml",
                         "test/ADFixtures/src/ADFixtures.jl",
@@ -1428,12 +1429,30 @@
                 scaffold(dir)   # default ad = true
                 for f in (
                         ".github/workflows/ad.yaml", "test/ad/setup.jl",
+                        "test/ad/run_selected.jl",
                         "test/ad/scenarios.jl", "test/ADFixtures/src/ADFixtures.jl",
                     )
                     @test isfile(joinpath(dir, f))
                 end
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("ad-forwarddiff", cov)
+            end
+        end
+
+        @testset "ad = true force-rewrites run_selected.jl on update() (#384)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Selectra")
+                scaffold(dir)  # default ad = true
+                runner = _dest(dir, "test/ad/run_selected.jl")
+                @test occursin("run_selected", read(runner, String))
+                write(runner, "# drifted, hand-edited\n")
+                res = update(dir)
+                @test runner in res.updated
+                txt = read(runner, String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("EpiAwarePackageTools.run_selected", txt)
+                @test occursin("--backend", txt)
+                @test occursin("--scenario", txt)
             end
         end
 
