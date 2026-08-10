@@ -37,8 +37,10 @@ those for which it returns `true`; `verbose` forwards to the test sets. The
 default `using <Package>` import in each item still works — the package name is
 taken from the package-root `Project.toml`, the parent of `testdir`.
 """
-function run_package_tests(testdir::AbstractString = pwd(); filter = nothing,
-        verbose::Bool = false)
+function run_package_tests(
+        testdir::AbstractString = pwd(); filter = nothing,
+        verbose::Bool = false
+    )
     TIR = _require_pkg(_TESTITEMRUNNER_UUID, "TestItemRunner")
     JS = TIR.JuliaSyntax
     TID = TIR.TestItemDetection
@@ -52,7 +54,8 @@ function run_package_tests(testdir::AbstractString = pwd(); filter = nothing,
     package_name = something(
         _project_string(joinpath(root, "Project.toml"), "name"),
         _project_string(joinpath(root, "JuliaProject.toml"), "name"),
-        "")
+        ""
+    )
 
     # Deviation (1): walk only `testdir`, so a sibling `worktrees/…` checkout
     # under the package root is never scanned.
@@ -84,34 +87,51 @@ function run_package_tests(testdir::AbstractString = pwd(); filter = nothing,
         end
 
         if !isempty(items)
-            testitems[file] = [(filename = file, code = content[i.code_range],
-                                   name = i.name, option_tags = i.option_tags,
-                                   option_default_imports = i.option_default_imports,
-                                   option_setup = i.option_setup,
-                                   Base.invokelatest(TIR.compute_line_column,
-                                       content, i.code_range.start)...)
-                               for i in items]
+            testitems[file] = [
+                (
+                        filename = file, code = content[i.code_range],
+                        name = i.name, option_tags = i.option_tags,
+                        option_default_imports = i.option_default_imports,
+                        option_setup = i.option_setup,
+                        Base.invokelatest(
+                            TIR.compute_line_column,
+                            content, i.code_range.start
+                        )...,
+                    )
+                    for i in items
+            ]
         end
         for i in setups
-            testsetups[i.name] = (filename = file, code = content[i.code_range],
+            testsetups[i.name] = (
+                filename = file, code = content[i.code_range],
                 name = Symbol(i.name), kind = i.kind,
-                Base.invokelatest(TIR.compute_line_column, content,
-                    i.code_range.start)...)
+                Base.invokelatest(
+                    TIR.compute_line_column, content,
+                    i.code_range.start
+                )...,
+            )
         end
     end
 
     if filter !== nothing
         for file in keys(testitems)
             testitems[file] = Base.filter(
-                i -> filter((filename = file, name = i.name,
-                    tags = i.option_tags)), testitems[file])
+                i -> filter(
+                    (
+                        filename = file, name = i.name,
+                        tags = i.option_tags,
+                    )
+                ), testitems[file]
+            )
             isempty(testitems[file]) && pop!(testitems, file)
         end
     end
 
     setup_module = Core.eval(Main, :(module $(gensym()) end))
-    setup_set = Base.invokelatest(TIR.TestSetupModuleSet, setup_module,
-        Set{Symbol}())
+    setup_set = Base.invokelatest(
+        TIR.TestSetupModuleSet, setup_module,
+        Set{Symbol}()
+    )
 
     _testset(args...; kw...) = Base.invokelatest(TIR.testset, args...; kw...)
     _run(args...) = Base.invokelatest(TIR.run_testitem, args...)
@@ -121,12 +141,15 @@ function run_package_tests(testdir::AbstractString = pwd(); filter = nothing,
             haskey(testsetups, setup) ||
                 error("Test setup $(setup) is not defined.")
             s = testsetups[setup]
-            s.kind == :module && Base.invokelatest(TIR.ensure_evaled, setup_set,
-                s.filename, s.code, s.name, s.line, s.column, dirname(file))
+            s.kind == :module && Base.invokelatest(
+                TIR.ensure_evaled, setup_set,
+                s.filename, s.code, s.name, s.line, s.column, dirname(file)
+            )
         end
+        return
     end
 
-    @static if VERSION ≤ v"1.13-"
+    return @static if VERSION ≤ v"1.13-"
         Test.push_testset(_testset("Package"; verbose))
         try
             for (file, items) in pairs(testitems)
@@ -137,15 +160,21 @@ function run_package_tests(testdir::AbstractString = pwd(); filter = nothing,
                         Test.push_testset(_testset(item.name; verbose))
                         ts = Test.get_testset()
                         try
-                            _run(item.filename, item.option_default_imports,
+                            _run(
+                                item.filename, item.option_default_imports,
                                 item.option_setup, package_name, item.code,
-                                item.line, item.column, setup_set, testsetups)
+                                item.line, item.column, setup_set, testsetups
+                            )
                         catch err
                             err isa InterruptException && rethrow()
-                            Test.record(ts,
-                                Test.Error(:nontest_error,
+                            Test.record(
+                                ts,
+                                Test.Error(
+                                    :nontest_error,
                                     Expr(:tuple), err, Base.current_exceptions(),
-                                    LineNumberNode(item.line, Symbol(item.filename))))
+                                    LineNumberNode(item.line, Symbol(item.filename))
+                                )
+                            )
                         finally
                             Test.finish(Test.pop_testset())
                         end
@@ -168,16 +197,24 @@ function run_package_tests(testdir::AbstractString = pwd(); filter = nothing,
                         inner = _testset(item.name; verbose)
                         Test.@with_testset inner begin
                             try
-                                _run(item.filename, item.option_default_imports,
+                                _run(
+                                    item.filename, item.option_default_imports,
                                     item.option_setup, package_name, item.code,
-                                    item.line, item.column, setup_set, testsetups)
+                                    item.line, item.column, setup_set, testsetups
+                                )
                             catch err
                                 err isa InterruptException && rethrow()
-                                Test.record(inner,
-                                    Test.Error(:nontest_error,
+                                Test.record(
+                                    inner,
+                                    Test.Error(
+                                        :nontest_error,
                                         Expr(:tuple), err, Base.current_exceptions(),
-                                        LineNumberNode(item.line,
-                                            Symbol(item.filename))))
+                                        LineNumberNode(
+                                            item.line,
+                                            Symbol(item.filename)
+                                        )
+                                    )
+                                )
                             end
                         end
                         Test.finish(inner)

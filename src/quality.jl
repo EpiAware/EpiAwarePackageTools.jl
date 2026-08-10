@@ -27,9 +27,12 @@ function _run_isolated_env(env::AbstractString, runner::AbstractString)
     Base.invokelatest(Pkg.instantiate)
     Base.invokelatest(Pkg.activate, current)
     result = run(
-        pipeline(`$(Base.julia_cmd()) --project=$env $runner`,
-            stdout = stdout, stderr = stderr);
-        wait = true)
+        pipeline(
+            `$(Base.julia_cmd()) --project=$env $runner`,
+            stdout = stdout, stderr = stderr
+        );
+        wait = true
+    )
     return result.exitcode == 0
 end
 
@@ -51,9 +54,11 @@ allow just that one rather than disabling the whole check with `false`.
 
 Aqua must be a dependency of the calling test environment.
 """
-function test_aqua(mod::Module; ambiguities = true, unbound_args = true,
+function test_aqua(
+        mod::Module; ambiguities = true, unbound_args = true,
         undefined_exports = true, project_extras = true, stale_deps = true,
-        deps_compat = true, undocumented_names = true, piracies = true)
+        deps_compat = true, undocumented_names = true, piracies = true
+    )
     Aqua = _require_pkg("4c88cf16-eb10-579e-8560-4a9242c79595", "Aqua")
     return @testset "Aqua.jl: $(nameof(mod))" begin
         unbound_args && @testset "unbound args" begin
@@ -89,7 +94,7 @@ end
 # resolves its name back to it. Extensions are self-parented (their
 # `parentmodule` is themselves), so they are never a true submodule of `mod`.
 function _is_package_extension(EI, sub::Module, mod::Module)
-    sub !== mod && Base.get_extension(mod, nameof(sub)) === sub
+    return sub !== mod && Base.get_extension(mod, nameof(sub)) === sub
 end
 
 # Names any loaded extension of `mod` imports in a way ExplicitImports would
@@ -101,8 +106,10 @@ function _extension_ignore_names(EI, mod::Module)
     names = Symbol[]
     for (sub, path) in EI.find_submodules(mod)
         (path === nothing || !_is_package_extension(EI, sub, mod)) && continue
-        for row in EI.improper_explicit_imports_nonrecursive(sub, path;
-            strict = false)
+        for row in EI.improper_explicit_imports_nonrecursive(
+                sub, path;
+                strict = false
+            )
             push!(names, row.name)
         end
         for row in EI.explicit_imports_nonrecursive(sub, path)
@@ -139,8 +146,10 @@ adopters no longer need to enumerate their extensions' import lists by hand.
 
 ExplicitImports must be a dependency of the calling test environment.
 """
-function test_explicit_imports(mod::Module; ignore::Tuple = (),
-        implicit_ignore::Tuple = ignore)
+function test_explicit_imports(
+        mod::Module; ignore::Tuple = (),
+        implicit_ignore::Tuple = ignore
+    )
     EI = _require_pkg("7d51a73a-1435-4ff3-83d9-f097790105c7", "ExplicitImports")
     ext_ignore = Base.invokelatest(_extension_ignore_names, EI, mod)
     ei = (ignore..., ext_ignore...)
@@ -148,16 +157,20 @@ function test_explicit_imports(mod::Module; ignore::Tuple = (),
     return @testset "ExplicitImports: $(nameof(mod))" begin
         @test Base.invokelatest(
             EI.check_no_stale_explicit_imports, mod;
-            ignore = ext_ignore) === nothing
+            ignore = ext_ignore
+        ) === nothing
         @test Base.invokelatest(
             EI.check_no_implicit_imports, mod;
-            ignore = ii) === nothing
+            ignore = ii
+        ) === nothing
         @test Base.invokelatest(
             EI.check_all_explicit_imports_are_public, mod;
-            ignore = ei) === nothing
+            ignore = ei
+        ) === nothing
         @test Base.invokelatest(
             EI.check_all_explicit_imports_via_owners, mod;
-            ignore = ext_ignore) === nothing
+            ignore = ext_ignore
+        ) === nothing
     end
 end
 
@@ -167,8 +180,10 @@ end
 # a `module`/`baremodule` node starts its own scope and is left un-recursed,
 # since its own using/import is exempt. Other forms cannot lexically contain
 # using/import (Julia rejects that at parse time).
-function _scan_scope!(violations::Vector{Tuple{Int, String}}, expr,
-        line::Base.RefValue{Int})
+function _scan_scope!(
+        violations::Vector{Tuple{Int, String}}, expr,
+        line::Base.RefValue{Int}
+    )
     if expr isa LineNumberNode
         line[] = expr.line
         return violations
@@ -197,8 +212,10 @@ end
 # `import` under `root`, treating `main_file` as exempt (see `_scan_scope!`).
 # A pure filesystem walk, unlike [`test_import_centralisation`](@ref) which
 # resolves `root`/`main_file` from a live `Module` via `pathof`.
-function _import_centralisation_violations(root::AbstractString,
-        main_file::Union{Nothing, AbstractString} = nothing)
+function _import_centralisation_violations(
+        root::AbstractString,
+        main_file::Union{Nothing, AbstractString} = nothing
+    )
     violations = Tuple{String, Int, String}[]
     for (dirpath, _, files) in walkdir(root)
         for f in files
@@ -242,7 +259,8 @@ function test_import_centralisation(mod::Module)
             return nothing
         end
         offenders = _import_centralisation_violations(
-            dirname(main_file), main_file)
+            dirname(main_file), main_file
+        )
         if !isempty(offenders)
             for (path, line, text) in offenders
                 @error "Scattered top-level import (#105)" path line text
@@ -293,8 +311,10 @@ test_option_validation(
     EpiAwarePackageTools.SUPPORTED_LICENSES)
 ```
 """
-function test_option_validation(f, valid; n::Integer = 50,
-        rng::Random.AbstractRNG = Random.default_rng())
+function test_option_validation(
+        f, valid; n::Integer = 50,
+        rng::Random.AbstractRNG = Random.default_rng()
+    )
     return @testset "option validation" begin
         for _ in 1:n
             bad = _random_name_excluding(valid, rng)
@@ -355,7 +375,7 @@ const STANDARD_README_SECTIONS = [
     # "Cite" accepts the managed `## How to cite` heading
     # (`_render_standard_sections`), so a fresh scaffold passes out of the
     # box without a hand-authored License/Supporting section (#201).
-    ("Citing", "Citation", "Cite", "License", "Supporting")
+    ("Citing", "Citation", "Cite", "License", "Supporting"),
 ]
 
 """
@@ -371,7 +391,8 @@ is the kit's to guarantee, and that is what [`test_readme_sections`](@ref)
 checks when the markers are present (#236).
 """
 const MANAGED_README_SECTIONS = [
-    ("Contributing",), ("How to cite",), ("Code of conduct",)]
+    ("Contributing",), ("How to cite",), ("Code of conduct",),
+]
 
 """
     STALE_README_HEADINGS
@@ -388,7 +409,8 @@ The one entry today is the pre-#292 `What packages work well with X?`, replaced
 by `## Related packages`.
 """
 const STALE_README_HEADINGS = [
-    r"what packages work well with"i => "Related packages"]
+    r"what packages work well with"i => "Related packages",
+]
 
 # Render one section group as a human-readable label for failure messages.
 _section_label(group::Tuple) = join(group, " / ")
@@ -533,9 +555,11 @@ test_readme_sections(pkgdir(MyPackage);
         [("Benchmarks",)]))
 ```
 """
-function test_readme_sections(path::AbstractString;
+function test_readme_sections(
+        path::AbstractString;
         required = STANDARD_README_SECTIONS, order::Bool = true,
-        stale = STALE_README_HEADINGS)
+        stale = STALE_README_HEADINGS
+    )
     file = _readme_file(path)
     return @testset "README sections: $(_readme_label(file))" begin
         if !isfile(file)
@@ -563,7 +587,7 @@ function test_readme_sections(path::AbstractString;
             for (pattern, replacement) in stale
                 found = filter(h -> occursin(pattern, h), headings)
                 for h in found
-                    @error "Retired README heading (#292)" heading=h replacement
+                    @error "Retired README heading (#292)" heading = h replacement
                 end
                 @test isempty(found)
             end
@@ -620,8 +644,10 @@ const _README_SENTINEL = "PkgNameSentinel"
 # (scaffold.jl, called at run time) rendered with a sentinel name, so the
 # check tracks the template: sentinel occurrences become `.+` in the regex.
 function _seed_readme_placeholders()
-    body = _seed_readme_body("EpiAware/" * _README_SENTINEL * ".jl",
-        _README_SENTINEL, nothing)
+    body = _seed_readme_body(
+        "EpiAware/" * _README_SENTINEL * ".jl",
+        _README_SENTINEL, nothing
+    )
     patterns = Regex[]
     for m in eachmatch(r"_[^_\n]+_", body)
         parts = split(m.match, _README_SENTINEL)
@@ -653,8 +679,10 @@ placeholder must therefore be written as an italic `_..._` span to be tracked.
 test_readme_placeholders(pkgdir(MyPackage))
 ```
 """
-function test_readme_placeholders(path::AbstractString;
-        patterns = _seed_readme_placeholders())
+function test_readme_placeholders(
+        path::AbstractString;
+        patterns = _seed_readme_placeholders()
+    )
     file = _readme_file(path)
     return @testset "README placeholders: $(_readme_label(file))" begin
         if !isfile(file)
@@ -696,20 +724,24 @@ legitimate when they name a specific thing (a test harness, a named framework)
 and padding when they stand in for one. A package that uses either as a domain
 term drops it from its own `banned` list rather than dropping the check.
 """
-const BANNED_README_WORDS = ["comprehensive", "cornerstone",
+const BANNED_README_WORDS = [
+    "comprehensive", "cornerstone",
     "current approaches", "facilitate", "foster", "framework", "harness",
     "landscape", "leverage", "multifaceted", "novel", "nuanced", "overarching",
     "pivotal", "practitioner", "robust", "streamline", "synergy", "utilise",
-    "utilize"]
+    "utilize",
+]
 
 # Entries the stem rule below gets wrong, as the body of their own regex.
 # `novel` needs a closed suffix list, since an open one reaches `novelist`.
 # `synergy` and `current approaches` need a shorter stem than trimming a
 # trailing `e` gives, to reach `synergies`, `synergistic`, and the singular
 # `current approach`.
-const _BANNED_WORD_PATTERNS = Dict("novel" => "novel(?:s|ly|ty|ties)?",
+const _BANNED_WORD_PATTERNS = Dict(
+    "novel" => "novel(?:s|ly|ty|ties)?",
     "synergy" => "synerg(?:y|ies|i[sz]e[sd]?|i[sz]ing|istic(?:ally)?)",
-    "current approaches" => "current\\s+approach(?:es)?")
+    "current approaches" => "current\\s+approach(?:es)?"
+)
 
 # A banned word/phrase as a regex: case-insensitive, word-boundary anchored,
 # any suffix allowed. A trailing `e` is trimmed off the final word so the
@@ -821,8 +853,12 @@ const _SENTENCE_BREAK = r"(?<=[.!?])\s+(?=[A-Z0-9(\[\"'])"
 function _sentences(text::AbstractString)
     protected = text
     for abbrev in _PROSE_ABBREVIATIONS
-        protected = replace(protected, abbrev => replace(abbrev, '.' =>
-            _DOT_LEADER))
+        protected = replace(
+            protected, abbrev => replace(
+                abbrev, '.' =>
+                    _DOT_LEADER
+            )
+        )
     end
     sentences = String[]
     for part in split(protected, _SENTENCE_BREAK)
@@ -863,8 +899,10 @@ test_readme_prose(pkgdir(MyPackage);
     banned = filter(!=("harness"), EpiAwarePackageTools.BANNED_README_WORDS))
 ```
 """
-function test_readme_prose(path::AbstractString;
-        banned = BANNED_README_WORDS, max_sentence_words::Integer = 40)
+function test_readme_prose(
+        path::AbstractString;
+        banned = BANNED_README_WORDS, max_sentence_words::Integer = 40
+    )
     file = _readme_file(path)
     return @testset "README prose: $(_readme_label(file))" begin
         if !isfile(file)
@@ -896,8 +934,10 @@ function test_readme_prose(path::AbstractString;
                 end
             end
             for (line, words, sentence) in long
-                @error("README sentence over the word limit",
-                    line, words, max_sentence_words, sentence)
+                @error(
+                    "README sentence over the word limit",
+                    line, words, max_sentence_words, sentence
+                )
             end
             @test isempty(long)
         end
@@ -965,10 +1005,10 @@ end
 # `**Label:** does X`). #292's first requirement rules this out for the Why
 # section in favour of a sentence saying why a reader needs the package.
 const _BULLET_FEATURE_LABEL = r"""
-    ^[-*+]\s+\*\*[^*]+\*\*\s*:   # **Label**: does X
-    |
-    ^[-*+]\s+\*\*[^*]*:\*\*      # **Label:** does X
-    """x
+^[-*+]\s+\*\*[^*]+\*\*\s*:   # **Label**: does X
+|
+^[-*+]\s+\*\*[^*]*:\*\*      # **Label:** does X
+"""x
 
 # A bullet's prose: the marker dropped and the markup scrubbed, ready to be
 # split into sentences.
@@ -1008,9 +1048,11 @@ report one drift twice.
 test_readme_bullets(pkgdir(MyPackage))
 ```
 """
-function test_readme_bullets(path::AbstractString;
+function test_readme_bullets(
+        path::AbstractString;
         heading::Tuple = first(STANDARD_README_SECTIONS),
-        min_bullets::Integer = 3, max_bullets::Integer = 6)
+        min_bullets::Integer = 3, max_bullets::Integer = 6
+    )
     file = _readme_file(path)
     label = _section_label(heading)
     return @testset "README bullets: $(_readme_label(file))" begin
@@ -1027,16 +1069,22 @@ function test_readme_bullets(path::AbstractString;
         @testset "bullet count" begin
             found = length(bullets)
             in_range = min_bullets <= found <= max_bullets
-            in_range || @error("$label bullet count outside range (#292)",
-                found, min_bullets, max_bullets)
+            in_range || @error(
+                "$label bullet count outside range (#292)",
+                found, min_bullets, max_bullets
+            )
             @test in_range
         end
         @testset "motivation, not a feature inventory" begin
-            labelled = filter(b -> occursin(_BULLET_FEATURE_LABEL, b[2]),
-                bullets)
+            labelled = filter(
+                b -> occursin(_BULLET_FEATURE_LABEL, b[2]),
+                bullets
+            )
             for (line, text) in labelled
-                @error("$label bullet is a bold feature label rather than " *
-                       "a motivation sentence (#292)", line, text)
+                @error(
+                    "$label bullet is a bold feature label rather than " *
+                        "a motivation sentence (#292)", line, text
+                )
             end
             @test isempty(labelled)
         end
@@ -1048,8 +1096,10 @@ function test_readme_bullets(path::AbstractString;
                     push!(multi, (i, length(sentences), text))
             end
             for (line, sentences, text) in multi
-                @error("$label bullet runs to more than one sentence (#292)",
-                    line, sentences, text)
+                @error(
+                    "$label bullet runs to more than one sentence (#292)",
+                    line, sentences, text
+                )
             end
             @test isempty(multi)
         end
@@ -1086,8 +1136,8 @@ function dynamicppl_model_filter(report)
     length(params) >= 3 || return true
     is_model = _typename_is(params[2], "Model")
     is_vi = _typename_is(params[3], "AbstractVarInfo") ||
-            _typename_is(params[3], "VarInfo") ||
-            _occurs_varinfo(params[3])
+        _typename_is(params[3], "VarInfo") ||
+        _occurs_varinfo(params[3])
     # Drop (return false) only when both the model and varinfo positions match.
     return !(is_model && is_vi)
 end
@@ -1130,13 +1180,17 @@ the whole check. For a DynamicPPL `@model` package, pass
 By default JET is skipped on experimental / pre-release Julia (and when
 `JULIA_CI_EXPERIMENTAL=true`), where JET often lags the compiler.
 """
-function test_jet(mod::Module; target_modules = (mod,),
+function test_jet(
+        mod::Module; target_modules = (mod,),
         env::Union{Nothing, AbstractString} = nothing,
         skip_experimental::Bool = true,
-        report_filter::Union{Nothing, Function} = nothing)
+        report_filter::Union{Nothing, Function} = nothing
+    )
     return @testset "JET: $(nameof(mod))" begin
-        if skip_experimental && (VERSION >= v"1.13-" ||
-            get(ENV, "JULIA_CI_EXPERIMENTAL", "false") == "true")
+        if skip_experimental && (
+                VERSION >= v"1.13-" ||
+                    get(ENV, "JULIA_CI_EXPERIMENTAL", "false") == "true"
+            )
             @test_skip "JET skipped on experimental Julia"
             return nothing
         end
@@ -1144,17 +1198,22 @@ function test_jet(mod::Module; target_modules = (mod,),
             # See `test_aqua` for why this goes through `invokelatest`.
             JET = _require_pkg("c3a54625-cd67-489e-a8e7-0a5a0ff4e31b", "JET")
             if report_filter === nothing
-                Base.invokelatest(JET.test_package, mod;
-                    target_modules = target_modules)
+                Base.invokelatest(
+                    JET.test_package, mod;
+                    target_modules = target_modules
+                )
             else
-                result = Base.invokelatest(JET.report_package, mod;
-                    target_modules = target_modules)
+                result = Base.invokelatest(
+                    JET.report_package, mod;
+                    target_modules = target_modules
+                )
                 reports = Base.invokelatest(JET.get_reports, result)
                 kept = filter(report_filter, reports)
                 if !isempty(kept)
                     for r in kept
                         @info "JET report (not filtered)" report = sprint(
-                            show, r)
+                            show, r
+                        )
                     end
                 end
                 @test isempty(kept)

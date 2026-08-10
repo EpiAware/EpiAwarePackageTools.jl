@@ -72,7 +72,7 @@ module EpiAwarePackageTools
 using Test: @testset, @test, @test_skip, @test_broken, detect_ambiguities
 using Markdown: Markdown
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF,
-                           TYPEDFIELDS, TYPEDSIGNATURES
+    TYPEDFIELDS, TYPEDSIGNATURES
 import Dates
 import Random
 import UUIDs
@@ -95,7 +95,7 @@ import Test
 # every call must go through `Base.invokelatest` — documented once here
 # rather than restated at each call site.
 function _require_pkg(uuid::AbstractString, name::AbstractString)
-    Base.require(Base.PkgId(Base.UUID(uuid), name))
+    return Base.require(Base.PkgId(Base.UUID(uuid), name))
 end
 
 # Register the standard EpiAware docstring conventions before any
@@ -115,7 +115,7 @@ include("docs_build.jl")
 export test_aqua, test_jet, test_explicit_imports, test_import_centralisation
 export dynamicppl_model_filter
 export test_docstring_format, test_ext_ambiguities, test_doctest,
-       test_formatting, test_linting
+    test_formatting, test_linting
 export test_readme_sections, STANDARD_README_SECTIONS, MANAGED_README_SECTIONS
 export STALE_README_HEADINGS, BANNED_README_WORDS
 export test_readme_placeholders, test_readme_prose, test_readme_bullets

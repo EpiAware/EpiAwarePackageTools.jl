@@ -10,12 +10,16 @@
     using EpiAwarePackageTools: _detect_benchmarks, update
 
     # A minimal package root so placeholder substitution has values to resolve.
-    function _fake_pkg(dir; name = "FakePkg",
-            authors = "[\"Ada Lovelace\", \"FakeOrg contributors\"]")
-        write(joinpath(dir, "Project.toml"),
+    function _fake_pkg(
+            dir; name = "FakePkg",
+            authors = "[\"Ada Lovelace\", \"FakeOrg contributors\"]"
+        )
+        write(
+            joinpath(dir, "Project.toml"),
             "name = \"$name\"\n" *
-            "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
-            "authors = $authors\n")
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = $authors\n"
+        )
         return dir
     end
 
@@ -27,7 +31,8 @@
         "benchmark/compare.jl",
         "benchmark/Project.toml",
         "benchmark/benchmarks.jl",
-        "docs/benchmarks.md"]
+        "docs/benchmarks.md",
+    ]
 
     @testset "benchmarks = false writes no benchmark files or page" begin
         mktempdir() do dir
@@ -64,7 +69,8 @@
             pages = read(joinpath(dir, "docs/pages.jl"), String)
             @test occursin(
                 "\"Performance over time\" => \"benchmarks/over-time.md\"",
-                pages)
+                pages
+            )
             cfg = read(joinpath(dir, "docs/docs_config.jl"), String)
             @test occursin("const BENCHMARK_PAGE = true", cfg)
         end
@@ -98,8 +104,12 @@
             update(dir)
             update(dir)
             @test isfile(joinpath(dir, ".github/workflows/benchmark.yaml"))
-            @test isfile(joinpath(dir,
-                ".github/workflows/benchmark-history.yaml"))
+            @test isfile(
+                joinpath(
+                    dir,
+                    ".github/workflows/benchmark-history.yaml"
+                )
+            )
             @test isfile(joinpath(dir, "benchmark/benchmarks.jl"))
         end
     end
@@ -118,15 +128,23 @@
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir; benchmarks = true)
-            sync = read(joinpath(dir,
-                    ".github/workflows/template-sync.yaml"), String)
+            sync = read(
+                joinpath(
+                    dir,
+                    ".github/workflows/template-sync.yaml"
+                ), String
+            )
             @test occursin("benchmarks = true", sync)
         end
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir; benchmarks = false)
-            sync = read(joinpath(dir,
-                    ".github/workflows/template-sync.yaml"), String)
+            sync = read(
+                joinpath(
+                    dir,
+                    ".github/workflows/template-sync.yaml"
+                ), String
+            )
             @test occursin("benchmarks = false", sync)
         end
     end
@@ -143,13 +161,15 @@
                 "Home" => "index.md",
                 "API reference" => [
                     "Public API" => "lib/public.md",
-                    "Internal API" => "lib/internals.md"
+                    "Internal API" => "lib/internals.md",
                 ],
-                "Benchmarks" => "benchmarks/over-time.md"]
+                "Benchmarks" => "benchmarks/over-time.md",
+            ]
             out = strip(pages, src)
             @test length(out) == 2
             @test !any(
-                e -> e isa Pair && e.second == "benchmarks/over-time.md", out)
+                e -> e isa Pair && e.second == "benchmarks/over-time.md", out
+            )
             # A non-benchmark tree is returned unchanged in shape.
             @test out[1] == ("Home" => "index.md")
         end
@@ -166,14 +186,17 @@
                 "Home" => "index.md",
                 "Benchmarks" => [
                     "Performance over time" => "benchmarks/over-time.md",
-                    "AD comparison" => "benchmarks/ad-comparison.md"
-                ]]
+                    "AD comparison" => "benchmarks/ad-comparison.md",
+                ],
+            ]
             out = strip(pages, src)
             @test length(out) == 2
-            @test out[2] == ("Benchmarks" => [
-                "Performance over time" => "benchmarks/over-time.md",
-                "AD comparison" => "benchmarks/ad-comparison.md"
-            ])
+            @test out[2] == (
+                "Benchmarks" => [
+                    "Performance over time" => "benchmarks/over-time.md",
+                    "AD comparison" => "benchmarks/ad-comparison.md",
+                ]
+            )
         end
     end
 
@@ -185,8 +208,9 @@
             pages = [
                 "Home" => "index.md",
                 "Benchmarks" => [
-                    "Performance over time" => "benchmarks/over-time.md"
-                ]]
+                    "Performance over time" => "benchmarks/over-time.md",
+                ],
+            ]
             out = strip(pages, src)
             @test length(out) == 1
             @test out[1] == ("Home" => "index.md")
@@ -208,18 +232,24 @@
             write(joinpath(bdir, "over-time.md"), "x")
             # The flat pre-#305 shape.
             flat = strip(
-                ["Home" => "index.md", "Benchmarks" => "benchmarks.md"], src)
+                ["Home" => "index.md", "Benchmarks" => "benchmarks.md"], src
+            )
             @test flat == ["Home" => "index.md"]
             # And the same stale target inside a group, alongside a sibling
             # whose page does exist.
             grouped = strip(
-                ["Home" => "index.md",
+                [
+                    "Home" => "index.md",
                     "Benchmarks" => [
                         "Performance over time" => "benchmarks.md",
-                        "AD comparison" => "benchmarks/over-time.md"
-                    ]], src)
-            @test grouped[2] == ("Benchmarks" =>
-                ["AD comparison" => "benchmarks/over-time.md"])
+                        "AD comparison" => "benchmarks/over-time.md",
+                    ],
+                ], src
+            )
+            @test grouped[2] == (
+                "Benchmarks" =>
+                    ["AD comparison" => "benchmarks/over-time.md"]
+            )
         end
         # A package that genuinely still writes `src/benchmarks.md` keeps it:
         # the judgement is the page on disk, never the path's shape.
@@ -248,11 +278,14 @@
                 "Home" => "index.md",
                 "Benchmarks" => [
                     "Performance over time" => "benchmarks/over-time.md",
-                    "AD comparison" => "benchmarks/ad-comparison.md"
-                ]]
+                    "AD comparison" => "benchmarks/ad-comparison.md",
+                ],
+            ]
             out = strip(pages, src)
-            @test out[2] == ("Benchmarks" =>
-                ["Performance over time" => "benchmarks/over-time.md"])
+            @test out[2] == (
+                "Benchmarks" =>
+                    ["Performance over time" => "benchmarks/over-time.md"]
+            )
         end
         # And the reverse: `docs_config.jl` was fixed (the page renders)
         # but `pages.jl` was never given the nav entry at all -- nothing to
@@ -275,8 +308,10 @@
 
             # Park the workflow (as an unregistered adopter does): drop the
             # push/tags triggers, keeping only workflow_dispatch.
-            parked = replace(txt,
-                r"on:\n.*?\n  workflow_dispatch:"s => "on:\n  workflow_dispatch:")
+            parked = replace(
+                txt,
+                r"on:\n.*?\n  workflow_dispatch:"s => "on:\n  workflow_dispatch:"
+            )
             write(wf, parked)
             @test _detect_benchmark_history_parked(dir)
 

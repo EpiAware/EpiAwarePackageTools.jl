@@ -49,7 +49,7 @@ const LINKCHECK_IGNORE = Regex[]
 const INDEX_REWRITES = Pair{String, String}[
     "[Getting started](https://epiawarepackagetools.epiaware.org/stable/getting-started/)" => "[Getting started](@ref getting-started)",
     "[Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure/)" => "[Infrastructure and template sync](@ref infrastructure)",
-    "[Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)" => "[Public API](@ref public-api)"
+    "[Public API](https://epiawarepackagetools.epiaware.org/stable/lib/public/)" => "[Public API](@ref public-api)",
 ]
 
 # The kit's README uses illustrative code (placeholder package names like

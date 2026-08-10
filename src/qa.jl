@@ -21,8 +21,10 @@ fails with `UndefVarError: <mod> not defined in Main`. To make the standard
 """
 function test_doctest(mod::Module)
     # See `test_aqua` for why this goes through `invokelatest`.
-    Documenter = _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4",
-        "Documenter")
+    Documenter = _require_pkg(
+        "e30172f5-a6a5-5a46-863b-614d45cd2de4",
+        "Documenter"
+    )
     # Bind `mod` into `Main` so `@meta CurrentModule` resolves under a
     # TestItemRunner sandbox; set only when absent so a real binding is
     # never clobbered.
@@ -61,8 +63,10 @@ that configuration).
 
 The formatting standard is in [Package standards](@ref standards).
 """
-function test_formatting(dirs; verbose::Bool = true,
-        env::Union{Nothing, AbstractString} = nothing)
+function test_formatting(
+        dirs; verbose::Bool = true,
+        env::Union{Nothing, AbstractString} = nothing
+    )
     env === nothing || return _test_formatting_env(env)
     # See `test_aqua` for why this goes through `invokelatest`.
     Runic = _require_pkg("62bfec6d-59d7-401d-8490-b29ee721c001", "Runic")
@@ -95,8 +99,10 @@ function test_formatting(mod::Module; kwargs...)
     src = pathof(mod)
     src === nothing && error("module $(nameof(mod)) has no source path")
     root = dirname(dirname(src))
-    dirs = [joinpath(root, d)
-            for d in ("src", "test", "docs", "benchmark", "ext")]
+    dirs = [
+        joinpath(root, d)
+            for d in ("src", "test", "docs", "benchmark", "ext")
+    ]
     return test_formatting(dirs; kwargs...)
 end
 
@@ -202,8 +208,8 @@ function _method_args(obj)
             for arg in (length(names) > 1 ? names[2:end] : Symbol[])
                 s = string(arg)
                 if arg != Symbol("#unused#") && !startswith(s, "#") &&
-                   !startswith(s, "var\"") && arg != Symbol("") &&
-                   !occursin("##", s) && length(s) > 1
+                        !startswith(s, "var\"") && arg != Symbol("") &&
+                        !occursin("##", s) && length(s) > 1
                     push!(args, arg)
                 end
             end
@@ -248,9 +254,11 @@ matching the original package-level check.
 The documentation standard this check enforces is
 [Package standards](@ref standards).
 """
-function test_docstring_format(mod::Module; exported_only_examples::Bool = true,
+function test_docstring_format(
+        mod::Module; exported_only_examples::Bool = true,
         require_field_docs::Bool = true, require_arg_sections::Bool = true,
-        require_examples::Bool = true, crossref_ignore::Tuple = ())
+        require_examples::Bool = true, crossref_ignore::Tuple = ()
+    )
     syms = names(mod)
     types = [s for s in syms if _is_type(mod, s)]
     funcs = [s for s in syms if !_is_type(mod, s)]
@@ -263,8 +271,10 @@ function test_docstring_format(mod::Module; exported_only_examples::Bool = true,
         end
         @testset "functions" begin
             for name in funcs
-                _check_func_docstring(mod, name; exported_only_examples,
-                    require_arg_sections, require_examples)
+                _check_func_docstring(
+                    mod, name; exported_only_examples,
+                    require_arg_sections, require_examples
+                )
             end
         end
         @testset "cross-references" begin
@@ -280,7 +290,7 @@ function _meaningful(doc::AbstractString, name::Symbol)
 end
 
 function _check_type_docstring(mod, name; require_field_docs)
-    @testset "$name" begin
+    return @testset "$name" begin
         obj = try
             getfield(mod, name)
         catch
@@ -308,9 +318,11 @@ function _check_type_docstring(mod, name; require_field_docs)
     end
 end
 
-function _check_func_docstring(mod, name; exported_only_examples,
-        require_arg_sections, require_examples)
-    @testset "$name" begin
+function _check_func_docstring(
+        mod, name; exported_only_examples,
+        require_arg_sections, require_examples
+    )
+    return @testset "$name" begin
         obj = try
             getfield(mod, name)
         catch
@@ -347,7 +359,7 @@ function _check_crossrefs(mod, allnames, ignore)
         end
     end
     # The cross-reference check is advisory (warnings), so it always passes.
-    @test true
+    return @test true
 end
 
 # --- extension ambiguities --------------------------------------------------
@@ -387,14 +399,17 @@ extension modules are named `<Package>...Ext`); pass extra prefixes for trigger
 packages whose methods participate in a legitimate pair (e.g.
 `("MyPkg", "Distributions")`).
 """
-function on_surface_ambiguities(mod::Module, extname::Symbol;
-        prefixes = (string(nameof(mod)),))
+function on_surface_ambiguities(
+        mod::Module, extname::Symbol;
+        prefixes = (string(nameof(mod)),)
+    )
     ext = Base.get_extension(mod, extname)
     ext === nothing && error("extension $extname is not loaded")
     pre = collect(String, prefixes)
     amb = detect_ambiguities(mod, ext; recursive = false)
     return filter(
-        p -> _on_surface(p[1], pre) && _on_surface(p[2], pre), amb)
+        p -> _on_surface(p[1], pre) && _on_surface(p[2], pre), amb
+    )
 end
 
 """
@@ -419,9 +434,11 @@ the extension's trigger package(s) before calling so the extension is loaded.
     quarantining a known, issue-tracked extension-only ambiguity without
     silencing it; the test flips green when the bug is fixed.
 """
-function test_ext_ambiguities(mod::Module, extname::Symbol;
+function test_ext_ambiguities(
+        mod::Module, extname::Symbol;
         prefixes = (string(nameof(mod)),), expect_phantoms::Bool = false,
-        broken::Bool = false)
+        broken::Bool = false
+    )
     return @testset "ext ambiguities: $extname" begin
         expect_phantoms && @test raw_ambiguity_count(mod, extname) > 0
         amb = on_surface_ambiguities(mod, extname; prefixes = prefixes)
