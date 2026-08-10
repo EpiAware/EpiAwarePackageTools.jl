@@ -288,14 +288,15 @@
                 @test occursin("ad-forwarddiff", cov)
                 @test occursin("carryforward", cov)
                 # The ad=true codecov gates status until every flag upload lands
-                # (unit + six AD backends = seven), parameterised by backend count.
-                @test occursin("after_n_builds: 7", cov)
+                # (unit + seven AD backends = eight), parameterised by backend
+                # count.
+                @test occursin("after_n_builds: 8", cov)
                 @test occursin("wait_for_ci: true", cov)
                 @test occursin("target: auto", cov)
                 @test !occursin("{{", cov)
                 adyaml = read(_dest(dir, ".github/workflows/ad.yaml"), String)
                 @test occursin("EpiAware/.github/.github/workflows/ad.yml", adyaml)
-                # Docs-only changes skip the heavy 6-backend AD sweep on both
+                # Docs-only changes skip the heavy 7-backend AD sweep on both
                 # push and pull_request (a mixed docs+src PR still runs it).
                 @test count("paths-ignore:", adyaml) == 2
                 @test occursin("'docs/**'", adyaml)
@@ -1437,19 +1438,28 @@
             end
         end
 
-        @testset "ext is flagged under `unit` only (#180)" begin
+        @testset "ext is flagged under `unit` and enzyme AD flags (#180, #386)" begin
             # AD jobs run without the weakdeps loaded, so an `ext` path under
-            # an `ad-*` flag reports 0% and drags the aggregate down; only the
-            # unit job (which loads them) may claim extension coverage.
-            for ad in (true, false)
-                mktempdir() do dir
-                    _fake_pkg(dir; name = "Wombat")
-                    scaffold(dir; ad = ad)
-                    cov = read(joinpath(dir, "codecov.yml"), String)
-                    @test count("      - ext", cov) == 1
-                    unit = split(cov, "  unit:")[2]
-                    @test occursin("- ext", split(unit, "carryforward")[1])
-                end
+            # an `ad-*` flag reports 0% and drags the aggregate down; the
+            # unit job (which loads them) may claim extension coverage. The
+            # two Enzyme AD jobs are the exception: an Enzyme rule-file
+            # extension only ever loads there, so they claim `ext` too.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = true)
+                cov = read(joinpath(dir, "codecov.yml"), String)
+                @test count("      - ext", cov) == 3
+                unit = split(cov, "  unit:")[2]
+                @test occursin("- ext", split(unit, "carryforward")[1])
+            end
+
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                cov = read(joinpath(dir, "codecov.yml"), String)
+                @test count("      - ext", cov) == 1
+                unit = split(cov, "  unit:")[2]
+                @test occursin("- ext", split(unit, "carryforward")[1])
             end
         end
 
@@ -2190,6 +2200,54 @@
                     String
                 )
                 @test count(r"(?m)^@testitem", scenarios) == n
+            end
+
+            @testset "reversediff compiled family tag (#386)" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "NumericRD")
+                    scaffold(dir)
+                    scenarios = read(
+                        _dest(dir, "test/ad/scenarios.jl"), String
+                    )
+                    # The compiled variant carries only its own tag: no
+                    # bare `:reversediff` family tag, since that would
+                    # collide with the tape entry's own standalone tag and
+                    # filtering by `:reversediff` would silently also
+                    # select the compiled backend.
+                    @test occursin(
+                        "tags = [:ad, :reversediff_compiled]", scenarios
+                    )
+                    @test !occursin(
+                        "tags = [:ad, :reversediff, :reversediff_compiled]",
+                        scenarios
+                    )
+                    # The tape entry is unaffected.
+                    @test occursin("tags = [:ad, :reversediff]", scenarios)
+                end
+            end
+
+            @testset "enzyme codecov flags claim ext (#386)" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "NumericEnzyme")
+                    scaffold(dir)
+                    cov = read(joinpath(dir, "codecov.yml"), String)
+                    blocks = split(cov, r"(?=^  ad-)"m)
+                    tested = String[]
+                    for block in blocks
+                        m = match(r"^  (ad-\S+):", block)
+                        m === nothing && continue
+                        flag = m.captures[1]
+                        push!(tested, flag)
+                        has_ext = occursin("- ext", block)
+                        if flag in ("ad-enzyme-forward", "ad-enzyme-reverse")
+                            @test has_ext
+                        else
+                            @test !has_ext
+                        end
+                    end
+                    @test "ad-enzyme-forward" in tested
+                    @test "ad-enzyme-reverse" in tested
+                end
             end
 
             @testset "round-trip: adding a 7th backend" begin

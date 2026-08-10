@@ -13,7 +13,7 @@ name: AD
 on:
   push:
     branches: [main]
-    # Skip the heavy 6-backend sweep only for changes that cannot alter a
+    # Skip the heavy 7-backend sweep only for changes that cannot alter a
     # gradient result (prose docs, markdown); everything else — src/, ext/,
     # test/, Project.toml, benchmark/, the workflow itself — still triggers
     # it. Only skips when EVERY changed file matches.

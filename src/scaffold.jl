@@ -1465,6 +1465,11 @@ const _AD_BACKENDS = [
         slug = "ad-reversediff", tag = "reversediff", pkg = "ReverseDiff",
     ),
     (
+        alt = "ReverseDiff compiled", header = "ReverseDiff (compiled)",
+        slug = "ad-reversediff-compiled", tag = "reversediff_compiled",
+        pkg = "ReverseDiff",
+    ),
+    (
         alt = "Enzyme forward", header = "Enzyme forward",
         slug = "ad-enzyme-forward", tag = "enzyme_forward", pkg = "Enzyme",
     ),
@@ -1487,17 +1492,21 @@ const _AD_BACKENDS = [
 # The managed `codecov.yml` `flags:` entries for every AD backend, generated
 # from `_AD_BACKENDS` so the list can never drift from `AD_BUILD_COUNT`.
 #
-# `src` only: an AD job runs without the package's weakdeps loaded, so no
-# extension file executes under an `ad-*` flag. Listing `ext` made every AD
-# upload report the extension at 0%, redding codecov/patch even when the unit
-# suite covered it fully (#180). `ext` belongs to the `unit` flag alone.
+# `src` only, except for the Enzyme backends: most AD jobs run without the
+# package's weakdeps loaded, so no extension file executes under an `ad-*`
+# flag. Listing `ext` there made every AD upload report the extension at 0%,
+# redding codecov/patch even when the unit suite covered it fully (#180). But
+# an Enzyme rule-file extension only ever loads under the two Enzyme AD jobs,
+# so those two flags claim `ext` too, or that file is stuck at 0% forever.
 function _ad_codecov_flags()
-    blocks = [
+    blocks = map(_AD_BACKENDS) do b
+        paths = b.pkg == "Enzyme" ? "      - src\n      - ext\n" :
+            "      - src\n"
         string(
-                "  ", b.slug, ":\n", "    paths:\n", "      - src\n",
-                "    carryforward: true"
-            ) for b in _AD_BACKENDS
-    ]
+            "  ", b.slug, ":\n", "    paths:\n", paths,
+            "    carryforward: true"
+        )
+    end
     return join(blocks, "\n")
 end
 
@@ -1531,6 +1540,7 @@ end
 const _AD_BACKEND_CTORS = Dict(
     "forwarddiff" => "AutoForwardDiff()",
     "reversediff" => "AutoReverseDiff(compile = false)",
+    "reversediff_compiled" => "AutoReverseDiff(compile = true)",
     "enzyme_forward" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Forward))",
     "enzyme_reverse" => "AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))",
     "mooncake_reverse" => "AutoMooncake(config = nothing)",
@@ -1554,10 +1564,17 @@ end
 
 # The family tag shared by a backend's forward/reverse variants (e.g.
 # `:enzyme` for `enzyme_forward`/`enzyme_reverse`), or `nothing` when the
-# backend's `tag` has no such split (`forwarddiff`, `reversediff`).
+# backend's `tag` has no such split (`forwarddiff`, `reversediff`) or when
+# the derived family would collide with another backend's own standalone
+# tag (`reversediff_compiled` would derive `reversediff`, already the tape
+# entry's tag, so filtering by `:reversediff` would silently also select
+# the compiled variant).
 function _ad_scenario_family(tag::AbstractString)
     parts = split(tag, '_')
-    return length(parts) > 1 ? first(parts) : nothing
+    length(parts) <= 1 && return nothing
+    family = first(parts)
+    any(b -> b.tag == family, _AD_BACKENDS) && return nothing
+    return family
 end
 
 # The scaffolded `test/ad/scenarios.jl` starter `@testitem` blocks, one per
