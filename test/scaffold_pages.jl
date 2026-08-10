@@ -68,7 +68,7 @@
             @test occursin(
                 "\"Overview\" => \"getting-started/index.md\",\n" *
                     "        \"Fitting a Wombat\" => " *
-                    "\"getting-started/tutorials/fitting.md\"\n    ],", pgs
+                    "\"getting-started/tutorials/fitting.md\",\n    ],", pgs
             )
         end
     end
@@ -87,7 +87,7 @@
             pgs = read(_dest(dir, "docs/pages.jl"), String)
             @test occursin(
                 "\"Overview\" => \"getting-started/index.md\",\n" *
-                    "        \"FAQ\" => \"getting-started/faq.md\"\n    ],", pgs
+                    "        \"FAQ\" => \"getting-started/faq.md\",\n    ],", pgs
             )
         end
     end
@@ -202,7 +202,11 @@
     @testset "a bespoke pages.jl is preserved; warning names the lost groups" begin
         mktempdir() do dir
             _fake_pkg(dir; name = "EpiAwareADTools")
-            scaffold(dir)
+            # `ad = false, benchmarks = false` keeps `_benchmarks_nav_gap`
+            # from also firing on this bespoke file (it has no "Benchmarks"
+            # group at all) -- unrelated to what this test is about, the
+            # groups-at-risk warning below.
+            scaffold(dir; ad = false, benchmarks = false)
             # A realistic bespoke file predating this redesign: no
             # `_MANAGED_PAGES_MARKER`, and a "Tools" group (real content, in
             # the shape EpiAwareADTools.jl's actual pages.jl carries) the
@@ -237,7 +241,7 @@
             """
             pgs = _dest(dir, "docs/pages.jl")
             write(pgs, bespoke)
-            res = update(dir)
+            res = update(dir; ad = false, benchmarks = false)
             @test res.pages == :preserved
             # Untouched, byte for byte.
             @test read(pgs, String) == bespoke
@@ -253,7 +257,7 @@
 
             # A further sync leaves it preserved too -- `force` does not
             # reach it either, unlike every other package-owned skeleton.
-            res2 = scaffold(dir; force = true)
+            res2 = scaffold(dir; force = true, ad = false, benchmarks = false)
             @test res2.pages == :preserved
             @test read(pgs, String) == bespoke
         end

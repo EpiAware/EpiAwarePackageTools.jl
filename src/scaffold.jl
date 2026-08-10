@@ -1683,8 +1683,9 @@ end
 # A package that ships `[extensions]` gets an "Extensions" nav group, one entry
 # per extension, each pointing at a package-owned page under
 # `docs/src/extensions/`. The nav block is rendered into `docs/pages.jl` on
-# every `scaffold`/`update` (`_apply_pages`) and `DocsBuild._strip_extensions_nav`
-# keeps the built site honest when a page named there no longer exists (#319).
+# every `scaffold`/`update` (`_apply_pages`), and
+# `DocsBuild._strip_extensions_nav` keeps the built site honest when a page
+# named there no longer exists (#319).
 #
 # Detected from the target's Project.toml, not gated by a kwarg: an extension
 # is a fact about the package, unlike the benchmark and AD opt-ins.
@@ -2153,13 +2154,23 @@ function _read_docs_config(target_dir::AbstractString)
     return mod
 end
 
+# A module built by `include_string` inside the very call that reads it back
+# (as `_read_docs_config`/`_pages_group_labels` do) defines its bindings in a
+# world newer than the calling frame's, and Julia 1.12 world-age-guards a
+# global binding the same way it already guarded method dispatch -- both
+# `isdefined` and `getfield` must run through `Base.invokelatest`, or the read
+# warns now and errors on a future Julia. Shared by `_docs_cfg` below and
+# `_pages_group_labels`.
+_get_binding(mod::Module, sym::Symbol, default) =
+    isdefined(mod, sym) ? getfield(mod, sym) : default
+
 # The same isdefined-or-default fallback `make.jl`'s own `_cfg` applies at
 # docs-build time, applied here at scaffold/update time instead: `mod` is
 # `nothing` (no docs_config.jl, or it failed to evaluate) or lacks `sym` (a
 # file written before this constant existed) both default quietly.
 function _docs_cfg(mod, sym::Symbol, default)
-    return mod !== nothing && isdefined(mod, sym) ?
-        getfield(mod, sym) : default
+    return mod === nothing ? default :
+        Base.invokelatest(_get_binding, mod, sym, default)
 end
 
 # Render an arbitrary nav value -- a page path, or a nested vector of
@@ -2257,8 +2268,7 @@ function _pages_group_labels(text::AbstractString)
     catch
         return nothing
     end
-    isdefined(mod, :pages) || return nothing
-    val = getfield(mod, :pages)
+    val = Base.invokelatest(_get_binding, mod, :pages, nothing)
     val isa AbstractVector || return nothing
     return String[String(e.first) for e in val if e isa Pair]
 end
