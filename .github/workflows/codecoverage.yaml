@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   coverage:
-    uses: EpiAware/.github/.github/workflows/coverage.yml@e659eac9ee63ae138bf28c64e1c4884c4396ac04
+    uses: EpiAware/.github/.github/workflows/coverage.yml@11263ddd07f3d88c54a6245828a81d10a83fcb29
     with:
       julia_version: '1'
       # Hard-fail the coverage check on an upload error: a repo with no
