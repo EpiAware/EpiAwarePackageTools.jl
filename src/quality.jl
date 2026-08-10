@@ -16,7 +16,7 @@ end
 
 # Instantiate `env` (already `_validate_isolated_env`-checked) and run
 # `runner` in a subprocess, returning whether it exited zero. Isolates a
-# heavy QA dependency (JET / JuliaFormatter) from the test environment (#58);
+# heavy QA dependency (JET / Runic) from the test environment (#58);
 # callers wrap the result in their own labelled @testset/@test.
 function _run_isolated_env(env::AbstractString, runner::AbstractString)
     Pkg = _require_pkg("44cfe95a-1eb2-52ea-b672-e2afdf69b78f", "Pkg")

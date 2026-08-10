@@ -62,7 +62,7 @@ updates:
   # Dependabot run.
   #
   # Kept as its own entry, and its own group, so these land in a separate PR
-  # from the workspace bumps. That is the point: a JET or JuliaFormatter minor
+  # from the workspace bumps. That is the point: a JET or Runic minor
   # is a breaking bump under 0.x semver and wants reviewing on its own, not
   # bundled into a grouped PR alongside routine workspace updates.
   - package-ecosystem: "julia"

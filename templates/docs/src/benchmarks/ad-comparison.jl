@@ -78,13 +78,15 @@ scenario_list = ADFixtures.scenarios()
 ## The registry's optional bookkeeping accessors (see the ADRegistry
 ## contract): a missing accessor means no broken or skipped scenarios.
 function _optional(name, default)
-    isdefined(ADFixtures, name) ? getfield(ADFixtures, name)() : default
+    return isdefined(ADFixtures, name) ? getfield(ADFixtures, name)() : default
 end
 global_broken = Set(String.(_optional(:broken_scenario_names, String[])))
 backend_broken = _optional(
-    :backend_broken_scenarios, Dict{String, Set{String}}())
+    :backend_broken_scenarios, Dict{String, Set{String}}()
+)
 backend_skip = _optional(
-    :backend_skip_scenarios, Dict{String, Set{String}}());
+    :backend_skip_scenarios, Dict{String, Set{String}}()
+);
 
 md"""
 ```@raw html
@@ -129,15 +131,20 @@ md"""
 """
 
 bench_parts = map(backend_entries) do entry
-    excluded = union(global_broken,
+    excluded = union(
+        global_broken,
         get(backend_broken, entry.name, Set{String}()),
-        get(backend_skip, entry.name, Set{String}()))
+        get(backend_skip, entry.name, Set{String}())
+    )
     scens = filter(s -> !(s.name in excluded), scenario_list)
-    part = DataFrame(DIT.benchmark_differentiation(
-        [entry.backend], scens;
-        logging = false,
-        benchmark_test = false,
-        benchmark_seconds = 0.5))
+    part = DataFrame(
+        DIT.benchmark_differentiation(
+            [entry.backend], scens;
+            logging = false,
+            benchmark_test = false,
+            benchmark_seconds = 0.5
+        )
+    )
     ## Label rows with the registry's backend name, which distinguishes
     ## configurations (e.g. Enzyme forward vs reverse) that share a package.
     part[!, :backend_label] .= entry.name
@@ -150,7 +157,7 @@ bench_long = @chain raw_bench begin
     @rtransform begin
         :backend = :backend_label
         :scenario = :scenario.name
-        :time_us = :time * 1e6
+        :time_us = :time * 1.0e6
         :bytes_kb = :bytes / 1024
     end
     @rsubset isfinite(:time_us) && isfinite(:bytes_kb)
@@ -160,11 +167,11 @@ end;
 ## The baseline every cost is divided by: ForwardDiff when the registry has
 ## it (the org standard), otherwise the registry's first backend.
 baseline = any(e -> e.name == "ForwardDiff", backend_entries) ?
-           "ForwardDiff" : first(backend_entries).name
+    "ForwardDiff" : first(backend_entries).name
 
 ref = @chain bench_long begin
     @rsubset :backend == baseline
-    @select :scenario :ref_time=:time_us :ref_bytes=:bytes_kb
+    @select :scenario :ref_time = :time_us :ref_bytes = :bytes_kb
 end
 
 rel = @chain bench_long begin
@@ -180,7 +187,7 @@ end;
 ## scenario sending `log` to -Inf.
 function geomean(x)
     pos = filter(>(0), x)
-    isempty(pos) ? NaN : exp(mean(log.(pos)))
+    return isempty(pos) ? NaN : exp(mean(log.(pos)))
 end
 
 n_total = length(scenario_list)
@@ -196,7 +203,8 @@ summary_table = @chain rel begin
         :backend => "Backend",
         :rel_time => "Relative time",
         :rel_bytes => "Relative allocations",
-        :scenarios => "Scenarios")
+        :scenarios => "Scenarios"
+    )
 end;
 
 md"""
@@ -222,15 +230,17 @@ md"""
 """
 
 plot_df = @chain rel begin
-    stack([:rel_time, :rel_bytes],
-        variable_name = :metric, value_name = :value)
+    stack(
+        [:rel_time, :rel_bytes],
+        variable_name = :metric, value_name = :value
+    )
     @rsubset isfinite(:value) && :value > 0
     @rtransform begin
         :metric = :metric == "rel_time" ? "Relative time" :
-                  "Relative allocations"
+            "Relative allocations"
         :family = first(split(:backend))
         :mode = occursin("reverse", lowercase(:backend)) ? "reverse" :
-                "forward"
+            "forward"
     end
 end
 
@@ -244,12 +254,14 @@ fig_relative = Figure(size = (1200, 500))
 for (col, metric) in enumerate(metric_order)
     sub = @rsubset plot_df :metric == metric
     backend_order = sort(unique(sub.backend))
-    ax = Axis(fig_relative[1, col];
+    ax = Axis(
+        fig_relative[1, col];
         title = metric,
         ylabel = col == 1 ? "Cost relative to $baseline" : "",
         yscale = log10,
         xticks = (1:length(backend_order), backend_order),
-        xticklabelrotation = pi / 4)
+        xticklabelrotation = pi / 4
+    )
     xs = [findfirst(==(b), backend_order) for b in sub.backend]
     boxplot!(ax, xs, sub.value)
 end
@@ -286,17 +298,25 @@ marker_shapes = [:circle, :utriangle, :rect, :diamond, :star5]
 ## below) so a top-level `@example` block -- which runs each statement in
 ## global scope -- can't hit Julia's soft-scope "ambiguous assignment in a
 ## for loop" trap.
-scenario_orders = [sort(unique((@rsubset plot_df :metric == m).scenario))
-                    for m in metric_order]
+scenario_orders = [
+    sort(unique((@rsubset plot_df :metric == m).scenario))
+        for m in metric_order
+]
 fig_scenarios = Figure(size = (1600, 800))
-axes_scenarios = [Axis(fig_scenarios[1, col];
-                       title = metric_order[col],
-                       ylabel = col == 1 ? "Cost relative to $baseline" : "",
-                       yscale = log10,
-                       xticks = (1:length(scenario_orders[col]),
-                           scenario_orders[col]),
-                       xticklabelrotation = pi / 4)
-                   for col in eachindex(metric_order)]
+axes_scenarios = [
+    Axis(
+            fig_scenarios[1, col];
+            title = metric_order[col],
+            ylabel = col == 1 ? "Cost relative to $baseline" : "",
+            yscale = log10,
+            xticks = (
+                1:length(scenario_orders[col]),
+                scenario_orders[col],
+            ),
+            xticklabelrotation = pi / 4
+        )
+        for col in eachindex(metric_order)
+]
 
 for (col, metric) in enumerate(metric_order)
     sub = @rsubset plot_df :metric == metric
@@ -306,15 +326,19 @@ for (col, metric) in enumerate(metric_order)
         grp = @rsubset sub :family == fam && :mode == mode
         isempty(grp) && continue
         xs = [findfirst(==(s), scenario_order) for s in grp.scenario]
-        scatter!(ax, xs, grp.value;
+        scatter!(
+            ax, xs, grp.value;
             color = palette[mod1(fi, length(palette))],
             marker = marker_shapes[mod1(mi, length(marker_shapes))],
             markersize = 11,
-            label = "$fam ($mode)")
+            label = "$fam ($mode)"
+        )
     end
 end
-Legend(fig_scenarios[1, length(metric_order) + 1], axes_scenarios[1];
-    merge = true, unique = true, title = "Backend family / Mode");
+Legend(
+    fig_scenarios[1, length(metric_order) + 1], axes_scenarios[1];
+    merge = true, unique = true, title = "Backend family / Mode"
+);
 
 md"""
 ```@raw html

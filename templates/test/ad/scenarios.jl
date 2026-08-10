@@ -10,6 +10,6 @@
 {{AD_SCENARIO_TESTITEMS}}
 
 # Add latent (or other) scenario groups as the package needs, e.g.:
-# @testitem "ForwardDiff gradients (latent)" tags=[:ad, :forwarddiff] setup=[ADHelpers] begin
+# @testitem "ForwardDiff gradients (latent)" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
 #     test_working_backend("ForwardDiff"; category = :latent)
 # end

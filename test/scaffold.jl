@@ -150,8 +150,7 @@
                     ".github/workflows/claude.yml",
                     ".github/workflows/claude-code-review.yml",
                     ".github/dependabot.yml", ".github/CODEOWNERS",
-                    "codecov.yml", ".pre-commit-config.yaml",
-                    ".JuliaFormatter.toml", "Taskfile.yml")
+                    "codecov.yml", ".pre-commit-config.yaml", "Taskfile.yml")
                     @test occursin(hdr,
                         read(joinpath(dir, f), String))
                 end
@@ -205,19 +204,23 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "FmtPkg")
                 scaffold(dir; ad = false)
-                ver = EpiAwarePackageTools._JULIAFORMATTER_VERSION
-                # The pre-commit CI caller passes the pinned version to the
-                # shared format-check workflow (otherwise CI installs its own
-                # default and reformats code the local hook left intact).
+                ver = EpiAwarePackageTools._RUNIC_VERSION
+                prerev = EpiAwarePackageTools._RUNIC_PRE_COMMIT_REV
+                # The pre-commit CI caller passes the pinned Runic version to
+                # `runic-check.yml`, which greps the local
+                # `.pre-commit-config.yaml` for the literal string
+                # `Runic@<runic_version>` rather than installing its own.
                 pc = read(_dest(dir, ".github/workflows/pre-commit.yaml"),
                     String)
-                @test occursin("juliaformatter_version: '$ver'", pc)
+                @test occursin("runic_version: '$ver'", pc)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", pc)
-                # The local pre-commit hook `rev` and the isolated formatter
-                # env compat pin agree with the same single source.
+                # The local pre-commit hook `additional_dependencies` pin, the
+                # `runic-pre-commit` hook `rev`, and the isolated formatter
+                # env compat pin all agree with the same single sources.
                 cfg = read(joinpath(dir, ".pre-commit-config.yaml"), String)
-                @test occursin("rev: v$ver", cfg)
+                @test occursin("rev: $prerev", cfg)
+                @test occursin("additional_dependencies: ['Runic@$ver']", cfg)
                 # The merge-conflict check runs on every commit, not only
                 # mid-merge (`--assume-in-merge`), and the diff3 base marker the
                 # stock hook misses is forbidden explicitly — the two halves of
@@ -225,7 +228,7 @@
                 @test occursin("--assume-in-merge", cfg)
                 @test occursin("forbid-diff3-base-marker", cfg)
                 fmt = read(_dest(dir, "test/formatter/Project.toml"), String)
-                @test occursin("JuliaFormatter = \"=$ver\"", fmt)
+                @test occursin("Runic = \"=$ver\"", fmt)
                 @test !occursin("{{", fmt)
             end
         end
@@ -535,9 +538,9 @@
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
                 # The formatting testitem must pass the pinned formatter
-                # environment through, or JuliaFormatter resolves from the
-                # shared (unpinned) test environment and floats with the CI
-                # Julia in use rather than the exact pin (#321).
+                # environment through, or Runic resolves from the shared
+                # (unpinned) test environment and floats with the CI Julia
+                # in use rather than the exact pin (#321).
                 ql = read(_dest(dir, "test/package/quality.jl"), String)
                 @test occursin("test_formatting(QA_CONFIG.mod; env = env)", ql)
                 @test occursin("hasproperty(QA_CONFIG, :formatter_env)", ql)
@@ -552,8 +555,7 @@
                 # behaviour) rather than erroring on the missing field — but,
                 # unlike a bare `get(...)` default, it must also warn, so a
                 # typoed key does not quietly revert to the exact
-                # floating-JuliaFormatter-version failure #321 is about
-                # (#188).
+                # floating-Runic-version failure #321 is about (#188).
                 lines = split(ql, "\n")
                 i = findfirst(l -> occursin("env = if hasproperty", l), lines)
                 j = findfirst(
@@ -872,6 +874,46 @@
                 scaffold(dir)
                 txt = read(joinpath(dir, ".gitignore"), String)
                 @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+            end
+        end
+
+        @testset ".git-blame-ignore-revs is seeded with a managed header only" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                @test res.git_blame_ignore === :created
+                path = joinpath(dir, ".git-blame-ignore-revs")
+                @test isfile(path)
+                txt = read(path, String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("blame.ignoreRevsFile", txt)
+                @test occursin("# managed:start", txt)
+                @test occursin("# managed:end", txt)
+                # No SHA is seeded — that is package-owned, added on the repo's
+                # own reformat commit.
+                @test !occursin(r"^[0-9a-f]{40}$"m, txt)
+            end
+        end
+
+        @testset ".git-blame-ignore-revs SHA list survives update" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, ".git-blame-ignore-revs")
+                # A repo appends its own reformat SHA below the managed block.
+                sha = "a" ^ 40
+                write(path, read(path, String) * sha * "\n")
+                res2 = update(dir)
+                @test res2.git_blame_ignore === :refreshed
+                txt = read(path, String)
+                @test occursin(sha, txt)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                # A further no-op update changes nothing (idempotent with a
+                # package-owned SHA list present).
+                before = read(path, String)
+                res3 = update(dir)
+                @test res3.git_blame_ignore === :refreshed
+                @test read(path, String) == before
             end
         end
 
@@ -1480,7 +1522,7 @@
                 # "its own header drop down", not a bare flat link.
                 @test occursin(
                     "\"Benchmarks\" => [\n        \"AD comparison\" =>\n" *
-                    "            \"benchmarks/ad-comparison.md\"\n    ]",
+                    "            \"benchmarks/ad-comparison.md\",\n    ]",
                     arr)
                 @test !occursin("benchmarks/over-time.md", arr)
                 @test !occursin("Performance over time", arr)
@@ -1505,7 +1547,7 @@
                 arr = pgs[findfirst("pages = [", pgs)[1]:end]
                 @test occursin(
                     "\"Benchmarks\" => [\n        \"Performance over time\"" *
-                    " => \"benchmarks/over-time.md\"\n    ]", arr)
+                    " => \"benchmarks/over-time.md\",\n    ]", arr)
                 @test !occursin("ad-comparison", arr)
             end
         end
@@ -1601,11 +1643,11 @@
                 txt = read(cfg, String)
                 txt = replace(txt,
                     "const HEAVY_BENCHMARKS = String[\n" *
-                    "    \"ad-comparison.jl\"\n]" => "const HEAVY_BENCHMARKS = String[]")
+                    "    \"ad-comparison.jl\",\n]" => "const HEAVY_BENCHMARKS = String[]")
                 txt = replace(txt,
                     "const BENCHMARK_STUBS = Pair{String, String}[\n" *
                     "    \"ad-comparison.md\" => \"# [AD backend " *
-                    "comparison](@id ad-comparison)\"\n]" => "const BENCHMARK_STUBS = Pair{String, String}[]")
+                    "comparison](@id ad-comparison)\",\n]" => "const BENCHMARK_STUBS = Pair{String, String}[]")
                 write(cfg, txt)
                 local res
                 @test_logs (:warn, r"ad-comparison\.jl"i) match_mode=:any begin
@@ -1695,11 +1737,11 @@
                 txt = read(pages, String)
                 @test occursin(
                     "\"Benchmarks\" => [\n        \"AD comparison\" =>\n" *
-                    "            \"benchmarks/ad-comparison.md\"\n    ]",
+                    "            \"benchmarks/ad-comparison.md\",\n    ]",
                     txt)
                 txt = replace(txt,
                     ",\n    \"Benchmarks\" => [\n        \"AD comparison\" " *
-                    "=>\n            \"benchmarks/ad-comparison.md\"\n    ]" => "")
+                    "=>\n            \"benchmarks/ad-comparison.md\",\n    ]" => "")
                 write(pages, txt)
                 local res
                 @test_logs (:warn, r"pages\.jl"i) match_mode=:any begin
@@ -1720,7 +1762,7 @@
                 txt = read(pages, String)
                 txt = replace(txt,
                     "\"Benchmarks\" => [\n        \"Performance over time\"" *
-                    " => \"benchmarks/over-time.md\"\n    ]" => "\"Benchmarks\" => \"benchmarks.md\"")
+                    " => \"benchmarks/over-time.md\",\n    ]" => "\"Benchmarks\" => \"benchmarks.md\"")
                 write(pages, txt)
                 local res
                 @test_logs (:warn, r"pages\.jl"i) match_mode=:any begin
@@ -2913,10 +2955,10 @@
                 scaffold(dir)
                 # Simulate the read-only depot: mark an emitted managed file
                 # read-only, then resync it as a `Pkg.add`ed kit would.
-                fmt = joinpath(dir, ".JuliaFormatter.toml")
+                fmt = joinpath(dir, ".pre-commit-config.yaml")
                 chmod(fmt, 0o444)
                 update(dir)
-                for f in (".JuliaFormatter.toml", ".gitattributes",
+                for f in (".pre-commit-config.yaml", ".gitattributes",
                     ".github/workflows/test.yaml", "Taskfile.yml")
                     path = joinpath(dir, f)
                     @test isfile(path)
@@ -2929,14 +2971,15 @@
             using EpiAwarePackageTools: _DOWNGRADE_SEED_REF,
                                         _REGISTRABILITY_SEED_REF,
                                         _RELEASE_NUDGE_SEED_REF,
+                                        _RUNIC_CHECK_SEED_REF,
                                         _templates_dir
             # Every template pins the org reusables at the same seed commit, so
             # a fresh scaffold never starts life behind on some workflows and
             # current on others (#186: the seed had drifted from `.github` head
-            # on some callers and not others). Two documented exceptions post-
-            # date the shared seed and pin their own newer commit until it
+            # on some callers and not others). Three documented exceptions
+            # post-date the shared seed and pin their own newer commit until it
             # merges to `.github` main and Dependabot converges the pins:
-            # `registrability.yml` and `release-nudge.yml`.
+            # `registrability.yml`, `release-nudge.yml`, and `runic-check.yml`.
             wf = joinpath(_templates_dir(), ".github", "workflows")
             pins = String[]
             for f in readdir(wf; join = true)
@@ -2944,6 +2987,8 @@
                     _REGISTRABILITY_SEED_REF
                 elseif endswith(f, "release-nudge.yaml")
                     _RELEASE_NUDGE_SEED_REF
+                elseif endswith(f, "pre-commit.yaml")
+                    _RUNIC_CHECK_SEED_REF
                 else
                     _DOWNGRADE_SEED_REF
                 end
@@ -3774,8 +3819,8 @@ end # @testitem "scaffold + update (logic)"
             # above the floor. The current release, not the floor itself: the
             # standard's test env cannot resolve on 1.11 (JET ships nothing for
             # 1.11 past 0.9.20, and that needs JuliaSyntax 0.4, which the pinned
-            # JuliaFormatter 2.10.1 rules out), so pinning the job to the floor
-            # would only go red on a conflict unrelated to the package.
+            # Runic 1.7.0 rules out), so pinning the job to the floor would
+            # only go red on a conflict unrelated to the package.
             @test occursin("julia_version: '1'", wf)
             @test !occursin("julia_version: '1.10'", wf)
         end
@@ -3790,9 +3835,9 @@ end # @testitem "scaffold + update (logic)"
             # admits, so a lower bound that cannot resolve is not a lower bound
             # — it is a red CI job waiting to happen. JET 0.9 admits only
             # 0.9.19/0.9.20 on 1.11 and nothing at all on 1.12, and both need
-            # JuliaSyntax 0.4, which the pinned JuliaFormatter 2.10.1
-            # (JuliaSyntax 1) rules out. 0.10.2 is the lowest JET that resolves
-            # alongside it. Declaring 0.9 claimed support the standard never had.
+            # JuliaSyntax 0.4, which the pinned Runic 1.7.0 (JuliaSyntax 1)
+            # rules out. 0.10.2 is the lowest JET that resolves alongside it.
+            # Declaring 0.9 claimed support the standard never had.
             @test occursin("JET = \"0.10.2\"", compat)
             @test !occursin("JET = \"0.9", compat)
         end
@@ -4419,7 +4464,7 @@ end
         # `[workspace]` members, so the `directory: "/"` julia entry never sees
         # them and their pins drift from `test/Project.toml`'s. A separate
         # entry over `/test/*` watches them, in its own group so a JET or
-        # JuliaFormatter minor — a breaking bump under 0.x semver — is reviewed
+        # Runic minor — a breaking bump under 0.x semver — is reviewed
         # on its own rather than bundled with the workspace updates. A glob
         # because which of those directories exist is per-package.
         @test occursin("      julia-isolated:\n", dep)
@@ -4752,6 +4797,37 @@ end
             # `update` seeds no package-owned pages, and says so.
             @test isempty(res.extension_pages.created)
             @test isempty(res.extension_pages.preserved)
+        end
+    end
+end
+
+@testitem "scaffolded output is Runic-clean (#344)" begin
+    using Test
+    using EpiAwarePackageTools
+    using Runic
+
+    # `templates/` itself is excluded from formatting (#363): 7 of its 21
+    # `.jl` files carry a `{{PLACEHOLDER}}` in `using`/`import` position and
+    # are hard parse errors until substituted, so Runic (AST-based) cannot
+    # check the raw tree. Before Runic that gap was silent churn — a managed
+    # file could land in a downstream repo already unclean, and that repo had
+    # no way to fix it (JuliaFormatter.format just reformatted it locally on
+    # every run). Under Runic an unclean managed file is a hard `--check`
+    # failure in the adopter's own CI, which the adopter cannot fix (the file
+    # is regenerated by `update`) and did not cause. So the guard runs here
+    # instead: substitute every template through the real `scaffold` path,
+    # across every combination of the flags that change which templates are
+    # selected and what gets substituted into them, and Runic-check the
+    # result. Every combination must already be `.jl`-clean.
+    for ad in (true, false), benchmarks in (true, false)
+        mktempdir() do dir
+            write(joinpath(dir, "Project.toml"),
+                "name = \"FakePkg\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n")
+            scaffold(dir; ad = ad, benchmarks = benchmarks)
+            code = Runic.main(["--check", dir])
+            @test code == 0
         end
     end
 end

@@ -35,51 +35,47 @@ function test_doctest(mod::Module)
 end
 
 """
-    test_formatting(dirs; style = "sciml", verbose = true)
+    test_formatting(dirs; verbose = true)
     test_formatting(mod; ...)
 
-Check that the given source trees are JuliaFormatter-clean.
+Check that the given source trees are Runic-clean.
 
 `dirs` is a collection of directory paths; non-existent entries are skipped, and
 each existing directory is checked without modification. Passing a `Module`
-defaults to checking the `src`, `test`, `docs`, and `benchmark` directories of
-the package that owns `mod`. `style` selects the JuliaFormatter style (the
-EpiAware standard is `"sciml"`); the `.JuliaFormatter.toml` at the package root
-still takes precedence when present.
+defaults to checking the `src`, `test`, `docs`, `benchmark`, and `ext`
+directories of the package that owns `mod`. Runic is unconfigurable — there is
+one canonical style, so no `style` argument and no per-package config file.
 
-The test passes when every directory is already formatted. JuliaFormatter must
-be a dependency of the calling environment; to keep its `JuliaSyntax` pin from
+The test passes when every directory is already formatted. Runic must be a
+dependency of the calling environment; to keep its `JuliaSyntax` pin from
 clashing with JET, run this from an isolated formatter environment (see the
 `templates/Taskfile.yml` `test-formatting` target).
 
-Pass `env` (the path to an isolated formatter project directory holding
-JuliaFormatter) to run the check in a subprocess via that project's
-`runtests.jl`, exactly as [`test_jet`](@ref) isolates JET. The test then passes
-when the subprocess exits zero, and JuliaFormatter need not be a dependency of
-the calling environment — the recommended layout when the test items share an
-environment with JET. `style`/`verbose`/`dirs` are ignored in `env` mode (the
-isolated `runtests.jl` owns that configuration).
+Pass `env` (the path to an isolated formatter project directory holding Runic)
+to run the check in a subprocess via that project's `runtests.jl`, exactly as
+[`test_jet`](@ref) isolates JET. The test then passes when the subprocess exits
+zero, and Runic need not be a dependency of the calling environment — the
+recommended layout when the test items share an environment with JET.
+`verbose`/`dirs` are ignored in `env` mode (the isolated `runtests.jl` owns
+that configuration).
 
-The formatting standard, and the org style decision behind it, are in
-[Package standards](@ref standards).
+The formatting standard is in [Package standards](@ref standards).
 """
-function test_formatting(dirs; style::AbstractString = "sciml",
-        verbose::Bool = true,
+function test_formatting(dirs; verbose::Bool = true,
         env::Union{Nothing, AbstractString} = nothing)
     env === nothing || return _test_formatting_env(env)
     # See `test_aqua` for why this goes through `invokelatest`.
-    JF = _require_pkg("98e50ef6-434e-11e9-1051-2b60c6c9e899", "JuliaFormatter")
+    Runic = _require_pkg("62bfec6d-59d7-401d-8490-b29ee721c001", "Runic")
     existing = filter(isdir, collect(String, dirs))
     return @testset "formatting" begin
         if isempty(existing)
             @test_skip "no source directories found to format-check"
         else
-            sty = _formatter_style(JF, style)
-            all_ok = all(existing) do dir
-                Base.invokelatest(JF.format, dir;
-                    style = sty, verbose = verbose, overwrite = false)
-            end
-            @test all_ok
+            args = String["--check"]
+            verbose && push!(args, "--diff")
+            append!(args, existing)
+            code = Base.invokelatest(Runic.main, args)
+            @test code == 0
         end
     end
 end
@@ -95,24 +91,12 @@ function _test_formatting_env(env::AbstractString)
     end
 end
 
-# Map a style name to a JuliaFormatter style instance. A `.JuliaFormatter.toml`
-# at the package root still overrides this per directory.
-function _formatter_style(JF, style::AbstractString)
-    s = lowercase(style)
-    # `JF` is loaded at call time via `Base.require`, so its style constructors
-    # live in a newer world age; build through `invokelatest` (cf. `test_aqua`).
-    s == "sciml" && return Base.invokelatest(JF.SciMLStyle)
-    s == "blue" && return Base.invokelatest(JF.BlueStyle)
-    s == "yas" && return Base.invokelatest(JF.YASStyle)
-    s in ("default", "") && return Base.invokelatest(JF.DefaultStyle)
-    error("unknown JuliaFormatter style $style")
-end
-
 function test_formatting(mod::Module; kwargs...)
     src = pathof(mod)
     src === nothing && error("module $(nameof(mod)) has no source path")
     root = dirname(dirname(src))
-    dirs = [joinpath(root, d) for d in ("src", "test", "docs", "benchmark")]
+    dirs = [joinpath(root, d)
+            for d in ("src", "test", "docs", "benchmark", "ext")]
     return test_formatting(dirs; kwargs...)
 end
 

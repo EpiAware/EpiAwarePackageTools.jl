@@ -909,7 +909,7 @@
         end
 
         @testset "test_formatting over self" begin
-            # Check the package src tree is JuliaFormatter-clean.
+            # Check the package src tree is Runic-clean.
             root = dirname(dirname(pathof(EpiAwarePackageTools)))
             test_formatting([joinpath(root, "src")])
         end
@@ -1222,18 +1222,6 @@
                 # function returns `nothing`, not a testset.
                 @test test_jet(EpiAwarePackageTools) === nothing
             end
-        end
-
-        @testset "_formatter_style covers every named style" begin
-            JF = Base.require(Base.PkgId(
-                Base.UUID("98e50ef6-434e-11e9-1051-2b60c6c9e899"),
-                "JuliaFormatter"))
-            for style in ("sciml", "blue", "yas", "default", "", "SciML")
-                s = EpiAwarePackageTools._formatter_style(JF, style)
-                @test s !== nothing
-            end
-            @test_throws ErrorException EpiAwarePackageTools._formatter_style(
-                JF, "not-a-style")
         end
 
         @testset "_docstr_text falls back for a non-DocStr object" begin

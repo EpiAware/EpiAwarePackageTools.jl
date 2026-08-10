@@ -20,7 +20,7 @@ harness and your own tests.
 - `test/package/qa_config.jl` (package-owned) supplies the package-specific
   inputs the quality testset needs.
 - `test/jet/` and `test/formatter/` (managed runners, package-owned config) are
-  isolated environments for the JET and JuliaFormatter checks.
+  isolated environments for the JET and Runic checks.
 - `test/Project.toml` (package-owned) is the test environment, seeded with the
   dependencies the shared helpers need.
 
@@ -158,13 +158,16 @@ wrapper.
 
 ## Isolated JET and formatter environments
 
-JET and JuliaFormatter each pin their own version of JuliaSyntax, and those pins
+JET and Runic each pin their own version of JuliaSyntax, and those pins
 clash with each other and with the main test dependencies.
 The kit therefore runs each in its own environment under `test/jet/` and
 `test/formatter/`, invoked as a subprocess by the quality testset.
 
-The formatter check reports any file under `src`, `test`, `docs`, or `benchmark`
-that is not formatted, without modifying it.
+The formatter check reports any file under `src`, `test`, `docs`, `benchmark`,
+or `ext` that is not formatted, without modifying it.
+Runic is unconfigurable — there is one canonical style, so no per-package
+config file and no line-length gate; see [Package standards](@ref standards)
+for why.
 The JET runner fails on any static-analysis report by default.
 A package whose public surface is DynamicPPL `@model` functions can drop a
 package-owned `test/jet/jet_config.jl` defining a `JET_REPORT_FILTER` predicate

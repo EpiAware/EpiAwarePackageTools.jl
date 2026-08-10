@@ -13,11 +13,13 @@ concurrency:
 
 jobs:
   pre-commit:
-    uses: {{ORG}}/.github/.github/workflows/format-check.yml@6fcdcde033ec670ac3832b239427fd2ded591bbc
-    # Pin the CI formatter to the same version as the local pre-commit hook and
-    # the isolated formatter env (single source: `{{JULIAFORMATTER_VERSION}}`).
-    # Without this the shared workflow installs its own default and reformats
-    # code the pinned local formatter left intact, failing the check (#114).
+    uses: {{ORG}}/.github/.github/workflows/runic-check.yml@8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5
+    # `runic-check.yml` does not install Runic itself — pre-commit's native
+    # `language: julia` builds the hook's own env from the
+    # `.pre-commit-config.yaml` `additional_dependencies` pin. Instead it
+    # greps this repo's `.pre-commit-config.yaml` for the literal string
+    # `Runic@{{RUNIC_VERSION}}` and fails if absent, so this input and that
+    # pin must agree (single source: `{{RUNIC_VERSION}}`).
     with:
-      juliaformatter_version: '{{JULIAFORMATTER_VERSION}}'
+      runic_version: '{{RUNIC_VERSION}}'
     secrets: inherit  # pragma: allowlist secret

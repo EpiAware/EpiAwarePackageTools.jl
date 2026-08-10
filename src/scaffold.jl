@@ -51,9 +51,9 @@ const SCAFFOLD_TEMPLATES = Template[
     # AD/no-AD pair writing to the same destination.
     Template("Taskfile.yml", "Taskfile.yml", true, false, :ad_only),
     Template("Taskfile.noad.yml", "Taskfile.yml", true, false, :noad_only),
-    # Substituted for the single-source `{{JULIAFORMATTER_VERSION}}` hook `rev`.
+    # Substituted for the single-source `{{RUNIC_VERSION}}`/
+    # `{{RUNIC_PRE_COMMIT_REV}}` hook `rev`s.
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, true),
-    Template(".JuliaFormatter.toml", ".JuliaFormatter.toml", true, false),
     Template(".gitattributes", ".gitattributes", true, false),
     # NOTE: `.gitignore` is not in this list. It is managed between markers
     # (see `_apply_gitignore`) so a package's own ignore-rule additions below
@@ -153,7 +153,7 @@ const SCAFFOLD_TEMPLATES = Template[
     Template("test/jet/Project.toml", "test/jet/Project.toml", true, true),
     Template("test/formatter/runtests.jl",
         "test/formatter/runtests.jl", true, false),
-    # Substituted for the single-source `{{JULIAFORMATTER_VERSION}}` compat pin.
+    # Substituted for the single-source `{{RUNIC_VERSION}}` compat pin.
     Template("test/formatter/Project.toml",
         "test/formatter/Project.toml", true, true),
     # The AD harness drivers are opt-in (managed, but only when `ad = true`).
@@ -287,7 +287,12 @@ const SCAFFOLD_TEMPLATES = Template[
 # it must not be (or contain) a live template destination, which the scaffold
 # tests enforce. An entry may be a file or a directory.
 const RETIRED_PATHS = String[
-    "benchmark/comment"
+    "benchmark/comment",
+    # Runic is unconfigurable, so this file has no meaning under the managed
+    # standard now the formatter has moved from JuliaFormatter to Runic.
+    # Retired rather than left behind, so an adopting package converges
+    # instead of keeping a dead config file forever.
+    ".JuliaFormatter.toml"
 ]
 
 # Absolute native path of a template destination. Every `dest` is written
@@ -317,13 +322,18 @@ end
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
 
-# The single source of truth for the pinned JuliaFormatter version (#114),
-# feeding the `.pre-commit-config.yaml` hook `rev`, the
-# `test/formatter/Project.toml` compat pin, and the `juliaformatter_version`
-# input `pre-commit.yaml` passes to the shared `format-check.yml`. Without that
-# input the shared workflow installs its own older default and CI reformats
-# code the local hook left intact.
-const _JULIAFORMATTER_VERSION = "2.10.1"
+# The single source of truth for the pinned Runic version (#114), feeding the
+# `.pre-commit-config.yaml` hook `additional_dependencies` pin and the
+# `test/formatter/Project.toml` compat pin. `runic-check.yml` greps the
+# calling repo's `.pre-commit-config.yaml` for the literal string
+# `Runic@<runic_version>` and fails if absent, so it does not need this value
+# passed as a workflow input the way `format-check.yml` did.
+const _RUNIC_VERSION = "1.7.0"
+
+# The single source of truth for the pinned `runic-pre-commit` hook revision,
+# feeding the `.pre-commit-config.yaml` `rev`. Released independently of Runic
+# itself, so tracked separately from `_RUNIC_VERSION`.
+const _RUNIC_PRE_COMMIT_REV = "v2.2.0"
 
 # --- the Julia floor (#246) -------------------------------------------------
 #
@@ -352,8 +362,8 @@ const _JULIA_TEST_VERSIONS = "'[\"1\", \"pre\"]'"
 # The current release, not the floor: the job must also be a version the test
 # environment resolves on, and 1.11 is not one. JET publishes nothing for 1.11
 # beyond 0.9.19/0.9.20, which need JuliaSyntax 0.4 and cannot coexist with the
-# pinned JuliaFormatter 2.10.1. Pinning to the floor would only make CI red on
-# a conflict unrelated to the package under test.
+# pinned Runic 1.7.0 (JuliaSyntax 1). Pinning to the floor would only make CI
+# red on a conflict unrelated to the package under test.
 const _JULIA_DOWNGRADE_VERSION = "'1'"
 
 # The Julia versions a `test.yaml` caller names that sit below the floor: an
@@ -415,6 +425,12 @@ const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # p
 # resolve. Update it to the squash-merge SHA of that repo's release-nudge PR
 # before this caller is scaffolded anywhere for real.
 const _RELEASE_NUDGE_SEED_REF = "4ade02869137af2a1799c704df8a0256ef5b5de6"  # pragma: allowlist secret
+
+# The seed ref for the `pre-commit.yaml` caller's `runic-check.yml`, newer
+# than `_DOWNGRADE_SEED_REF` for the same reason as `_REGISTRABILITY_SEED_REF`
+# (`runic-check.yml` post-dates that shared seed, #114/Runic migration
+# phase 1). The squash-merge SHA of EpiAware/.github#53.
+const _RUNIC_CHECK_SEED_REF = "8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5"  # pragma: allowlist secret
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),
@@ -841,7 +857,8 @@ function scaffold_inputs(target_dir::AbstractString;
         ASSIGNEE_DEFAULT = assignee_default,
         KIT_DEP_LINE = kit_dep,
         KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
-        JULIAFORMATTER_VERSION = _JULIAFORMATTER_VERSION,
+        RUNIC_VERSION = _RUNIC_VERSION,
+        RUNIC_PRE_COMMIT_REV = _RUNIC_PRE_COMMIT_REV,
         # The `tests.yml` caller's Julia matrix, dropping the reusable's `lts`
         # leg: the managed standard needs 1.11 (#246).
         JULIA_TEST_VERSIONS = _JULIA_TEST_VERSIONS,
@@ -1371,7 +1388,7 @@ function _ad_backend_entries()
         end
         string("        (name = \"", b.header, "\", backend = ", ctor, ")")
     end
-    return join(entries, ",\n")
+    return join(entries, ",\n") * ","
 end
 
 # The family tag shared by a backend's forward/reverse variants (e.g.
@@ -1389,8 +1406,8 @@ function _ad_scenario_testitems()
         family = _ad_scenario_family(b.tag)
         tags = family === nothing ? "[:ad, :$(b.tag)]" :
                "[:ad, :$(family), :$(b.tag)]"
-        string("@testitem \"", b.header, " gradients (marginal)\" tags=",
-            tags, " setup=[ADHelpers] begin\n",
+        string("@testitem \"", b.header, " gradients (marginal)\" tags = ",
+            tags, " setup = [ADHelpers] begin\n",
             "    test_working_backend(\"", b.header, "\")\n",
             "end")
     end
@@ -1437,7 +1454,7 @@ _ad_cov_table(repo::AbstractString) = join(_ad_cov_flag_table(repo), "\n")
 # `_ad_heavy_benchmarks`).
 function _ad_heavy_tutorials(ad::Bool)
     ad || return ""
-    return "\n    \"ad-backends.jl\"\n"
+    return "\n    \"ad-backends.jl\",\n"
 end
 
 # The fast-build stub, preserving the page's `@id` so cross-references still
@@ -1445,7 +1462,7 @@ end
 function _ad_tutorial_stubs(ad::Bool)
     ad || return ""
     return "\n    \"ad-backends.md\" => \"# [Automatic differentiation " *
-           "backends](@id ad-backends)\"\n"
+           "backends](@id ad-backends)\",\n"
 end
 
 # The `HEAVY_BENCHMARKS` entry for `ad-comparison.jl` -- it executes DIT
@@ -1454,7 +1471,7 @@ end
 # for. Rendered under `docs/src/benchmarks/`, not `TUTORIALS_SUBDIR` (#305).
 function _ad_heavy_benchmarks(ad::Bool)
     ad || return ""
-    return "\n    \"ad-comparison.jl\"\n"
+    return "\n    \"ad-comparison.jl\",\n"
 end
 
 # The fast-build stub for `ad-comparison.jl`, same convention as
@@ -1462,7 +1479,7 @@ end
 function _ad_benchmark_stubs(ad::Bool)
     ad || return ""
     return "\n    \"ad-comparison.md\" => \"# [AD backend " *
-           "comparison](@id ad-comparison)\"\n"
+           "comparison](@id ad-comparison)\",\n"
 end
 
 # The Getting started nav entry for the AD-backends page. `ad-comparison.md`
@@ -1473,7 +1490,7 @@ function _ad_tutorials_nav(ad::Bool)
     ad || return ""
     return ",\n        \"Tutorials\" => [\n" *
            "            \"Automatic differentiation backends\" =>\n" *
-           "                \"getting-started/tutorials/ad-backends.md\"\n" *
+           "                \"getting-started/tutorials/ad-backends.md\",\n" *
            "        ]"
 end
 
@@ -1827,7 +1844,7 @@ function _benchmarks_nav(benchmarks::Bool, ad::Bool)
         "\"AD comparison\" =>\n            \"benchmarks/ad-comparison.md\"")
     isempty(entries) && return ""
     return ",\n    \"Benchmarks\" => [\n        " *
-           join(entries, ",\n        ") * "\n    ]"
+           join(entries, ",\n        ") * ",\n    ]"
 end
 
 # `docs/pages.jl` is package-owned and write-once, the same as
@@ -1998,9 +2015,9 @@ function _render_badges(repo::AbstractString, pkg::AbstractString; ad::Bool,
         ci *= " [![AD](" * gh * "/actions/workflows/ad.yaml/badge.svg" *
               "?branch=main)](" * gh * "/actions/workflows/ad.yaml)"
     end
-    quality = "[![SciML Code Style](https://img.shields.io/static/v1?" *
-              "label=code%20style&message=SciML&color=9558b2&" *
-              "labelColor=389826)](https://github.com/SciML/SciMLStyle) " *
+    quality = "[![code style: runic](https://img.shields.io/badge/" *
+              "code_style-%E1%9A%B1%E1%9A%A2%E1%9A%BE%E1%9B%81%E1%9A%B2-black)]" *
+              "(https://github.com/fredrikekre/Runic.jl) " *
               "[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/" *
               "Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/" *
               "Aqua.jl) " *
@@ -2298,8 +2315,8 @@ function _render_standard_sections(pkg::AbstractString, org::AbstractString,
         "## Contributing\n\n",
         "We welcome contributions and new contributors! Please open an issue ",
         "or pull request on [GitHub](https://github.com/", repo, "). This ",
-        "package follows [ColPrac](https://github.com/SciML/ColPrac) and the ",
-        "[SciML style](https://github.com/SciML/SciMLStyle).\n\n",
+        "package follows [ColPrac](https://github.com/SciML/ColPrac) and is ",
+        "formatted with [Runic](https://github.com/fredrikekre/Runic.jl).\n\n",
         "## How to cite\n\n",
         "If you use ", pkg, " in your work, please cite it. Citation metadata ",
         "lives in [`CITATION.cff`](https://github.com/", repo,
@@ -2501,6 +2518,62 @@ function _apply_gitignore(target_dir::AbstractString, inputs::NamedTuple)
     end
     # No markers yet (a pre-#65 copy, or hand-written): insert the block at the
     # top and keep what was there as the package-owned tail.
+    new = block * "\n\n" * text
+    write(path, new)
+    return (:injected, true)
+end
+
+# --- managed .git-blame-ignore-revs header (per-repo SHAs preserved) -------
+#
+# A new managed file (the Runic migration): only the explanatory header is
+# managed, since each repo's own one-shot reformat commit has its own SHA.
+# Follows the same managed-block pattern as `.gitignore` so the header stays
+# current while the SHA list below it — package-owned, appended by hand on
+# the reformat commit — is never touched by `scaffold`/`update`.
+
+const GIT_BLAME_IGNORE_START = "# managed:start"
+const GIT_BLAME_IGNORE_END = "# managed:end"
+
+# Render the managed `.git-blame-ignore-revs` header (without markers) from
+# the bundled template.
+function _render_git_blame_ignore()
+    from = joinpath(_templates_dir(), ".git-blame-ignore-revs")
+    isfile(from) || error("missing bundled template .git-blame-ignore-revs at $from")
+    return read(from, String)
+end
+
+"""
+    _apply_git_blame_ignore(target_dir)
+
+Apply the managed `.git-blame-ignore-revs` header block to `target_dir`.
+
+Returns `(action, changed)` where action is `:created`, `:injected` (markers
+added to an existing file), or `:refreshed` (markers already present; only
+the marked region is touched). Mirrors `_apply_gitignore`.
+"""
+function _apply_git_blame_ignore(target_dir::AbstractString)
+    path = joinpath(target_dir, ".git-blame-ignore-revs")
+    body = _render_git_blame_ignore()
+    block = GIT_BLAME_IGNORE_START * "\n" *
+            "# MANAGED by EpiAwarePackageTools.scaffold — do not edit between\n" *
+            "# the markers. Add a reformat commit's SHA after the closing\n" *
+            "# marker — it is preserved across updates.\n" *
+            body * GIT_BLAME_IGNORE_END
+    if !isfile(path)
+        write(path, block * "\n")
+        return (:created, true)
+    end
+    text = read(path, String)
+    si = findfirst(GIT_BLAME_IGNORE_START, text)
+    ei = findlast(GIT_BLAME_IGNORE_END, text)
+    if si !== nothing && ei !== nothing && first(ei) > last(si)
+        new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
+        new == text && return (:refreshed, false)
+        write(path, new)
+        return (:refreshed, true)
+    end
+    # No markers yet (hand-written, or a pre-managed file): insert the block
+    # at the top and keep what was there as the package-owned tail.
     new = block * "\n\n" * text
     write(path, new)
     return (:injected, true)
@@ -2929,6 +3002,9 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     # Managed between markers so package-owned additions below the block
     # survive `update` (#65).
     gitignore_action = first(_apply_gitignore(target_dir, inputs))
+    # Only the header is managed; the SHA list below it is package-owned, one
+    # entry per repo's own Runic reformat commit.
+    git_blame_ignore_action = first(_apply_git_blame_ignore(target_dir))
     # Retired files are deleted, not just left unwritten, so a sync converges
     # on the current standard rather than accreting dead infra (#185).
     removed = _remove_retired(target_dir)
@@ -2938,6 +3014,7 @@ function _apply(target_dir::AbstractString; managed_only::Bool, force::Bool,
     return (created = created, updated = updated, preserved = preserved,
         removed = removed, readme = readme_action, license = license_action,
         workspace = workspace_action, gitignore = gitignore_action,
+        git_blame_ignore = git_blame_ignore_action,
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
         extension_pages = (created = ext_created, preserved = ext_preserved),
@@ -3057,8 +3134,7 @@ adopts the whole kit in one call. Two kinds of file are written:
 
   - managed standard infra — always written (overwriting any existing copy):
     root dev config (`Taskfile.yml`, `.pre-commit-config.yaml`,
-    `.JuliaFormatter.toml`, `.gitattributes`, `.secrets.baseline`,
-    `codecov.yml`), CI
+    `.gitattributes`, `.secrets.baseline`, `codecov.yml`), CI
     caller workflows + `.github/dependabot.yml` (which invoke the org reusables,
     including the opt-in per-backend `ad.yaml` matrix), and the test-infra
     drivers and
@@ -3146,6 +3222,13 @@ before this behaviour existed) is treated the same way a legacy README is:
 the managed block is inserted at the top and the whole existing file is kept
 below as the tail, so nothing a package added is ever silently dropped.
 
+`.git-blame-ignore-revs` follows the same managed-block pattern between
+`$(GIT_BLAME_IGNORE_START)` / `$(GIT_BLAME_IGNORE_END)`, but only the
+explanatory header is managed: the SHA list below the closing marker is
+package-owned, one entry per repo's own formatting-only reformat commit
+(e.g. the Runic migration's `style:` commit), so it is never rendered or
+touched by `scaffold`/`update`.
+
 `docs_subdomain` selects how the docs site is hosted. The default (`nothing`)
 is a project-pages deploy: `deploy_url = nothing`, so DocumenterVitepress
 derives the base from the repo name and the site renders at
@@ -3173,10 +3256,11 @@ managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
-gitignore, logo, standard_sections, citation, org_branding, extension_pages,
-warnings)` named tuple: destination paths newly written, managed files
-overwritten, package-owned files left in place, retired managed paths deleted
-(`RETIRED_PATHS`, #185), then the action taken by each of the region appliers
+gitignore, git_blame_ignore, logo, standard_sections, citation, org_branding,
+extension_pages, warnings)` named tuple: destination paths newly written,
+managed files overwritten, package-owned files left in place, retired managed
+paths deleted (`RETIRED_PATHS`, #185), then the action taken by each of the
+region appliers
 (`:created`/`:injected`/`:refreshed`/`:preserved`/`:skipped`, as each
 docstring records), the seeded per-extension docs pages as a
 `(created, preserved)` pair of path vectors (#319), and non-fatal `warnings`.
@@ -3223,9 +3307,10 @@ package's current state from the committed workflows so a resync preserves an
 adopter's opt-in rather than stripping it, or reintroducing a job the package
 deliberately removed (#121). Pass `true`/`false` to force either.
 
-The README badge block, the managed `.gitignore` block, the standard-sections
-block and the README logo title are all refreshed as in [`scaffold`](@ref),
-without the package-owned parts of those files being touched.
+The README badge block, the managed `.gitignore` block, the
+`.git-blame-ignore-revs` header, the standard-sections block and the README
+logo title are all refreshed as in [`scaffold`](@ref), without the
+package-owned parts of those files being touched.
 
 Every managed file written from a template has a package-owned opt-out (#224):
 `$(_MANAGED_OVERRIDE_MARKER)` in a comment tells `update()` to preserve it
