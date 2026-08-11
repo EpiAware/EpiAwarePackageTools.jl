@@ -12,7 +12,6 @@ This page does not restate any of it.
 
 ## Overview page and README
 
-Adopted in [#292](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/292).
 The README pitch and its equivalent on the getting-started overview page are what a user reads first, so they carry their own standard.
 
 ### 1. The "Why" section is a list of motivation bullets
@@ -37,7 +36,7 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 - Rule: one bullet per sibling package with a real relationship, one sentence each, linked to that sibling's live docs (`/stable/` once released, `/dev/` while not, the repo when no site is deployed).
 - Why: the ecosystem is only navigable if each package points at its neighbours.
-- Enforced for link validity by the Documenter linkcheck on the generated home page; the section is not yet required by [`test_readme_sections`](@ref) (`STANDARD_README_SECTIONS` gains the entry under #292), and which siblings belong is reviewed by hand.
+- Enforced for link validity by the Documenter linkcheck on the generated home page; the section is not yet required by [`test_readme_sections`](@ref) (`STANDARD_README_SECTIONS` is expected to gain the entry), and which siblings belong is reviewed by hand.
 
 ### 5. The overview page does not repeat the home page
 
@@ -50,13 +49,13 @@ The README pitch and its equivalent on the getting-started overview page are wha
 ### 6. Prose is direct
 
 - Rule: short sentences, one sentence per line in Markdown, no adjective padding, and none of the banned filler words.
-- Why: docs that pad get skipped, so their content is lost ([#331](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/331)).
+- Why: docs that pad get skipped, so their content is lost.
 - Enforced by [`test_readme_prose`](@ref), which owns the banned-word list and the sentence-length limit for the README; prose elsewhere is not enforced, reviewed by hand.
 
 ### 7. Comments say why, not what
 
 - Rule: a comment records a decision or a constraint that is not visible in the code; it does not narrate the lines beneath it. Keep it short: if a comment needs a paragraph, the code under it usually needs simplifying instead.
-- Why: narration duplicates the code and then rots against it ([#331](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/331)).
+- Why: narration duplicates the code and then rots against it.
 - Not enforced, reviewed by hand.
 
 ### 8. Comments and docs carry no development history
@@ -68,7 +67,7 @@ The README pitch and its equivalent on the getting-started overview page are wha
 ### 9. Release notes live on the GitHub release
 
 - Rule: notes are written on the release itself, on top of TagBot's merged-PR list, and the docs page renders them by fetching the published releases at build time, as set out in [Release notes convention](@ref release-notes).
-- Why: a changelog file in the repo has to be kept in step with the tags by hand, and the shape it should take had already forked four ways across the org ([#286](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/286)). The release is the one copy that cannot drift from what shipped.
+- Why: a changelog file in the repo has to be kept in step with the tags by hand, and the shape it should take had already forked four ways across the org. The release is the one copy that cannot drift from what shipped.
 - Not enforced, reviewed by hand.
 
 ## Code and design
@@ -108,7 +107,7 @@ Not deviations: `_resolve_docs_subdomain` already dispatches on type rather than
 
 ### 14. Package hygiene has one implementation
 
-- Rule: this kit is the single implementation of the shared checks and templates; a package that needs to differ does so through its package-owned `qa_config.jl` and docs config, not by forking a managed file ([#307](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/307)).
+- Rule: this kit is the single implementation of the shared checks and templates; a package that needs to differ does so through its package-owned `qa_config.jl` and docs config, not by forking a managed file.
 - Why: a forked copy drifts, and the drift is invisible until the two disagree.
 - Enforced by template sync, which rewrites every managed file on `update` (see [Infrastructure and template sync](@ref infrastructure)); a check reimplemented outside a managed file is not enforced, reviewed by hand.
 
@@ -116,10 +115,10 @@ Not deviations: `_resolve_docs_subdomain` already dispatches on type rather than
 
 - Rule: a value passed by name is checked at the point of entry and rejected there rather than propagated.
 - Why: a bad option that propagates surfaces as a confusing failure far from its cause.
-- Not enforced; automated fuzz enforcement is proposed in [#310](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/310) under epic [#307](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/307).
+- Not enforced; automated fuzz enforcement is proposed but not yet built.
 
 ### 16. Composed objects are conformant and queryable
 
 - Rule: a composition agrees with itself (sampling matches density, leaf protocols are complete) or fails loudly, and can report how it will be evaluated with no silent fallback.
 - Why: a composition that degrades quietly gives an answer that is trusted and wrong.
-- Not enforced; the per-package checks are being added under epic [#308](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/308).
+- Not enforced; the per-package checks are being added across the ecosystem over time.
