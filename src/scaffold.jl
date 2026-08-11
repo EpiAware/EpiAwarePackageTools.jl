@@ -526,7 +526,8 @@ const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # p
 # Confirmed to contain `release-nudge.yml`. A ref that does not is worse than
 # useless: the caller scaffolds fine and then fails at run time with "workflow
 # was not found", so check a replacement resolves before changing it:
-#   gh api repos/<org>/.github/contents/.github/workflows/release-nudge.yml?ref=<sha>
+#   gh api repos/<org>/.github/contents/.github/workflows/\
+#     release-nudge.yml?ref=<sha>
 const _RELEASE_NUDGE_SEED_REF = "8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5"  # pragma: allowlist secret
 
 # The seed ref for the `pre-commit.yaml` caller's `runic-check.yml`, newer
