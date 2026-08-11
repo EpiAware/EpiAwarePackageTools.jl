@@ -117,14 +117,14 @@ tasks:
     desc: Build the documentation
     cmds:
       - echo "📚 Building documentation..."
-      - julia --project=docs docs/make.jl
+      - JULIA_NUM_THREADS=auto julia --project=docs docs/make.jl
       - echo "✅ Documentation built successfully"
 
   docs-fast:
     desc: Build documentation quickly (skip notebook processing)
     cmds:
       - echo "📚 Building documentation (skipping notebooks)..."
-      - julia --project=docs docs/make.jl --skip-notebooks
+      - JULIA_NUM_THREADS=auto julia --project=docs docs/make.jl --skip-notebooks
       - echo "✅ Fast documentation build completed"
 
   # === DEVELOPMENT SETUP ===

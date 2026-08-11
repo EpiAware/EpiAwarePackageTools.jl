@@ -523,11 +523,11 @@ const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # p
 # The seed ref for the release-nudge caller, newer than `_DOWNGRADE_SEED_REF`
 # for the same reason as `_REGISTRABILITY_SEED_REF`.
 #
-# PLACEHOLDER: this is EpiAware/.github's `main` HEAD at the time the caller
-# was written, which does NOT yet contain `release-nudge.yml` and so will not
-# resolve. Update it to the squash-merge SHA of that repo's release-nudge PR
-# before this caller is scaffolded anywhere for real.
-const _RELEASE_NUDGE_SEED_REF = "4ade02869137af2a1799c704df8a0256ef5b5de6"  # pragma: allowlist secret
+# Confirmed to contain `release-nudge.yml`. A ref that does not is worse than
+# useless: the caller scaffolds fine and then fails at run time with "workflow
+# was not found", so check a replacement resolves before changing it:
+#   gh api repos/<org>/.github/contents/.github/workflows/release-nudge.yml?ref=<sha>
+const _RELEASE_NUDGE_SEED_REF = "8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5"  # pragma: allowlist secret
 
 # The seed ref for the `pre-commit.yaml` caller's `runic-check.yml`, newer
 # than `_DOWNGRADE_SEED_REF` for the same reason as `_REGISTRABILITY_SEED_REF`

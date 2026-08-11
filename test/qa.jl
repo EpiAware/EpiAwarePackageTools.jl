@@ -730,6 +730,44 @@
                 @test check_flags(() -> test_readme_prose(dir))
             end
 
+            # A four-space-indented code block is dropped like a
+            # fenced one, so a banned word inside it is not read as prose.
+            indented_code = "# MyPkg\n\nA small package.\n\n" *
+                "    robust = leverage_framework(; novel = true)\n"
+            indented_lines = EpiAwarePackageTools._readme_prose_lines(
+                indented_code
+            )
+            @test 5 ∉ first.(indented_lines)
+            @test !occursin("leverage", join(last.(indented_lines), " "))
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), indented_code)
+                test_readme_prose(dir)
+            end
+
+            # A wrapped bullet's continuation is indented too, but it is a
+            # list, not a code block, so it stays prose (line 4 here).
+            wrapped_bullet = "# MyPkg\n\n- A bullet whose continuation is\n" *
+                "    indented by four spaces, not a code block.\n"
+            bullet_lines = EpiAwarePackageTools._readme_prose_lines(
+                wrapped_bullet
+            )
+            @test 4 in first.(bullet_lines)
+            continuation = only(t for t in bullet_lines if first(t) == 4)
+            @test occursin("indented by four spaces", last(continuation))
+
+            # A reference-style link definition is markup, not prose, so a
+            # banned word in its label is not read either.
+            reference_definition = "# MyPkg\n\nSee the [guide].\n\n" *
+                "[robust guide]: https://e.org/x\n"
+            reference_lines = EpiAwarePackageTools._readme_prose_lines(
+                reference_definition
+            )
+            @test 5 ∉ first.(reference_lines)
+            mktempdir() do dir
+                write(joinpath(dir, "README.md"), reference_definition)
+                test_readme_prose(dir)
+            end
+
             # A plural or inflected form of a listed word is flagged too,
             # including the three whose stem the general rule gets wrong:
             # `synergy` has to reach `synergies` and `synergistic`, and
@@ -817,6 +855,44 @@
                     )
                 ) == 1
             end
+
+            # An abbreviation's dot is protected whether it is on the
+            # closed list (`approx.`) or matches the open-ended title/
+            # cross-reference shape (`Fig.`, `Dr.`, `U.S.`), rather than only
+            # the four literal entries `_PROSE_ABBREVIATIONS` used to carry.
+            # An all-caps acronym that happens to be short (`API.`) is not
+            # mistaken for one: it does end a sentence.
+            for (text, expected) in (
+                    "It follows Fig. 3 of the paper." => 1,
+                    "Written by Dr. Smith and others." => 1,
+                    "It uses approx. Normal draws." => 1,
+                    "It targets U.S. counties." => 1,
+                    "It cites U.S. Steel in the report." => 1,
+                    "It exposes a REST API. Endpoints follow." => 2,
+                )
+                @test length(EpiAwarePackageTools._sentences(text)) ==
+                    expected
+            end
+            # The split points, not just the count: the fragment either side
+            # of a real break is measured whole, abbreviation dot restored.
+            @test EpiAwarePackageTools._sentences(
+                "It exposes a REST API. Endpoints follow."
+            ) == ["It exposes a REST API.", "Endpoints follow."]
+            @test EpiAwarePackageTools._sentences(
+                "Written by Dr. Smith and others."
+            ) == ["Written by Dr. Smith and others."]
+
+            # Known, accepted limitation, pinned rather than chased: a short
+            # capitalised proper noun at a genuine sentence end has the same
+            # shape as a title, so it is read as one, merging two sentences
+            # into one. `_ABBREV_TOKEN`'s docstring explains why this is not
+            # fixable by a lookahead. This asserts the current trade-off, not
+            # the ideal.
+            @test length(
+                EpiAwarePackageTools._sentences(
+                    "I spoke to Bob. He agreed."
+                )
+            ) == 1
 
             # A missing README skips rather than erroring.
             mktempdir() do dir

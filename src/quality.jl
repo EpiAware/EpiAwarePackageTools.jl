@@ -772,13 +772,20 @@ function _scrub_markup(line::AbstractString)
 end
 
 # The prose lines of a README as `(line number, text)` pairs. Dropped whole:
-# fenced code blocks, HTML comments (the badge/section markers are HTML
-# comments), and table rows. Scrubbed within a line: see `_scrub_markup`.
-# Line numbers are the README's own, so a failure points at the source line.
+# fenced code blocks, four-space-indented code blocks, HTML comments (the
+# badge/section markers are HTML comments), table rows, and reference-style
+# link definitions (`[label]: url`, markup rather than prose, the way a table
+# row is). Scrubbed within a line: see `_scrub_markup`. Line numbers are the
+# README's own, so a failure points at the source line.
 function _readme_prose_lines(body::AbstractString)
     lines = Tuple{Int, String}[]
     in_fence = false
     in_comment = false
+    # True while lines belong to an open list item, so a wrapped bullet's
+    # continuation is not mistaken for an indented code block below. A
+    # blank line, or a line with no leading whitespace that is not itself a
+    # new list item, closes it.
+    in_list = false
     for (i, raw) in enumerate(split(body, '\n'))
         line = String(raw)
         if in_comment
@@ -792,6 +799,15 @@ function _readme_prose_lines(body::AbstractString)
             continue
         end
         in_fence && continue
+        stripped = strip(line)
+        if isempty(stripped)
+            in_list = false
+        elseif occursin(r"^([-*+]|\d+[.)])\s", stripped)
+            in_list = true
+        elseif !occursin(r"^\s", line)
+            in_list = false
+        end
+        (!in_list && occursin(r"^ {4,}\S", line)) && continue
         line = replace(line, r"<!--.*?-->" => " ")
         opener = findfirst("<!--", line)
         if opener !== nothing
@@ -799,6 +815,7 @@ function _readme_prose_lines(body::AbstractString)
             in_comment = true
         end
         startswith(strip(line), "|") && continue
+        occursin(r"^\s*\[[^\]]+\]:\s", line) && continue
         push!(lines, (i, _scrub_markup(line)))
     end
     return lines
@@ -832,13 +849,38 @@ function _prose_blocks(lines)
     return blocks
 end
 
-# Abbreviations whose full stop never ends a sentence, but are commonly
-# followed by a capital (`e.g. Gamma`), which would trip the capital rule
-# below. Their dots are swapped for a one-dot leader before splitting, and
-# back afterwards. `etc.` is deliberately absent: it does end sentences.
-const _PROSE_ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "et al.")
+# Closed-class abbreviations whose full stop never ends a sentence, kept as a
+# literal list because nothing about their shape sets them apart from an
+# ordinary word (`approx.` reads exactly like `input.`). Commonly followed by
+# a capital (`e.g. Gamma`), which would trip the capital rule below. Their
+# dots are swapped for a one-dot leader before splitting, and back afterwards.
+# `etc.` is deliberately absent: it does end sentences. The open-ended class
+# (titles and cross-references) is instead matched by shape: see
+# `_ABBREV_TOKEN`.
+const _PROSE_ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "et al.", "approx.")
 
 const _DOT_LEADER = '\u2024'
+
+# A token that reads as an abbreviation by its shape, not by being enumerated:
+# a run of two or more single capital letters each followed by a dot
+# (initials, `U.S.`, `A.D.`), or a capitalised word of at most three letters
+# whose remaining letters are lowercase (a title or a technical
+# cross-reference: `Dr.`, `Mr.`, `Fig.`, `St.`). The lowercase-tail
+# requirement is deliberate: it lets `Dr.`/`Fig.` through while leaving an
+# all-caps acronym like `API.`/`URL.` alone, since those really do end
+# sentences. This is the open-ended class `_PROSE_ABBREVIATIONS` can only ever
+# chase one example at a time; the closed lowercase class (`approx.`)
+# still needs that list, since it is indistinguishable from an ordinary word
+# by shape alone.
+#
+# Known, accepted limitation: a short capitalised proper noun at a genuine
+# sentence end has the same shape as a title (`Bob.` and `Dr.` both match), so
+# `"I spoke to Bob. He agreed."` reads as one sentence rather than two. This
+# is not fixable by a lookahead: a title and a sentence boundary are both
+# followed by a capitalised word, so nothing distinguishes them by shape.
+# Accepted rather than chased: it is the rarer of the two failures, and the
+# split it replaces fired far more often.
+const _ABBREV_TOKEN = r"\b(?:[A-Z]\.){2,}|\b[A-Z][a-z]{0,2}\."
 
 # The end of a sentence: terminal punctuation, then whitespace, then something
 # that can start a sentence. A dot with no whitespace after it is not a break
@@ -846,10 +888,10 @@ const _DOT_LEADER = '\u2024'
 # lowercase word (`Gamma, LogNormal, etc. without extra work`).
 const _SENTENCE_BREAK = r"(?<=[.!?])\s+(?=[A-Z0-9(\[\"'])"
 
-# Split prose into sentences. The capital rule breaks at any abbreviation not
-# listed above (`Fig. 1`, `Dr. Smith`), so one sentence can be reported as two:
-# fine for the length check, which then measures fragments and passes, but the
-# one-sentence bullet rule false-positives on it. Tracked in #347.
+# Split prose into sentences. An abbreviation's dot is protected from the
+# capital rule above before splitting, then restored afterwards: the
+# closed-class list `_PROSE_ABBREVIATIONS`, and the shape-matched
+# `_ABBREV_TOKEN` for titles and cross-references.
 function _sentences(text::AbstractString)
     protected = text
     for abbrev in _PROSE_ABBREVIATIONS
@@ -860,6 +902,9 @@ function _sentences(text::AbstractString)
             )
         )
     end
+    protected = replace(
+        protected, _ABBREV_TOKEN => m -> replace(m, '.' => _DOT_LEADER)
+    )
     sentences = String[]
     for part in split(protected, _SENTENCE_BREAK)
         sentence = strip(replace(part, _DOT_LEADER => '.'))
