@@ -2017,20 +2017,55 @@ end
 # resolver failure.
 const _STALE_AD_DOCS_DEPS = ("AlgebraOfGraphics",)
 
-function _ad_docs_deps_gap(target_dir::AbstractString, ad::Bool)
+# The dependency names a rendered `[deps]` fragment declares, read back from
+# the fragment itself so the required set cannot drift from what is seeded.
+function _declared_dep_names(fragment::AbstractString)
+    names = String[]
+    for line in split(fragment, '\n')
+        m = match(r"^([A-Za-z_][A-Za-z0-9_]*) = \"", line)
+        m === nothing || push!(names, m.captures[1])
+    end
+    return names
+end
+
+function _ad_docs_deps_gap(
+        target_dir::AbstractString, ad::Bool, adfix_uuid::AbstractString
+    )
     ad || return nothing
     proj = joinpath(target_dir, "docs", "Project.toml")
     isfile(proj) || return nothing
     txt = read(proj, String)
+    notes = String[]
     stale = filter(d -> occursin(d, txt), collect(_STALE_AD_DOCS_DEPS))
-    isempty(stale) && return nothing
-    return string(
-        "docs/Project.toml still lists ", join(stale, ", "),
-        ": the AD-comparison page no longer uses it, and it pulls ",
-        "DimensionalData in via Makie, which conflicts with FlexiChains in ",
-        "a package that hard-deps both (kit#283). Remove it from [deps] and ",
-        "[compat] in docs/Project.toml."
+    isempty(stale) || push!(
+        notes,
+        string(
+            "docs/Project.toml still lists ", join(stale, ", "),
+            ": the AD-comparison page no longer uses it, and it pulls ",
+            "DimensionalData in via Makie, which conflicts with FlexiChains ",
+            "in a package that hard-deps both. Remove it from [deps] and ",
+            "[compat] in docs/Project.toml."
+        )
     )
+    # The other direction, and the one an adopter actually hits: a dep the
+    # kit seeds for the AD docs pages is missing, because `docs/Project.toml`
+    # is package-owned and write-once, so a dep added to the kit after this
+    # package was scaffolded never reaches it. The pages are managed, so they
+    # `using` it regardless and the build fails on a name the adopter never
+    # chose.
+    required = _declared_dep_names(_ad_docs_deps(ad, adfix_uuid))
+    missing_deps = filter(d -> !occursin(d, txt), required)
+    isempty(missing_deps) || push!(
+        notes,
+        string(
+            "docs/Project.toml is missing ", join(missing_deps, ", "),
+            ", which the managed AD docs pages load. Add it to [deps] and ",
+            "[compat] in docs/Project.toml; the kit cannot, because that ",
+            "file is package-owned."
+        )
+    )
+    isempty(notes) && return nothing
+    return join(notes, " ")
 end
 
 # The docs-env `[deps]` fragment the benchmark page's trend plot needs
@@ -3648,7 +3683,7 @@ function _apply(
     # `docs/Project.toml` is write-once too, so a dep this kit version drops
     # from `_ad_docs_deps` stays in an existing adopter's env — see
     # `_ad_docs_deps_gap`.
-    deps_gap = _ad_docs_deps_gap(target_dir, ad)
+    deps_gap = _ad_docs_deps_gap(target_dir, ad, inputs.ADFIXTURES_UUID)
     if deps_gap !== nothing
         push!(warnings, deps_gap)
         @warn deps_gap
