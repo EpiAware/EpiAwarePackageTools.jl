@@ -1030,6 +1030,85 @@
             end
         end
 
+        @testset "AGENTS.md points at the docs, CLAUDE.md at AGENTS.md" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                @test res.agents === :created
+                txt = read(joinpath(dir, "AGENTS.md"), String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("<!-- epiaware-standards:start -->", txt)
+                @test occursin("<!-- epiaware-standards:end -->", txt)
+                # The block points at the standards docs rather than
+                # restating them, so a second copy cannot drift (#370).
+                @test occursin("Package standards", txt)
+                @test occursin(
+                    "epiawarepackagetools.epiaware.org/stable/standards", txt
+                )
+                @test occursin("epiaware.github.io", txt)
+                # Substituted, so it names the package and its own docs.
+                @test occursin("# Wombat", txt)
+                # CLAUDE.md is a pointer at AGENTS.md, nothing more.
+                claude = read(joinpath(dir, "CLAUDE.md"), String)
+                @test occursin("[AGENTS.md](AGENTS.md)", claude)
+                @test !occursin("Package standards", claude)
+                # The standards themselves are NOT copied in.
+                @test !occursin("Comment the reason, not the action.", txt)
+            end
+        end
+
+        @testset "AGENTS.md package-owned tail survives update" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "AGENTS.md")
+                notes = "## Wombat notes\n\nThe kernel cache is not thread-safe."
+                write(path, read(path, String) * "\n" * notes * "\n")
+                res = update(dir)
+                @test res.agents === :refreshed
+                @test occursin(notes, read(path, String))
+                # Idempotent with a tail present.
+                before = read(path, String)
+                update(dir)
+                @test read(path, String) == before
+            end
+        end
+
+        @testset "AGENTS.md a package already had is kept below the block" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                own = "# Wombat\n\nRun the slow suite with `task test-ad`.\n"
+                write(joinpath(dir, "AGENTS.md"), own)
+                res = update(dir)
+                @test res.agents === :injected
+                txt = read(joinpath(dir, "AGENTS.md"), String)
+                @test occursin(own, txt)
+                @test occursin("<!-- epiaware-standards:start -->", txt)
+                # Idempotent once the markers exist.
+                before = txt
+                update(dir)
+                @test read(joinpath(dir, "AGENTS.md"), String) == before
+            end
+        end
+
+        @testset "AGENTS.md stale block is overwritten" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "AGENTS.md")
+                stale = replace(
+                    read(path, String),
+                    "Package standards" => "Stale wording."
+                )
+                write(path, stale)
+                res = update(dir)
+                @test res.agents === :refreshed
+                txt = read(path, String)
+                @test occursin("Package standards", txt)
+                @test !occursin("Stale wording.", txt)
+            end
+        end
+
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

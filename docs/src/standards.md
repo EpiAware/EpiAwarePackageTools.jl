@@ -55,11 +55,17 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 ### 7. Comments say why, not what
 
-- Rule: a comment records a decision or a constraint that is not visible in the code; it does not narrate the lines beneath it.
+- Rule: a comment records a decision or a constraint that is not visible in the code; it does not narrate the lines beneath it. Keep it short: if a comment needs a paragraph, the code under it usually needs simplifying instead.
 - Why: narration duplicates the code and then rots against it ([#331](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/331)).
 - Not enforced, reviewed by hand.
 
-### 8. Release notes live on the GitHub release
+### 8. Comments and docs carry no development history
+
+- Rule: a comment, a docstring or a docs page says what is true now. It carries no issue or pull request numbers, and no account of what the code used to do or which bug a change fixed. `git blame` and the pull request hold that.
+- Why: history and issue numbers in the source are a second copy of the repository's own record, and it is the copy that rots. A reader who wants the discussion finds it through the commit.
+- Not enforced, reviewed by hand.
+
+### 9. Release notes live on the GitHub release
 
 - Rule: notes are written on the release itself, on top of TagBot's merged-PR list, and the docs page renders them by fetching the published releases at build time, as set out in [Release notes convention](@ref release-notes).
 - Why: a changelog file in the repo has to be kept in step with the tags by hand, and the shape it should take had already forked four ways across the org ([#286](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/286)). The release is the one copy that cannot drift from what shipped.
@@ -67,37 +73,43 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 ## Code and design
 
-### 9. Public API is documented and its examples run
+### 10. Public API is documented and its examples run
 
 - Rule: every public binding carries a docstring in the standard shape, with a runnable example.
 - Why: an undocumented export is not a public API, and an example that no longer runs is worse than none.
 - Enforced by [`test_docstring_format`](@ref), Aqua's undocumented-names check through [`test_aqua`](@ref), and [`test_doctest`](@ref).
 
-### 10. Source is machine formatted
+### 11. Source is machine formatted
 
 - Rule: [Runic](https://github.com/fredrikekre/Runic.jl), which is unconfigurable — there is one canonical style, so no per-package config file.
 - Why: no review time is spent on layout, and diffs stay about the change.
 - Enforced by the `runic` pre-commit hook and [`test_formatting`](@ref) (`task test-formatting`).
 
-### 11. New variants arrive by dispatch
+### 12. Extension points are `public`, not exported
+
+- Rule: export the first tier of usage only, the handful of names a user reaches for to do the package's main job. A binding that exists so a developer can extend the package, or whose name is generic enough to collide, is marked `public` and documented, not exported.
+- Why: a crowded export list stops saying which names matter, and a generic exported name collides on `using`. `public` still publishes the name and its docstring without putting it in every caller's namespace.
+- Not enforced, reviewed by hand.
+
+### 13. New variants arrive by dispatch
 
 - Rule: a new variant of any component is a new type plus one or two methods, with no edit to the existing component's source; a component that still branches internally on a flag or a `Symbol` is recorded as a known deviation ([#311](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/311)).
 - Why: it turns "does this change respect the design?" into a reviewable criterion rather than a judgement call.
 - Not enforced, reviewed by hand.
 
-### 12. Package hygiene has one implementation
+### 14. Package hygiene has one implementation
 
 - Rule: this kit is the single implementation of the shared checks and templates; a package that needs to differ does so through its package-owned `qa_config.jl` and docs config, not by forking a managed file ([#307](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/307)).
 - Why: a forked copy drifts, and the drift is invisible until the two disagree.
 - Enforced by template sync, which rewrites every managed file on `update` (see [Infrastructure and template sync](@ref infrastructure)); a check reimplemented outside a managed file is not enforced, reviewed by hand.
 
-### 13. Named options are validated where they enter
+### 15. Named options are validated where they enter
 
 - Rule: a value passed by name is checked at the point of entry and rejected there rather than propagated.
 - Why: a bad option that propagates surfaces as a confusing failure far from its cause.
 - Not enforced; automated fuzz enforcement is proposed in [#310](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/310) under epic [#307](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/307).
 
-### 14. Composed objects are conformant and queryable
+### 16. Composed objects are conformant and queryable
 
 - Rule: a composition agrees with itself (sampling matches density, leaf protocols are complete) or fails loudly, and can report how it will be evaluated with no silent fallback.
 - Why: a composition that degrades quietly gives an answer that is trusted and wrong.
