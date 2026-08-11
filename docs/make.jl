@@ -2,8 +2,10 @@
 #
 # Thin entry point for the standard EpiAware documentation build. All build
 # logic lives in `EpiAwarePackageTools.DocsBuild.build_docs`; this file only
-# wires the package-owned `pages.jl` + `docs_config.jl` into that call, so it
-# can be re-applied on every `update` without losing package content.
+# wires `pages.jl` (managed, regenerated on every sync unless the package
+# forked it -- see EpiAwarePackageTools' `_apply_pages`) + the package-owned
+# `docs_config.jl` into that call, so it can be re-applied on every `update`
+# without losing package content.
 #
 # `build_docs`:
 #   - runs the Literate tutorial pipeline (light in-process, heavy one per
@@ -31,19 +33,20 @@ Pkg.instantiate()
 using EpiAwarePackageTools
 using EpiAwarePackageTools
 
-# `pages.jl` (nav tree) and `docs_config.jl` (tutorial lists, link rewrites,
-# linkcheck ignores) are package-owned, so an adopter predating either has
-# none. Guard the include so a re-applied managed `make.jl` still loads and
-# falls back to defaults (#163); `_cfg` then defaults any key a missing or
-# older config predates. The fallback warns because a silently-defaulted
-# `pages` publishes a Home-only nav that a green docs run would hide (#188).
+# `pages.jl` (nav tree, managed -- see EpiAwarePackageTools' `_apply_pages`)
+# and `docs_config.jl` (tutorial lists, link rewrites, linkcheck ignores,
+# package-owned) can both be absent, e.g. an adopter predating either. Guard
+# the include so a re-applied managed `make.jl` still loads and falls back to
+# defaults (#163); `_cfg` then defaults any key a missing or older config
+# predates. The fallback warns because a silently-defaulted `pages` publishes
+# a Home-only nav that a green docs run would hide (#188).
 for _f in ("pages.jl", "docs_config.jl")
     if isfile(joinpath(@__DIR__, _f))
         include(joinpath(@__DIR__, _f))
     else
         @warn "docs/$(_f) not found; building with defaults " *
             "(a missing pages.jl leaves the site with a Home-only nav). " *
-            "Write it if this package should own one."
+            "Run `scaffold`/`update` to (re)write it."
     end
 end
 

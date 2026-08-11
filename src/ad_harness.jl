@@ -247,3 +247,118 @@ function test_partial_backend(
     check_broken(scens, backend; rtol = rtol, atol = atol)
     return nothing
 end
+
+"""
+    run_selected(reg; backends = String[], scenarios = String[],
+        rtol = 5e-2, atol = 1e-6, scenario_kwargs = (;), verbose = true)
+
+Run a named subset of scenarios against a named subset of backends, for
+fast diagnosis of a single scenario/backend combination outside the full
+per-backend suite.
+
+`backends` and `scenarios` are repeatable, case-insensitive substring
+filters against `backends(reg)`/`scenarios(reg)` names; an empty filter
+(the default) selects everything. Errors when a filter matches nothing, so
+a typo'd name fails loudly rather than silently running zero cases.
+
+For each selected `(scenario, backend)` pair already declared in
+`backend_skip_scenarios(reg)` for that backend, records `:skipped` without
+attempting the call — those skips exist for combinations that can crash
+the process rather than merely throw, so a diagnostic tool must not
+attempt them either. Otherwise calls `DifferentiationInterface.gradient`
+on `scen.f`, the backend, `scen.x`, and `scen.contexts...` (the same call
+[`check_broken`](@ref) makes) inside a `try`/`catch`, classifying the
+result `:pass` when the gradient is a finite vector matching `scen.res1`
+within tolerance, `:mismatch` when it is not, and `:error` on an
+exception.
+
+Returns a `Vector{<:NamedTuple}` of `(scenario, backend, status, detail)`
+so a caller can assert on results directly; the padded PASS/MISMATCH/
+ERROR/SKIPPED table is only printed when `verbose = true`.
+
+`scenario_kwargs` is forwarded to the registry's `scenarios` call, as in
+[`test_working_backend`](@ref). `DifferentiationInterface` must be loaded
+by the caller.
+"""
+function run_selected(
+        reg; backends::AbstractVector{<:AbstractString} = String[],
+        scenarios::AbstractVector{<:AbstractString} = String[],
+        rtol = 5.0e-2, atol = 1.0e-6, scenario_kwargs = (;),
+        verbose::Bool = true
+    )
+    DI = _require_pkg(
+        "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63",
+        "DifferentiationInterface"
+    )
+    matches(filters, s) = isempty(filters) ||
+        any(f -> occursin(lowercase(f), lowercase(s)), filters)
+
+    all_scens = _scenarios(
+        reg; with_reference = true, scenario_kwargs = scenario_kwargs
+    )
+    all_backends = _backends(reg)
+    sel_scens = [s for s in all_scens if matches(scenarios, String(s.name))]
+    sel_backends = [b for b in all_backends if matches(backends, b.name)]
+
+    isempty(sel_scens) && error("no scenarios match: $scenarios")
+    isempty(sel_backends) && error("no backends match: $backends")
+
+    skip = _per_backend_skip(reg)
+    results = NamedTuple[]
+    for s in sel_scens
+        sname = String(s.name)
+        for b in sel_backends
+            if sname in get(skip, b.name, Set{String}())
+                push!(
+                    results,
+                    (
+                        scenario = sname, backend = b.name,
+                        status = :skipped, detail = "SKIPPED",
+                    )
+                )
+                continue
+            end
+            status, detail = try
+                g = Base.invokelatest(
+                    DI.gradient, s.f, b.backend, s.x, s.contexts...
+                )
+                ref = s.res1
+                finite = all(isfinite, g)
+                ok = g isa AbstractVector && finite && ref !== nothing &&
+                    isapprox(g, ref; rtol = rtol, atol = atol)
+                ok ? (:pass, "PASS") :
+                    (:mismatch, "MISMATCH (finite=$finite)")
+            catch e
+                msg = replace(sprint(showerror, e), '\n' => ' ')
+                (:error, "ERROR: " * first(msg, 90))
+            end
+            push!(
+                results,
+                (
+                    scenario = sname, backend = b.name,
+                    status = status, detail = detail,
+                )
+            )
+        end
+    end
+
+    if verbose
+        println(
+            "Scenarios (", length(sel_scens), "): ",
+            join([String(s.name) for s in sel_scens], "; ")
+        )
+        println(
+            "Backends (", length(sel_backends), "): ",
+            join([b.name for b in sel_backends], "; ")
+        )
+        println()
+        for r in results
+            println(rpad(r.scenario, 46), rpad(r.backend, 22), r.detail)
+        end
+        println()
+        npass = count(r -> r.status == :pass, results)
+        println("done: ", npass, " PASS")
+    end
+
+    return results
+end

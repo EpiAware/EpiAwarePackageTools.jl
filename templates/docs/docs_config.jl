@@ -99,3 +99,42 @@ const HISTORY_COMMITS = 5
 # noisier suite, lower for a stricter one. Must be > 1.0, or a suite with no
 # change (or an improvement) would flag.
 const HISTORY_REGRESSION_THRESHOLD = 1.1
+
+# --- docs/pages.jl extension points (#170/#328/#354) ------------------------
+#
+# `docs/pages.jl` is MANAGED: `scaffold`/`update` regenerate it in full on
+# every run, owning group labels, ordering and placement. Add nav content
+# here instead of editing `pages.jl` directly — a direct edit is overwritten
+# on the next sync. All four constants are optional and default to
+# empty/absent, so a `docs_config.jl` written before one existed keeps
+# working untouched.
+
+# The package's own Getting-started tutorials, as `"Title" => "page.md"`
+# pairs (relative to `docs/src`), listed right after Overview (and the
+# optional FAQ below) in the generated nav — one placement for the whole
+# ecosystem rather than a per-repo choice (#354). The kit-managed AD-backends
+# tutorial (when `ad = true`) keeps its own nested "Tutorials" subgroup
+# alongside these, unaffected by this list.
+const PACKAGE_TUTORIALS = Pair{String, String}[]
+
+# Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
+# a developer reference distinct from the Development skeleton below), as
+# `"Title" => content` pairs where `content` is anything a nav entry may
+# hold: a single page path, or a nested vector of `"Title" => content` pairs.
+# Spliced in after "Benchmarks" and before "Development", in list order.
+const PACKAGE_SECTIONS = Pair{String, Any}[]
+
+# The one package-specific leaf in the managed "Development" group's fixed
+# skeleton (Overview, Contributing, this leaf, Release process, Developer
+# FAQ) — e.g. `"Adding a workaround" => "developer/adding-a-tool.md"`. The
+# group appears only when this is set: a package with nothing of its own to
+# document under Development gets no group, rather than a skeleton of pages
+# about no package-specific extension point. Leave `nothing` to opt out; the
+# four fixed pages (`developer/index.md`, `developer/contributing.md`,
+# `developer/release-process.md`, `developer/faq.md`) are then the package's
+# own to write, at those exact paths.
+const DEVELOPMENT_EXTEND_PAGE = nothing
+
+# An optional Getting-started FAQ page, listed right after Overview, e.g.
+# `"getting-started/faq.md"`. Leave `nothing` to omit it.
+const GETTING_STARTED_FAQ = nothing
