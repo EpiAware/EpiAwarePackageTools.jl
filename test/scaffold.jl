@@ -566,7 +566,16 @@
                 # (managed_only) re-emits the managed make.jl/quality.jl.
                 rm(_dest(dir, "docs/docs_config.jl"))
                 rm(_dest(dir, "docs/pages.jl"))
-                update(dir)
+                res = update(dir)
+                # `docs/pages.jl` self-heals: managed (unlike docs_config.jl,
+                # which stays absent -- managed_only skips package-owned
+                # templates), so a missing one is written fresh rather than
+                # left for a full `scaffold` re-run (#170/#328/#354).
+                @test res.pages == :created
+                @test isfile(_dest(dir, "docs/pages.jl"))
+                # Removed again so the guarded-fallback prelude below still
+                # exercises the "both configs absent" path it is named for.
+                rm(_dest(dir, "docs/pages.jl"))
                 # make.jl no longer hard-includes the missing config; the
                 # include is guarded and pages falls back to a default.
                 mk = read(_dest(dir, "docs/make.jl"), String)
@@ -1022,6 +1031,85 @@
             end
         end
 
+        @testset "AGENTS.md points at the docs, CLAUDE.md at AGENTS.md" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir)
+                @test res.agents === :created
+                txt = read(joinpath(dir, "AGENTS.md"), String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("<!-- epiaware-standards:start -->", txt)
+                @test occursin("<!-- epiaware-standards:end -->", txt)
+                # The block points at the standards docs rather than
+                # restating them, so a second copy cannot drift (#370).
+                @test occursin("Package standards", txt)
+                @test occursin(
+                    "epiawarepackagetools.epiaware.org/stable/standards", txt
+                )
+                @test occursin("epiaware.github.io", txt)
+                # Substituted, so it names the package and its own docs.
+                @test occursin("# Wombat", txt)
+                # CLAUDE.md is a pointer at AGENTS.md, nothing more.
+                claude = read(joinpath(dir, "CLAUDE.md"), String)
+                @test occursin("[AGENTS.md](AGENTS.md)", claude)
+                @test !occursin("Package standards", claude)
+                # The standards themselves are NOT copied in.
+                @test !occursin("Comment the reason, not the action.", txt)
+            end
+        end
+
+        @testset "AGENTS.md package-owned tail survives update" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "AGENTS.md")
+                notes = "## Wombat notes\n\nThe kernel cache is not thread-safe."
+                write(path, read(path, String) * "\n" * notes * "\n")
+                res = update(dir)
+                @test res.agents === :refreshed
+                @test occursin(notes, read(path, String))
+                # Idempotent with a tail present.
+                before = read(path, String)
+                update(dir)
+                @test read(path, String) == before
+            end
+        end
+
+        @testset "AGENTS.md a package already had is kept below the block" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                own = "# Wombat\n\nRun the slow suite with `task test-ad`.\n"
+                write(joinpath(dir, "AGENTS.md"), own)
+                res = update(dir)
+                @test res.agents === :injected
+                txt = read(joinpath(dir, "AGENTS.md"), String)
+                @test occursin(own, txt)
+                @test occursin("<!-- epiaware-standards:start -->", txt)
+                # Idempotent once the markers exist.
+                before = txt
+                update(dir)
+                @test read(joinpath(dir, "AGENTS.md"), String) == before
+            end
+        end
+
+        @testset "AGENTS.md stale block is overwritten" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "AGENTS.md")
+                stale = replace(
+                    read(path, String),
+                    "Package standards" => "Stale wording."
+                )
+                write(path, stale)
+                res = update(dir)
+                @test res.agents === :refreshed
+                txt = read(path, String)
+                @test occursin("Package standards", txt)
+                @test !occursin("Stale wording.", txt)
+            end
+        end
+
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
@@ -1356,6 +1444,7 @@
                 for f in (
                         ".github/workflows/ad.yaml",
                         "test/ad/setup.jl", "test/ad/runtests.jl",
+                        "test/ad/run_selected.jl",
                         "test/ad/scenarios.jl", "test/ad/Project.toml",
                         "test/ADFixtures/Project.toml",
                         "test/ADFixtures/src/ADFixtures.jl",
@@ -1429,6 +1518,7 @@
                 scaffold(dir)   # default ad = true
                 for f in (
                         ".github/workflows/ad.yaml", "test/ad/setup.jl",
+                        "test/ad/run_selected.jl",
                         "test/ad/scenarios.jl", "test/ADFixtures/src/ADFixtures.jl",
                     )
                     @test isfile(joinpath(dir, f))
@@ -1437,8 +1527,25 @@
                 @test occursin("ad-forwarddiff", cov)
             end
         end
+        
+        @testset "ad = true force-rewrites run_selected.jl on update() (#384)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Selectra")
+                scaffold(dir)  # default ad = true
+                runner = _dest(dir, "test/ad/run_selected.jl")
+                @test occursin("run_selected", read(runner, String))
+                write(runner, "# drifted, hand-edited\n")
+                res = update(dir)
+                @test runner in res.updated
+                txt = read(runner, String)
+                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
+                @test occursin("EpiAwarePackageTools.run_selected", txt)
+                @test occursin("--backend", txt)
+                @test occursin("--scenario", txt)
+            end
+        end
 
-        @testset "ext is flagged under `unit` and enzyme AD flags (#180, #386)" begin
+        @testset "ext is flagged under `unit` only (#180)" begin
             # AD jobs run without the weakdeps loaded, so an `ext` path under
             # an `ad-*` flag reports 0% and drags the aggregate down; the
             # unit job (which loads them) may claim extension coverage. The
@@ -1926,14 +2033,21 @@
             end
         end
 
-        @testset "update warns when pages.jl lacks Benchmarks nav entries (#305)" begin
-            # `docs/pages.jl` is the same package-owned, write-once gap as
-            # `docs_config.jl` above. Two adopters can be stale: an
-            # `ad = true` adopter who synced before the ad-comparison.jl
-            # split has no nav entry pointing at the new page at all, and a
-            # `benchmarks = true` adopter who synced before #305 still has
-            # the pre-#305 nav pointing at a path the build no longer
-            # writes.
+        @testset "update warns when a bespoke pages.jl lacks Benchmarks nav entries (#305)" begin
+            # `docs/pages.jl` is now MANAGED: `update` regenerates a fresh
+            # `BENCHMARKS_NAV` in full on every sync, so this gap only survives
+            # in a bespoke, preserved `pages.jl` -- one with no
+            # `_MANAGED_PAGES_MARKER` header, exactly what every adopter's
+            # `pages.jl` looked like before #170/#328/#354 landed. Two ways it
+            # can be stale: an `ad = true` adopter who forked before the
+            # ad-comparison.jl split has no nav entry pointing at the new page
+            # at all, and a `benchmarks = true` adopter who forked before #305
+            # still has the pre-#305 nav pointing at a path the build no
+            # longer writes.
+            using EpiAwarePackageTools: _MANAGED_PAGES_MARKER
+            # Strip the managed marker line, turning a freshly scaffolded
+            # `pages.jl` into the bespoke, pre-redesign shape this test needs.
+            _unmark(txt) = replace(txt, "# " * _MANAGED_PAGES_MARKER * "\n" => "")
             mktempdir() do dir
                 _fake_pkg(dir; name = "PreSplitNav")
                 scaffold(dir)
@@ -1949,11 +2063,14 @@
                     ",\n    \"Benchmarks\" => [\n        \"AD comparison\" " *
                         "=>\n            \"benchmarks/ad-comparison.md\",\n    ]" => ""
                 )
-                write(pages, txt)
+                write(pages, _unmark(txt))
                 local res
                 @test_logs (:warn, r"pages\.jl"i) match_mode = :any begin
                     res = update(dir)
                 end
+                # Bespoke, so preserved verbatim -- not silently regenerated.
+                @test res.pages == :preserved
+                @test read(pages, String) == _unmark(txt)
                 @test !isempty(res.warnings)
                 @test any(res.warnings) do w
                     occursin("pages.jl", w) && occursin("ad-comparison", w)
@@ -1972,18 +2089,20 @@
                     "\"Benchmarks\" => [\n        \"Performance over time\"" *
                         " => \"benchmarks/over-time.md\",\n    ]" => "\"Benchmarks\" => \"benchmarks.md\""
                 )
-                write(pages, txt)
+                write(pages, _unmark(txt))
                 local res
                 @test_logs (:warn, r"pages\.jl"i) match_mode = :any begin
                     res = update(dir; ad = false, benchmarks = true)
                 end
+                @test res.pages == :preserved
                 @test !isempty(res.warnings)
                 @test any(res.warnings) do w
                     occursin("pages.jl", w) &&
                         occursin("over-time.md", w)
                 end
             end
-            # A fresh scaffold already carries the nav entry, so no warning.
+            # A fresh (still managed) scaffold self-heals instead of warning,
+            # even after the same hand-edit: `update` just regenerates it.
             # Covered for all four (ad, benchmarks) combinations -- this is
             # exactly the class of gap (#305 built on top of #299) that has
             # already bitten this branch once when only one combination was
@@ -2001,6 +2120,7 @@
                     scaffold(dir; ad = ad, benchmarks = benchmarks)
                     res = update(dir; ad = ad, benchmarks = benchmarks)
                     @test isempty(res.warnings)
+                    @test res.pages in (:unchanged, :refreshed)
                 end
             end
         end
@@ -5241,7 +5361,7 @@ end
         end
     end
 
-    @testset "a page the write-once nav never learned about is named" begin
+    @testset "declaring an extension later is picked up automatically (#170/#328/#354)" begin
         mktempdir() do dir
             write(
                 joinpath(dir, "Project.toml"),
@@ -5256,11 +5376,12 @@ end
             @test isempty(res.extension_pages.preserved)
             @test !any(w -> occursin("extensions/", w), res.warnings)
 
-            # The package declares an extension after adopting the kit. An
-            # unforced re-scaffold seeds the page (absent, so write-once
-            # writes it) but cannot touch the package-owned pages.jl, so
-            # nothing links it — that has to be said, not discovered on a
-            # published site.
+            # The package declares an extension after adopting the kit. A
+            # re-scaffold seeds the page (absent, so write-once writes it)
+            # and regenerates the managed `pages.jl`, which links it
+            # automatically -- before #170/#328/#354, `pages.jl` was
+            # write-once too, so this needed a warning plus a hand-pasted nav
+            # entry (see the git history of this test).
             proj = joinpath(dir, "Project.toml")
             write(
                 proj,
@@ -5273,34 +5394,24 @@ end
             res2 = scaffold(dir)
             @test length(res2.extension_pages.created) == 1
             @test isfile(_dest(dir, "docs/src/extensions/plots.md"))
-            unlinked = filter(
-                w -> occursin("extensions/plots.md", w),
-                res2.warnings
-            )
-            @test length(unlinked) == 1
-            # The warning carries the exact nav entry to paste.
-            @test occursin(
-                "\"Plots\" => \"extensions/plots.md\"",
-                only(unlinked)
-            )
+            @test res2.pages == :refreshed
+            pgs2 = read(_dest(dir, "docs/pages.jl"), String)
+            @test occursin("\"Plots\" => \"extensions/plots.md\"", pgs2)
+            # Already linked by the regeneration above, so nothing to warn
+            # about.
+            @test !any(w -> occursin("extensions/plots.md", w), res2.warnings)
 
-            # Once the entry is there by hand, the warning stops.
-            pgs = _dest(dir, "docs/pages.jl")
-            write(
-                pgs,
-                replace(
-                    read(pgs, String),
-                    "    \"API reference\"" =>
-                        "    \"Extensions\" => [\n" *
-                        "        \"Plots\" => \"extensions/plots.md\"\n" *
-                        "    ],\n    \"API reference\""
-                )
-            )
+            # A further re-scaffold changes nothing of substance: the page is
+            # preserved (write-once), and the nav entry survives being
+            # regenerated again.
             res3 = scaffold(dir)
             @test !any(w -> occursin("extensions/plots.md", w), res3.warnings)
-            # The authored page is preserved, and reported as such.
             @test length(res3.extension_pages.preserved) == 1
             @test isempty(res3.extension_pages.created)
+            @test occursin(
+                "\"Plots\" => \"extensions/plots.md\"",
+                read(_dest(dir, "docs/pages.jl"), String)
+            )
         end
     end
 
