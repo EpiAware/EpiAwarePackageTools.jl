@@ -1527,7 +1527,7 @@
                 @test occursin("ad-forwarddiff", cov)
             end
         end
-        
+
         @testset "ad = true force-rewrites run_selected.jl on update() (#384)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Selectra")
