@@ -1046,7 +1046,7 @@
                 @test occursin(
                     "epiawarepackagetools.epiaware.org/stable/standards", txt
                 )
-                @test occursin("epiaware.github.io", txt)
+                @test occursin("epiaware.org/approaches", txt)
                 # Substituted, so it names the package and its own docs.
                 @test occursin("# Wombat", txt)
                 # CLAUDE.md is a pointer at AGENTS.md, nothing more.
