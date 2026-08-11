@@ -68,6 +68,12 @@ updates:
   - package-ecosystem: "julia"
     directories:
       - "/test/*"
+      # A tutorial that opts into its own environment puts it here. It cannot
+      # join the root `[workspace]`, because workspace members share one
+      # manifest and such a tutorial opts out precisely because its
+      # dependencies do not co-resolve with the shared docs project. Without
+      # this glob its `Project.toml` would get no updates at all.
+      - "/docs/environments/*"
     schedule:
       interval: "daily"
     groups:

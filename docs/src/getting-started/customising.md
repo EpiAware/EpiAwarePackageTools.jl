@@ -80,6 +80,14 @@ as a `"file.jl" => "environment/dir"` pair.
 The directory is relative to `docs/` unless absolute, and the tutorial's
 subprocess resolves against it instead.
 
+Put it under `environments/`, so `docs/environments/my-tutorial/` on disk.
+The managed Dependabot config watches that path and no other.
+Such an environment cannot join the root `[workspace]`, because workspace
+members share a single manifest and a tutorial opts out precisely because its
+dependencies do not co-resolve with the shared docs project.
+An environment elsewhere still builds, but nothing will ever update its
+dependencies.
+
 That environment is yours, like `docs/Project.toml` is.
 The kit never writes it.
 Create the directory with a `Project.toml` declaring the tutorial's
