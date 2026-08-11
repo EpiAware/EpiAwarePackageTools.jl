@@ -229,8 +229,11 @@ const SCAFFOLD_TEMPLATES = Template[
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
     # `make.jl`, the VitePress site config/theme/components, the node deps and
-    # the version stub are managed; `Project.toml` and `pages.jl` are
-    # package-owned so a package extends them.
+    # the version stub are managed; `Project.toml` is package-owned so a
+    # package extends it. `docs/pages.jl` is not in this list: like
+    # `.gitignore`, it needs bespoke merge logic (`_apply_pages`) rather than
+    # a plain overwrite-or-preserve template, since overwriting a bespoke nav
+    # would delete a package's real docs navigation (#170/#328/#354).
     Template("docs/make.jl", "docs/make.jl", true, true),
     # The per-subprocess heavy-tutorial runner `make.jl` shells out to.
     Template(
@@ -312,10 +315,6 @@ const SCAFFOLD_TEMPLATES = Template[
         "docs/src/assets/logo.svg",
         "docs/src/assets/logo.svg", false, true
     ),
-    # Substituted so the "Benchmarks" nav group is present when `benchmarks`
-    # or `ad` is enabled (see `_benchmarks_nav`); package-owned so a package
-    # extends the tree.
-    Template("docs/pages.jl", "docs/pages.jl", false, true),
     # The authored quickstart, distinct from the README-derived home page.
     # Docs about the kit itself are not seeded here: they describe the kit,
     # not the adopting package, so they live on the kit's own site (#194).
@@ -1689,9 +1688,10 @@ end
 #
 # A package that ships `[extensions]` gets an "Extensions" nav group, one entry
 # per extension, each pointing at a package-owned page under
-# `docs/src/extensions/`. The nav block is rendered into `docs/pages.jl` at
-# scaffold time and `DocsBuild._strip_extensions_nav` keeps the built site
-# honest when a page named there no longer exists (#319).
+# `docs/src/extensions/`. The nav block is rendered into `docs/pages.jl` on
+# every `scaffold`/`update` (`_apply_pages`), and
+# `DocsBuild._strip_extensions_nav` keeps the built site honest when a page
+# named there no longer exists (#319).
 #
 # Detected from the target's Project.toml, not gated by a kwarg: an extension
 # is a fact about the package, unlike the benchmark and AD opt-ins.
@@ -1881,11 +1881,14 @@ end
 
 # The extension pages a package has on disk that nothing in its nav points at.
 #
-# `docs/pages.jl` is package-owned and write-once, so `EXTENSIONS_NAV` only
-# reflects the `[extensions]` declared at first scaffold. A package declaring
-# one later gets the page seeded but no nav entry, so nothing links to it.
-# Name it, with the entry to add, rather than leaving it to be noticed on a
-# published site (#319). Returns a message, or `nothing` when all are reachable.
+# A managed `docs/pages.jl` (`_apply_pages` already ran by the time this is
+# called) always reflects the current `[extensions]` table, so this only ever
+# fires for a bespoke, preserved `pages.jl` (#170/#328/#354): package-owned
+# and write-once like before this redesign, so a package declaring an
+# extension after forking it gets the page seeded but no nav entry, and
+# nothing links to it. Name it, with the entry to add, rather than leaving it
+# to be noticed on a published site (#319). Returns a message, or `nothing`
+# when all are reachable.
 #
 # Only pages on disk count: `update` never seeds them, so warning there would
 # claim a file is unreachable when it was never written, and the remedy would
@@ -2053,12 +2056,13 @@ function _benchmarks_nav(benchmarks::Bool, ad::Bool)
         join(entries, ",\n        ") * ",\n    ]"
 end
 
-# `docs/pages.jl` is package-owned and write-once, the same as
+# A managed `docs/pages.jl` carries a current `BENCHMARKS_NAV` on every
+# `_apply_pages` run, so this only ever fires for a bespoke, preserved
+# `pages.jl` (#170/#328/#354): package-owned and write-once like
 # `docs/docs_config.jl` (see `_ad_benchmarks_config_gap` above), so `update`
-# cannot add the `{{BENCHMARKS_NAV}}` entry a fresh scaffold seeds to an
-# existing adopter's file (#299/#305). Two ways an existing adopter's
-# `pages.jl` can now be stale: an `ad = true` adopter who synced before the
-# AD-comparison split has no nav entry pointing at
+# cannot add the entry a fresh scaffold seeds to a forked file (#299/#305).
+# Two ways an existing adopter's `pages.jl` can now be stale: an `ad = true`
+# adopter who synced before the AD-comparison split has no nav entry pointing at
 # `benchmarks/ad-comparison.md` at all, and ANY `benchmarks = true` adopter
 # (regardless of `ad`) who synced before #305 still has the pre-#305 flat
 # `"Benchmarks" => "benchmarks.md"` entry, which now points at a path the
@@ -2095,6 +2099,275 @@ function _benchmarks_nav_gap(
         "existing \"Benchmarks\" entry in the pages array in ",
         "docs/pages.jl with: ", entry
     )
+end
+
+# --- the managed docs/pages.jl base + package extension points -------------
+# (#170/#328/#354)
+#
+# `docs/pages.jl` used to be a package-owned skeleton, forked once at
+# scaffold time and never touched again -- the direct cause of the drift a
+# survey of every adopter turned up: three orphaned AD-backends tutorials, a
+# Benchmarks nav stale in every adopter since #305 (`_benchmarks_nav_gap`
+# above can only warn about it, because the file is write-once), and label
+# drift ("Modules" for "API reference", "Developer" for "Development")
+# nothing could self-heal. It is now a MANAGED template like any other:
+# `scaffold`/`update` regenerate it in full on every run from the same
+# `_ad_tutorials_nav`/`_benchmarks_nav`/`_extensions_nav` fragments used
+# above, now spliced in on every sync rather than only the first. A package
+# extends it through four optional constants in the package-owned
+# `docs/docs_config.jl` (see `templates/docs/docs_config.jl`) instead of
+# editing the generated file, read below with the same isdefined-or-default
+# fallback `make.jl`'s own `_cfg` applies at docs-build time.
+#
+# Migration safety is the part that must not be got wrong: overwriting a
+# bespoke `pages.jl` would delete real docs navigation -- ten adopters have
+# one (EpiAwareADTools' "Tools", ScoringRules' "Guide", ComposedDistributions'
+# "Developer", ...). `_apply_pages` writes the managed base only when the
+# committed file already carries `_MANAGED_PAGES_MARKER`, or no file exists
+# yet, regardless of `force`: unlike every other package-owned skeleton,
+# there is no forced reset back to the seeded version, because a forced reset
+# here is exactly the clobber this whole redesign exists to prevent.
+# Otherwise the file is preserved untouched and a warning names exactly which
+# of its existing top-level groups the generated base would not reproduce,
+# with the `docs_config.jl` snippet that would carry them across.
+
+# Written into the header of every kit-generated `docs/pages.jl`, so a later
+# `update` can tell a managed file (safe to regenerate) from a bespoke one
+# (preserve and warn). This is the inverse of `_MANAGED_OVERRIDE_MARKER`:
+# there the marker's presence keeps a managed file from resyncing; here the
+# marker's absence is what keeps a package-owned file from being overwritten.
+const _MANAGED_PAGES_MARKER = "EPIAWARE_MANAGED_PAGES"
+
+# Evaluate a target's `docs/docs_config.jl` in a fresh, throwaway module so
+# its constants -- including the four pages.jl extension points -- read back
+# as real Julia values rather than being regex-scraped, the way
+# `_package_extensions` parses Project.toml structurally instead of with a
+# pattern. A real evaluation also resolves an adopter's own indirection (a
+# `Vector{Pair}` built through intermediate variables) the same way reading
+# `pages` back in `_pages_group_labels` below does. Returns `nothing` when
+# the file is absent or fails to evaluate (e.g. an unsubstituted
+# `{{PLACEHOLDER}}` template is not valid Julia, tolerated the same way
+# `_package_extensions` tolerates a TOML parse failure).
+function _read_docs_config(target_dir::AbstractString)
+    cfg = _dest_path(target_dir, "docs/docs_config.jl")
+    isfile(cfg) || return nothing
+    mod = Module(:_EpiAwareDocsConfig)
+    try
+        Base.include_string(mod, read(cfg, String), cfg)
+    catch
+        return nothing
+    end
+    return mod
+end
+
+# A module built by `include_string` inside the very call that reads it back
+# (as `_read_docs_config`/`_pages_group_labels` do) defines its bindings in a
+# world newer than the calling frame's, and Julia 1.12 world-age-guards a
+# global binding the same way it already guarded method dispatch -- both
+# `isdefined` and `getfield` must run through `Base.invokelatest`, or the read
+# warns now and errors on a future Julia. Shared by `_docs_cfg` below and
+# `_pages_group_labels`.
+_get_binding(mod::Module, sym::Symbol, default) =
+    isdefined(mod, sym) ? getfield(mod, sym) : default
+
+# The same isdefined-or-default fallback `make.jl`'s own `_cfg` applies at
+# docs-build time, applied here at scaffold/update time instead: `mod` is
+# `nothing` (no docs_config.jl, or it failed to evaluate) or lacks `sym` (a
+# file written before this constant existed) both default quietly.
+function _docs_cfg(mod, sym::Symbol, default)
+    return mod === nothing ? default :
+        Base.invokelatest(_get_binding, mod, sym, default)
+end
+
+# Render an arbitrary nav value -- a page path, or a nested vector of
+# `"Title" => value` pairs -- as `pages.jl`-style Julia source, so a
+# `PACKAGE_SECTIONS`/`DEVELOPMENT_EXTEND_PAGE` value (already resolved to a
+# real Julia value by `_read_docs_config`) comes back out formatted like the
+# rest of the managed base, rather than through `repr`, which does not follow
+# this file's indentation convention. `indent` is the current entry's own
+# indentation, so a nested vector's entries and closing bracket can be
+# indented relative to it.
+function _render_nav_value(value, indent::AbstractString)
+    if value isa AbstractString
+        return string("\"", value, "\"")
+    elseif value isa Pair
+        return string(
+            "\"", String(value.first), "\" => ",
+            _render_nav_value(value.second, indent)
+        )
+    elseif value isa AbstractVector
+        inner = indent * "    "
+        entries = [inner * _render_nav_value(v, inner) for v in value]
+        return string("[\n", join(entries, ",\n"), ",\n", indent, "]")
+    else
+        error(
+            "pages.jl nav value must be a String, Pair or Vector, got a " *
+                string(typeof(value))
+        )
+    end
+end
+
+# The optional Getting-started FAQ leaf (`GETTING_STARTED_FAQ`), spliced
+# right after "Overview". Empty (no entry) when unset, exactly as
+# `_ad_tutorials_nav` is empty for `ad = false`.
+function _getting_started_faq(faq)
+    faq === nothing && return ""
+    return string(",\n        \"FAQ\" => \"", faq, "\"")
+end
+
+# The package's own Getting-started tutorials (`PACKAGE_TUTORIALS`), spliced
+# after Overview/FAQ and before the kit-managed AD tutorial subgroup -- one
+# ecosystem-wide placement instead of a per-repo choice (#354).
+function _package_tutorials_nav(tutorials)
+    isempty(tutorials) && return ""
+    return join(
+        (
+            string(",\n        ", _render_nav_value(t, "        "))
+                for t in tutorials
+        )
+    )
+end
+
+# The package's extra top-level nav groups (`PACKAGE_SECTIONS`), spliced
+# after "Benchmarks" and before "Development".
+function _package_sections_nav(sections)
+    isempty(sections) && return ""
+    return join(
+        (
+            string(",\n    ", _render_nav_value(s, "    "))
+                for s in sections
+        )
+    )
+end
+
+# The "Development" group: a fixed skeleton (Overview, Contributing, Release
+# process, Developer FAQ) around the package's one varying leaf
+# (`DEVELOPMENT_EXTEND_PAGE`), matching the shape every adopter with one
+# independently converged on. The group appears only when the leaf is set
+# (see `templates/docs/docs_config.jl`); `nothing` renders no group at all.
+function _development_nav(extend_leaf)
+    extend_leaf === nothing && return ""
+    leaf = _render_nav_value(extend_leaf, "        ")
+    return string(
+        ",\n    \"Development\" => [\n",
+        "        \"Overview\" => \"developer/index.md\",\n",
+        "        \"Contributing\" => \"developer/contributing.md\",\n",
+        "        ", leaf, ",\n",
+        "        \"Release process\" => \"developer/release-process.md\",\n",
+        "        \"Developer FAQ\" => \"developer/faq.md\",\n",
+        "    ]"
+    )
+end
+
+# The top-level nav group labels a `pages.jl` source (on disk, or a freshly
+# rendered replacement) declares, read by evaluating the array `pages` binds
+# to rather than pattern-matching the source -- real evaluation resolves an
+# adopter's own indirection (e.g. `pages = ["Getting started" =>
+# getting_started_pages, ...]`, as CensoredDistributions.jl's bespoke file
+# does) the same way `_read_docs_config` does for `docs_config.jl`. Returns
+# `nothing` when `text` fails to evaluate or does not bind `pages` to a
+# vector.
+function _pages_group_labels(text::AbstractString)
+    mod = Module(:_EpiAwareBespokePages)
+    try
+        Base.include_string(mod, text)
+    catch
+        return nothing
+    end
+    val = Base.invokelatest(_get_binding, mod, :pages, nothing)
+    val isa AbstractVector || return nothing
+    return String[String(e.first) for e in val if e isa Pair]
+end
+
+# `update`'s migration-safety message when a bespoke `pages.jl` (no
+# `_MANAGED_PAGES_MARKER`) is preserved rather than regenerated: names
+# exactly which of its existing top-level groups the generated managed base
+# would not reproduce, together with the `docs_config.jl` snippet
+# (`PACKAGE_SECTIONS`) that would carry them across -- turning a silent
+# clobber this never performs into an actionable migration instruction
+# instead. `nothing` when every existing group would carry over unchanged, or
+# when `bespoke_text` fails to evaluate (e.g. it does not even parse) --
+# there is nothing specific to say in that case.
+function _pages_groups_at_risk(
+        bespoke_text::AbstractString,
+        generated_text::AbstractString
+    )
+    bespoke = _pages_group_labels(bespoke_text)
+    bespoke === nothing && return nothing
+    generated = something(_pages_group_labels(generated_text), String[])
+    at_risk = filter(l -> !(l in generated), unique(bespoke))
+    isempty(at_risk) && return nothing
+    snippet = join(
+        (string("\"", l, "\" => [...]") for l in at_risk), ", "
+    )
+    return string(
+        "docs/pages.jl is package-owned (no ", _MANAGED_PAGES_MARKER,
+        " header) and was preserved. If it were replaced by the managed ",
+        "base, these existing top-level group", length(at_risk) == 1 ? "" : "s",
+        " would not be reproduced: ", join(at_risk, ", "),
+        ". Add ", length(at_risk) == 1 ? "it" : "them",
+        " as PACKAGE_SECTIONS in docs/docs_config.jl, e.g.: ",
+        "PACKAGE_SECTIONS = [", snippet, "]."
+    )
+end
+
+"""
+    _apply_pages(target_dir, inputs)
+
+Apply the managed `docs/pages.jl` to `target_dir`.
+
+`docs/pages.jl` is MANAGED, but "managed" means something narrower here than
+for any other template: `update`/`scaffold` only regenerate it when the
+committed file already carries `_MANAGED_PAGES_MARKER` in its header, or no
+file exists yet. A committed file without the marker is preserved untouched
+no matter what `force` says -- see the section header above for why. The
+regenerated content splices `AD_TUTORIALS_NAV`/`EXTENSIONS_NAV`/
+`BENCHMARKS_NAV` from `inputs` (computed in `_apply`, unchanged fragments)
+and the four `docs_config.jl` extension points read fresh from disk here, so
+a package's docs_config.jl edits and a `force` reset of it (which happens
+before this runs) are both reflected.
+
+Returns `(action, warning)`: `action` is `:created` (no prior file),
+`:refreshed` (marker present, content changed), `:unchanged` (marker
+present, content already current) or `:preserved` (no marker); `warning` is
+the migration message from `_pages_groups_at_risk`, or `nothing`.
+"""
+function _apply_pages(target_dir::AbstractString, inputs::NamedTuple)
+    cfg = _read_docs_config(target_dir)
+    page_inputs = merge(
+        inputs,
+        (
+            GETTING_STARTED_FAQ = _getting_started_faq(
+                _docs_cfg(cfg, :GETTING_STARTED_FAQ, nothing)
+            ),
+            PACKAGE_TUTORIALS = _package_tutorials_nav(
+                _docs_cfg(cfg, :PACKAGE_TUTORIALS, Pair{String, String}[])
+            ),
+            PACKAGE_SECTIONS = _package_sections_nav(
+                _docs_cfg(cfg, :PACKAGE_SECTIONS, Pair{String, Any}[])
+            ),
+            DEVELOPMENT_NAV = _development_nav(
+                _docs_cfg(cfg, :DEVELOPMENT_EXTEND_PAGE, nothing)
+            ),
+        )
+    )
+    from = joinpath(_templates_dir(), "docs", "pages.jl")
+    isfile(from) || error("missing bundled template docs/pages.jl at $from")
+    rendered = _render(from, true, page_inputs)
+    to = _dest_path(target_dir, "docs/pages.jl")
+    if !isfile(to)
+        mkpath(dirname(to))
+        write(to, rendered)
+        return (:created, nothing)
+    end
+    existing = read(to, String)
+    if occursin(_MANAGED_PAGES_MARKER, existing)
+        existing == rendered && return (:unchanged, nothing)
+        _make_writable(to)
+        write(to, rendered)
+        return (:refreshed, nothing)
+    end
+    return (:preserved, _pages_groups_at_risk(existing, rendered))
 end
 
 # The conventional custom-subdomain docs host for a package, e.g.
@@ -3143,6 +3416,16 @@ function _apply(
         _emit(from, to, t.substitute, inputs)
         push!(exists ? updated : created, to)
     end
+    # The managed docs nav base, spliced with the package's own extension
+    # points read fresh from `docs/docs_config.jl` (already written above for
+    # a fresh/forced scaffold, package-owned and untouched otherwise) --
+    # see `_apply_pages`. Reported separately (`pages`), not mixed into
+    # `created`/`updated`/`preserved`, as for every bespoke applier below.
+    pages_action, pages_warning = _apply_pages(target_dir, inputs)
+    if pages_warning !== nothing
+        push!(warnings, pages_warning)
+        @warn pages_warning
+    end
     # The README body is package-owned, but the badge block between the markers
     # is managed. Reported separately (`readme`) so the template manifest stays
     # template-driven, as for every applier below.
@@ -3178,10 +3461,12 @@ function _apply(
     # link no `update` could ever resolve.
     citation_action = _apply_citation_cff(target_dir, inputs)
     # The per-extension docs pages are package-owned and write-once. Unlike
-    # CITATION.cff, `update` does not seed them: a page is only reachable
-    # through `EXTENSIONS_NAV` in the package-owned `docs/pages.jl`, which
-    # `update` cannot write either, so seeding one on a sync would leave an
-    # unreferenced file rather than fix a dangling link (#319).
+    # CITATION.cff, `update` does not seed them, only `scaffold` does. Since
+    # `_apply_pages` now writes the `Extensions` nav group from the current
+    # `[extensions]` table on every sync, a package that declares one between
+    # scaffolds gets the nav entry from `update` before the page exists; the
+    # docs build's `_strip_extensions_nav` drops any such entry until the page
+    # is written, the same graceful handling any missing page gets (#319).
     ext_created, ext_preserved = managed_only ? (String[], String[]) :
         _apply_extension_pages(
             target_dir, inputs; force = force
@@ -3270,8 +3555,9 @@ function _apply(
         push!(warnings, gap)
         @warn gap
     end
-    # `docs/pages.jl` has the same package-owned, write-once gap for the
-    # `{{BENCHMARKS_NAV}}` entry — see `_benchmarks_nav_gap`.
+    # A bespoke, preserved `docs/pages.jl` has the same gap for the
+    # `{{BENCHMARKS_NAV}}` entry — see `_benchmarks_nav_gap`. A managed one
+    # already carries it fresh from `_apply_pages`, above.
     nav_gap = _benchmarks_nav_gap(target_dir, benchmarks, ad)
     if nav_gap !== nothing
         push!(warnings, nav_gap)
@@ -3305,7 +3591,7 @@ function _apply(
         logo = logo_action, standard_sections = sections_action,
         citation = citation_action, org_branding = org_branding_action,
         extension_pages = (created = ext_created, preserved = ext_preserved),
-        warnings = warnings,
+        pages = pages_action, warnings = warnings,
     )
 end
 
@@ -3539,21 +3825,39 @@ for one of them is left untouched (#67). `CITATION.cff` is package-owned and
 write-once, seeded when absent by both `scaffold` and [`update`](@ref) and
 never rewritten, so the real author list and DOI stand (#322).
 
+`docs/pages.jl` (the docs nav tree) is a MANAGED base, not a package-owned
+skeleton: it is regenerated in full on every `scaffold`/`update`, owning
+group labels, ordering and placement, with four optional extension points a
+package fills in via `docs/docs_config.jl` (`PACKAGE_TUTORIALS`,
+`PACKAGE_SECTIONS`, `DEVELOPMENT_EXTEND_PAGE`, `GETTING_STARTED_FAQ`) rather
+than editing the generated file (#170/#328/#354). The one exception in the
+whole kit: unlike every other managed file, this is never reset by
+`force` either. A committed file is only ever regenerated when it already
+carries `_MANAGED_PAGES_MARKER` in its header (what a kit-generated file
+always has) or does not exist yet; otherwise — a bespoke, forked `pages.jl`
+from before this redesign — it is preserved untouched and a warning names
+which of its existing top-level nav groups the generated base would not
+reproduce, with the `PACKAGE_SECTIONS` snippet to carry them across. See
+[`update`](@ref) for the same rule on a resync.
+
 `force = true` overwrites the package-owned skeletons too, and lays every
 managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 (see [`update`](@ref)), so a new package always starts fully managed.
+`docs/pages.jl` is the one file `force` does not reset — see above.
 `target_dir` must exist. Use [`update`](@ref) to re-apply only the managed
 files later.
 
 Returns a `(created, updated, preserved, removed, readme, license, workspace,
 gitignore, git_blame_ignore, logo, standard_sections, citation, org_branding,
-extension_pages, warnings)` named tuple: destination paths newly written,
-managed files overwritten, package-owned files left in place, retired managed
-paths deleted (`RETIRED_PATHS`, #185), then the action taken by each of the
-region appliers
+extension_pages, pages, warnings)` named tuple: destination paths newly
+written, managed files overwritten, package-owned files left in place,
+retired managed paths deleted (`RETIRED_PATHS`, #185), then the action taken
+by each of the region appliers
 (`:created`/`:injected`/`:refreshed`/`:preserved`/`:skipped`, as each
 docstring records), the seeded per-extension docs pages as a
-`(created, preserved)` pair of path vectors (#319), and non-fatal `warnings`.
+`(created, preserved)` pair of path vectors (#319), the `docs/pages.jl`
+action (`:created`/`:refreshed`/`:unchanged`/`:preserved`, see above), and
+non-fatal `warnings`.
 """
 function scaffold(
         target_dir::AbstractString; force::Bool = false,
@@ -3632,10 +3936,22 @@ an older kit, so a generic check would fire on every sync and mean nothing.
 Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
 converges on the current standard instead of leaving dead infra behind (#185).
 
+`docs/pages.jl` is regenerated here too, in full, from the same managed base
+plus the package's `docs/docs_config.jl` extension points as `scaffold`
+(#170/#328/#354) — the fix for docs nav that used to only ever apply at first
+scaffold (three orphaned AD-backends tutorials, a Benchmarks nav stale since
+#305, `_extensions_nav` unreachable after the fact). The migration-safety
+rule applies here too, unweakened by anything `update` normally does more
+freely than `scaffold`: a committed `pages.jl` without `_MANAGED_PAGES_MARKER`
+in its header is preserved untouched and warned about rather than
+regenerated, exactly as under [`scaffold`](@ref).
+
 Returns the same named tuple as [`scaffold`](@ref). `license` is always
 `:skipped` here, `citation` is `:created` or `:preserved` (#322), and
 `extension_pages` is always empty: those pages are package-owned and only
-`scaffold` seeds them (#319).
+`scaffold` seeds them (#319). `pages` can still be `:created` here: a
+missing `docs/pages.jl` (e.g. deleted by hand) is written fresh rather than
+left absent, self-healing rather than requiring a full `scaffold` re-run.
 """
 function update(
         target_dir::AbstractString; ad::Bool = true,
