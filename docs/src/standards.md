@@ -93,9 +93,18 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 ### 13. New variants arrive by dispatch
 
-- Rule: a new variant of any component is a new type plus one or two methods, with no edit to the existing component's source; a component that still branches internally on a flag or a `Symbol` is recorded as a known deviation ([#311](https://github.com/EpiAware/EpiAwarePackageTools.jl/issues/311)).
+- Rule: a new variant of any component is a new type plus one or two methods, with no edit to the existing component's source; a component that still branches internally on a flag or a `Symbol` is recorded as a known deviation.
 - Why: it turns "does this change respect the design?" into a reviewable criterion rather than a judgement call.
 - Not enforced, reviewed by hand.
+
+An audit against this rule found two deviations in the kit itself.
+
+- `Template.ad::Symbol` and `Template.bench::Symbol` in `src/scaffold.jl`, read by `_ad_selected` and `_bench_selected`, gate every entry in `SCAFFOLD_TEMPLATES` through a `Symbol` switch; adding a new gating criterion means editing the struct and both selector chains.
+This is the primary deviation, and the mirror image of `ad_harness.jl`'s `ADRegistry`, which is duck-typed and method-based and stands as the worked example of the pattern this rule asks for.
+- About eight private content generators in `src/scaffold.jl`, including the tutorial, benchmark and docs-dependency helpers, open with `ad || return ""` or `benchmarks || return ""`.
+This is a weaker deviation: real flag branching, but each function gates one fixed on/off feature rather than an extension point.
+
+Not deviations: `_resolve_docs_subdomain` already dispatches on type rather than branching on a flag; `benchmarks.jl`'s `status::Symbol` is a closed three-state tag, not an extension point; `run_tests.jl`'s `s.kind == :module` and `quality.jl`'s `expr.head in (...)` branch on someone else's API (TestItemRunner's, Julia's own AST) rather than this package's; and an ordinary `::Bool` keyword option is not a deviation on its own.
 
 ### 14. Package hygiene has one implementation
 
