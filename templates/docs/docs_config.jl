@@ -34,6 +34,24 @@ const TUTORIAL_STUBS = Pair{String, String}[{{AD_TUTORIAL_STUBS}}]
 # parked by naming it here too.
 const FORCE_STUB_TUTORIALS = String[]
 
+# Heavy tutorials that build against their own environment instead of the
+# shared `docs/` one, as `"file.jl" => "environment/dir"` pairs. The directory
+# is relative to `docs/` unless absolute. The escape hatch for a dependency
+# that cannot co-resolve with the rest of the docs environment, e.g. one
+# capping a shared dependency below the version this package's own extension
+# needs; everything else belongs in `docs/Project.toml`.
+#
+# The environment is package-owned: the kit never writes it, exactly as it
+# never writes `docs/Project.toml`. Create the directory with a
+# `Project.toml` declaring the tutorial's dependencies plus `Literate` (the
+# tutorial runs in a subprocess resolving against that environment alone),
+# and a `[sources]` entry pointing at the package root so `using` this
+# package resolves. It is instantiated before the tutorial runs, and a
+# missing or incomplete one fails the build rather than quietly stubbing the
+# page. Shared with the `docs/src/benchmarks/` pipeline below, matched by
+# source file name.
+const TUTORIAL_ENVIRONMENTS = Pair{String, String}[]
+
 # The `docs/src/benchmarks/` Literate pipeline: its own heavy list and stubs,
 # mirroring `HEAVY_TUTORIALS`/`TUTORIAL_STUBS` above but rooted at
 # `docs/src/benchmarks`, so a benchmark report gets its own top-level

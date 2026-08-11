@@ -2657,3 +2657,256 @@ end
         filter!(!=(root), LOAD_PATH)
     end
 end
+
+@testitem "per-tutorial environment: subprocess project selection" begin
+    using Test
+    using EpiAwarePackageTools
+    using Literate
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # The one behaviour that cannot be observed anywhere else: which project
+    # the heavy-tutorial subprocess resolves against. Each case runs the real
+    # `run_literate_tutorial.jl` over a tutorial whose whole body records
+    # `Base.active_project()`, so the assertion is on what the subprocess
+    # actually resolved, not on the command line the kit assembled.
+    runner_src = joinpath(
+        pkgdir(EpiAwarePackageTools), "templates", "docs",
+        "run_literate_tutorial.jl"
+    )
+
+    # A minimal but real environment for the launcher to build against:
+    # `Literate` pinned to the version this session already has, so resolving
+    # it needs no download and the cached precompile is reused.
+    function literate_env(dir)
+        mkpath(dir)
+        write(
+            joinpath(dir, "Project.toml"),
+            """
+            [deps]
+            Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+
+            [compat]
+            Literate = "=$(pkgversion(Literate))"
+            """
+        )
+        return dir
+    end
+
+    # A tutorial whose body writes the project it ran under to `marker`.
+    function record_project_tutorial(tutorials_dir, marker)
+        mkpath(tutorials_dir)
+        write(
+            joinpath(tutorials_dir, "heavy.jl"),
+            """
+            # # A heavy tutorial
+
+            write($(repr(marker)), Base.active_project())
+            """
+        )
+        return tutorials_dir
+    end
+
+    @testset "opted-in tutorial resolves against its own environment" begin
+        mktempdir() do dir
+            # `docs_dir` is deliberately NOT a project here, so the tutorial
+            # can only have resolved through the environment it named.
+            docs_dir = mkpath(joinpath(dir, "docs"))
+            cp(runner_src, joinpath(docs_dir, "run_literate_tutorial.jl"))
+            env = literate_env(joinpath(docs_dir, "environments", "own"))
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            marker = joinpath(dir, "active.txt")
+            record_project_tutorial(tutorials_dir, marker)
+
+            DB._render_tutorials(
+                docs_dir, tutorials_dir, false, String[], ["heavy.jl"],
+                Pair{String, String}[];
+                envs = ["heavy.jl" => joinpath("environments", "own")]
+            )
+
+            @test isfile(joinpath(tutorials_dir, "heavy.md"))
+            @test read(marker, String) == joinpath(env, "Project.toml")
+            # It rendered as a real page, not a stub.
+            out = read(joinpath(tutorials_dir, "heavy.md"), String)
+            @test occursin("# A heavy tutorial", out)
+            @test !occursin("fast documentation", out)
+        end
+    end
+
+    @testset "a tutorial naming no environment is built as before" begin
+        mktempdir() do dir
+            # The shared docs environment, instantiated by the managed
+            # `make.jl` before the build starts rather than by the kit.
+            docs_dir = literate_env(joinpath(dir, "docs"))
+            cp(runner_src, joinpath(docs_dir, "run_literate_tutorial.jl"))
+            run(
+                pipeline(
+                    `$(Base.julia_cmd()) --project=$docs_dir -e
+                    "using Pkg; Pkg.instantiate()"`;
+                    stdout = devnull
+                )
+            )
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            marker = joinpath(dir, "active.txt")
+            record_project_tutorial(tutorials_dir, marker)
+
+            DB._render_tutorials(
+                docs_dir, tutorials_dir, false, String[], ["heavy.jl"],
+                Pair{String, String}[]
+            )
+
+            @test read(marker, String) == joinpath(docs_dir, "Project.toml")
+        end
+    end
+end
+
+@testitem "per-tutorial environment: validation and stub paths" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    @testset "_tutorial_env_map resolves relative dirs against docs/" begin
+        docs_dir = joinpath("root", "docs")
+        absolute = joinpath(homedir(), "elsewhere")
+        map = DB._tutorial_env_map(
+            docs_dir,
+            ["a.jl" => joinpath("environments", "a"), "b.jl" => absolute]
+        )
+        @test map["a.jl"] == joinpath(docs_dir, "environments", "a")
+        @test map["b.jl"] == absolute
+        @test isempty(DB._tutorial_env_map(docs_dir, Pair{String, String}[]))
+    end
+
+    @testset "_declares_literate reads the environment's deps" begin
+        mktempdir() do dir
+            with_lit = joinpath(dir, "with.toml")
+            write(
+                with_lit,
+                """
+                [deps]
+                Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+                """
+            )
+            @test DB._declares_literate(with_lit)
+
+            without = joinpath(dir, "without.toml")
+            write(
+                without,
+                """
+                [deps]
+                Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+                """
+            )
+            @test !DB._declares_literate(without)
+
+            # Unreadable or malformed reads as "not declared": the caller's
+            # error then names the same fix.
+            @test !DB._declares_literate(joinpath(dir, "absent.toml"))
+            malformed = joinpath(dir, "malformed.toml")
+            write(malformed, "[deps\n")
+            @test !DB._declares_literate(malformed)
+        end
+    end
+
+    @testset "a missing environment fails loudly" begin
+        mktempdir() do dir
+            docs_dir = mkpath(joinpath(dir, "docs"))
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            err = try
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, String[], ["heavy.jl"],
+                    Pair{String, String}[];
+                    envs = ["heavy.jl" => "environments/absent"]
+                )
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("environments/absent", err.msg)
+            @test occursin("Project.toml", err.msg)
+            # It failed instead of quietly leaving the reader a stub.
+            @test !isfile(joinpath(tutorials_dir, "heavy.md"))
+        end
+    end
+
+    @testset "an environment without Literate fails loudly" begin
+        mktempdir() do dir
+            docs_dir = mkpath(joinpath(dir, "docs"))
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            env = mkpath(joinpath(docs_dir, "environments", "own"))
+            write(
+                joinpath(env, "Project.toml"),
+                """
+                [deps]
+                Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+                """
+            )
+            err = try
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, String[], ["heavy.jl"],
+                    Pair{String, String}[];
+                    envs = ["heavy.jl" => "environments/own"]
+                )
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("Literate", err.msg)
+            @test occursin("environments/own", err.msg)
+        end
+    end
+
+    @testset "a light tutorial cannot name an environment" begin
+        mktempdir() do dir
+            docs_dir = mkpath(joinpath(dir, "docs"))
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            write(joinpath(tutorials_dir, "light.jl"), "x = 1 + 1\n")
+            err = try
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, ["light.jl"], String[],
+                    Pair{String, String}[];
+                    envs = ["light.jl" => "environments/own"]
+                )
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("light.jl", err.msg)
+        end
+    end
+
+    @testset "stub paths never touch the environment" begin
+        # Under `--skip-notebooks`, and for a `force_stub` entry, an
+        # opted-in tutorial stubs exactly as it did before. The environment
+        # it names does not exist, so a build that reached for it would
+        # error rather than write the stub.
+        stubs = Pair{String, String}["heavy.md" => "# A heavy tutorial"]
+        envs = ["heavy.jl" => "environments/absent"]
+
+        mktempdir() do dir
+            docs_dir = mkpath(joinpath(dir, "docs"))
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            DB._render_tutorials(
+                docs_dir, tutorials_dir, true, String[], ["heavy.jl"],
+                stubs; envs = envs
+            )
+            out = read(joinpath(tutorials_dir, "heavy.md"), String)
+            @test occursin("# A heavy tutorial", out)
+            @test occursin("fast documentation", out)
+        end
+
+        mktempdir() do dir
+            docs_dir = mkpath(joinpath(dir, "docs"))
+            tutorials_dir = joinpath(docs_dir, "src", "tutorials")
+            DB._render_tutorials(
+                docs_dir, tutorials_dir, false, String[], ["heavy.jl"],
+                stubs; force_stub = ["heavy.jl"], envs = envs
+            )
+            out = read(joinpath(tutorials_dir, "heavy.md"), String)
+            @test occursin("# A heavy tutorial", out)
+            @test occursin("fast documentation", out)
+        end
+    end
+end

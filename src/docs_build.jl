@@ -1975,12 +1975,110 @@ end
 
 # ---- Literate tutorial pipeline -------------------------------------------
 
+# The runner subprocess opens with `using Literate`, so a tutorial's own
+# environment has to declare it. Same UUID `_literate` resolves against.
+const _LITERATE_UUID = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+
+# A `source file => environment directory` lookup from the package-owned
+# `tutorial_environments` pairs. A relative directory resolves against
+# `docs_dir`, so a package writes `"environments/petri"` and the build finds
+# `docs/environments/petri`; an absolute path is taken as given.
+function _tutorial_env_map(docs_dir, envs)
+    lookup = Dict{String, String}()
+    for (file, dir) in envs
+        path = String(dir)
+        lookup[String(file)] = isabspath(path) ? path : joinpath(docs_dir, path)
+    end
+    return lookup
+end
+
+# Whether an environment's `Project.toml` declares Literate. Read from the
+# file rather than resolved, so the check runs before instantiation and its
+# error can name what to add. An unreadable or malformed file counts as not
+# declaring it; the error then names the same fix.
+function _declares_literate(project::AbstractString)
+    table = try
+        Pkg.TOML.parsefile(project)
+    catch
+        return false
+    end
+    deps = get(table, "deps", nothing)
+    deps isa AbstractDict || return false
+    return _LITERATE_UUID in values(deps)
+end
+
+# Ready a tutorial's own environment before its subprocess runs: the directory
+# must hold a `Project.toml` declaring Literate, and that project is
+# instantiated in a subprocess so the docs build's own active environment is
+# left alone.
+#
+# Every failure here errors rather than falling through to the shared docs
+# environment. A tutorial that cannot resolve its dependencies is exactly the
+# case this exists for, and a page silently replaced by its stub gives the
+# reader a fast-build notice where the content should be.
+function _prepare_tutorial_env(file, env::AbstractString)
+    project = joinpath(env, "Project.toml")
+    isfile(project) || error(
+        "tutorial $file names its own environment \"$env\", but there is " *
+            "no Project.toml there. The environment is package-owned: the " *
+            "kit never writes it, so create $(project) declaring the " *
+            "tutorial's dependencies plus Literate."
+    )
+    _declares_literate(project) || error(
+        "tutorial $file names its own environment \"$env\", but " *
+            "$(project) does not declare Literate. The tutorial runs in a " *
+            "subprocess resolving against that environment alone, and the " *
+            "runner opens with `using Literate`, so add it there."
+    )
+    println("  instantiating $file's own environment ($env)...")
+    try
+        run(
+            `$(Base.julia_cmd()) --project=$env -e
+            "using Pkg; Pkg.instantiate()"`
+        )
+    catch err
+        error(
+            "could not instantiate tutorial $file's own environment " *
+                "\"$env\": $(err). Resolve it locally " *
+                "(`julia --project=$env -e 'using Pkg; Pkg.instantiate()'`) " *
+                "and commit the result."
+        )
+    end
+    return
+end
+
+# A light tutorial renders in-process under Documenter, against whatever
+# environment the docs build itself runs in, so it has no subprocess to point
+# elsewhere. Naming one is a config mistake worth stopping for: the page would
+# otherwise build against the shared environment with no sign the requested
+# one was ignored.
+function _reject_light_tutorial_envs(light, env_map)
+    named = filter(in(keys(env_map)), collect(light))
+    isempty(named) && return
+    return error(
+        "tutorial_environments names light tutorial(s) " *
+            join(named, ", ") * ", but a light tutorial renders in-process " *
+            "and cannot resolve against its own environment. Move it to the " *
+            "heavy list, which runs one subprocess per tutorial."
+    )
+end
+
 # Render the Literate tutorial pipeline into `tutorials_dir`. Light tutorials
 # emit `@example` blocks Documenter runs in-process; heavy tutorials are each
 # executed once in a fresh subprocess (via the package-owned
 # `run_literate_tutorial.jl`) so native/memory state cannot accumulate.
-function _process_tutorials(docs_dir, tutorials_dir, light, heavy)
+#
+# A heavy tutorial named in `envs` resolves against the environment it names
+# instead of the shared `docs/` one, for a dependency that cannot co-resolve
+# with the rest of the docs environment. Every other tutorial is built exactly
+# as before, against `docs_dir`.
+function _process_tutorials(
+        docs_dir, tutorials_dir, light, heavy;
+        envs = Pair{String, String}[]
+    )
     (isempty(light) && isempty(heavy)) && return
+    env_map = _tutorial_env_map(docs_dir, envs)
+    _reject_light_tutorial_envs(light, env_map)
     Literate = _literate()
     if !isempty(light)
         println(
@@ -2006,8 +2104,14 @@ function _process_tutorials(docs_dir, tutorials_dir, light, heavy)
         jl = Base.julia_cmd()
         for file in heavy
             input = joinpath(tutorials_dir, file)
+            # Kept as a `Union{Nothing,String}` rather than defaulting to
+            # `docs_dir` (whose type is unconstrained here) so the
+            # `_prepare_tutorial_env` call stays concrete for JET.
+            env = get(env_map, file, nothing)
+            project = env === nothing ? docs_dir : env
+            env === nothing || _prepare_tutorial_env(file, env)
             println("  executing $file in a fresh subprocess...")
-            opts = `--threads=$(tutorial_threads) --project=$(docs_dir)`
+            opts = `--threads=$(tutorial_threads) --project=$(project)`
             run(`$jl $opts $runner $input $tutorials_dir`)
         end
     end
@@ -2029,14 +2133,20 @@ _tutorial_md_names(files) = Set(_tutorial_md_name(f) for f in files)
 # in-process (they are cheap) and only the heavy ones fall back to
 # `tutorial_stubs`. Independent of that, a heavy tutorial named in
 # `force_stub` never executes: the escape hatch for one that cannot run at all
-# (e.g. a non-terminating sampler), leaving its siblings unaffected.
+# (e.g. a non-terminating sampler), leaving its siblings unaffected. `envs`
+# carries the per-tutorial environment opt-in through to the subprocess
+# launcher; a force-stubbed or skipped tutorial never reaches it, so its
+# environment is never instantiated.
 function _render_tutorials(
         docs_dir, tutorials_dir, skip_notebooks::Bool,
-        light, heavy, stubs; force_stub = String[]
+        light, heavy, stubs; force_stub = String[],
+        envs = Pair{String, String}[]
     )
     if !skip_notebooks
         run_heavy = filter(!in(force_stub), heavy)
-        _process_tutorials(docs_dir, tutorials_dir, light, run_heavy)
+        _process_tutorials(
+            docs_dir, tutorials_dir, light, run_heavy; envs = envs
+        )
         if !isempty(force_stub)
             force_stub_md = _tutorial_md_names(force_stub)
             _write_tutorial_stubs(
@@ -2050,7 +2160,9 @@ function _render_tutorials(
                 "stubbing heavy tutorials (--skip-notebooks or " *
                 "SKIP_NOTEBOOKS=true)"
         )
-        _process_tutorials(docs_dir, tutorials_dir, light, String[])
+        _process_tutorials(
+            docs_dir, tutorials_dir, light, String[]; envs = envs
+        )
         heavy_md = _tutorial_md_names(heavy)
         heavy_stubs = filter(p -> first(p) in heavy_md, stubs)
         _write_tutorial_stubs(tutorials_dir, heavy_stubs)
@@ -2203,7 +2315,8 @@ end
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
-               heavy_benchmarks=[], benchmark_stubs=[],
+               tutorial_environments=[], heavy_benchmarks=[],
+               benchmark_stubs=[],
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
                index_strip_sections=[], benchmark_page=true,
                history_suites=[], history_commits=5,
@@ -2222,7 +2335,18 @@ Under `skip_notebooks` the light tutorials still render in-process and only
 the heavy ones fall back to `tutorial_stubs` headings. Independent of that,
 any `heavy_tutorials` entry named in `force_stub_tutorials` never executes:
 for one with a problem of its own (e.g. a model that does not terminate), so
-it need not block its siblings. `heavy_benchmarks`/`benchmark_stubs` drive the
+it need not block its siblings.
+
+`tutorial_environments` is a list of `"file.jl" => "environment/dir"` pairs
+naming heavy tutorials that resolve against their own environment rather than
+the shared `docs/` one, for a dependency that cannot co-resolve with the rest
+of the docs environment. The directory is relative to `docs/` unless
+absolute, is package-owned (the kit never writes it, as it never writes
+`docs/Project.toml`), and must declare Literate alongside the tutorial's own
+dependencies. It is instantiated before the tutorial runs; a missing,
+Literate-less or unresolvable environment fails the build rather than
+quietly stubbing the page. Every tutorial not named here is built against
+`docs/` exactly as before. `heavy_benchmarks`/`benchmark_stubs` drive the
 same pipeline again over `src/benchmarks/`, so a benchmark report renders
 under its own top-level "Benchmarks" nav group rather than under Tutorials.
 `deploy=false` builds without deploying and `build_vitepress=false` runs
@@ -2255,6 +2379,7 @@ function build_docs(
         light_tutorials = String[], heavy_tutorials = String[],
         tutorial_stubs = Pair{String, String}[],
         force_stub_tutorials = String[],
+        tutorial_environments = Pair{String, String}[],
         heavy_benchmarks = String[],
         benchmark_stubs = Pair{String, String}[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
@@ -2278,7 +2403,8 @@ function build_docs(
     # --- tutorials -----------------------------------------------------
     _render_tutorials(
         docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
-        heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials
+        heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials,
+        envs = tutorial_environments
     )
 
     # --- docs/src/benchmarks/ (e.g. the AD-comparison report) --------------
@@ -2289,9 +2415,11 @@ function build_docs(
     # Shares `force_stub_tutorials` with the tutorials pipeline above -- it
     # is matched against whichever `heavy` list is passed at each call site,
     # so one config list parks a heavy page in either directory by name.
+    # `tutorial_environments` is shared on the same terms.
     _render_tutorials(
         docs_dir, benchmarks_dir, skip_notebooks, String[],
-        heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials
+        heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials,
+        envs = tutorial_environments
     )
 
     # --- generated pages ---------------------------------------------------

@@ -68,6 +68,42 @@ A build drops any `Extensions` entry whose page is missing, so a nav
 never carries a dangling link, and the group disappears entirely once
 nothing is left in it.
 
+## [Tutorials with their own environment](@id tutorial-environments)
+
+Every tutorial resolves against the shared `docs/` environment by default.
+Some cannot.
+A dependency may cap a shared package below the version your own extension
+needs, leaving the two unable to co-resolve at all.
+
+`TUTORIAL_ENVIRONMENTS` in `docs/docs_config.jl` opts one heavy tutorial out,
+as a `"file.jl" => "environment/dir"` pair.
+The directory is relative to `docs/` unless absolute, and the tutorial's
+subprocess resolves against it instead.
+
+That environment is yours, like `docs/Project.toml` is.
+The kit never writes it.
+Create the directory with a `Project.toml` declaring the tutorial's
+dependencies plus `Literate`, and a `[sources]` entry pointing at the package
+root so `using` your package resolves:
+
+```toml
+[deps]
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+
+[sources]
+MyPackage = {path = "../.."}
+```
+
+The build instantiates it before the tutorial runs.
+A missing directory, a `Project.toml` without `Literate`, or one that will not
+resolve fails the build with a message naming the environment.
+It does not fall back to the shared environment: a page that quietly becomes
+its stub shows the reader a fast-build notice where the content should be.
+
+Reach for this only when a dependency genuinely cannot co-resolve.
+Everything else belongs in `docs/Project.toml`, and a tutorial listed here
+pays for a second environment to resolve and precompile on every build.
+
 ## What stays managed
 
 - `docs/make.jl`, the thin caller into the kit's build logic.
