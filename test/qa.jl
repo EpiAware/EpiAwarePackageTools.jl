@@ -730,7 +730,7 @@
                 @test check_flags(() -> test_readme_prose(dir))
             end
 
-            # : a four-space-indented code block is dropped like a
+            # A four-space-indented code block is dropped like a
             # fenced one, so a banned word inside it is not read as prose.
             indented_code = "# MyPkg\n\nA small package.\n\n" *
                 "    robust = leverage_framework(; novel = true)\n"
@@ -856,7 +856,7 @@
                 ) == 1
             end
 
-            # : an abbreviation's dot is protected whether it is on the
+            # An abbreviation's dot is protected whether it is on the
             # closed list (`approx.`) or matches the open-ended title/
             # cross-reference shape (`Fig.`, `Dr.`, `U.S.`), rather than only
             # the four literal entries `_PROSE_ABBREVIATIONS` used to carry.
