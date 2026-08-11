@@ -81,10 +81,10 @@ The directory is relative to `docs/` unless absolute, and the tutorial's
 subprocess resolves against it instead.
 
 Put it under `environments/`, so `docs/environments/my-tutorial/` on disk.
-The managed Dependabot config watches that path and no other.
-Such an environment cannot join the root `[workspace]`, because workspace
-members share a single manifest and a tutorial opts out precisely because its
-dependencies do not co-resolve with the shared docs project.
+Give each tutorial that needs one its own, so two tutorials can hold
+incompatible versions without either having to bend.
+Each resolves standalone rather than joining the root `[workspace]`, which is
+also why the managed Dependabot config watches that path specifically.
 An environment elsewhere still builds, but nothing will ever update its
 dependencies.
 

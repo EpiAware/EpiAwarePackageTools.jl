@@ -51,13 +51,12 @@ const FORCE_STUB_TUTORIALS = String[]
 # page. Shared with the `docs/src/benchmarks/` pipeline below, matched by
 # source file name.
 #
-# Put the environment under `environments/` (so `"environments/my-tutorial"`
-# here, `docs/environments/my-tutorial/` on disk). The managed Dependabot
-# config covers that path, and nowhere else: such an environment cannot join
-# the root `[workspace]`, because workspace members share one manifest and a
-# tutorial opts out precisely because its dependencies do not co-resolve with
-# the shared docs project. An environment placed elsewhere works, but its
-# dependencies are then never updated.
+# One environment per tutorial that needs one, under `environments/` (so
+# `"environments/my-tutorial"` here, `docs/environments/my-tutorial/` on
+# disk). Each resolves on its own manifest, so two tutorials wanting
+# incompatible versions simply get one environment each. The managed
+# Dependabot config watches that path and nowhere else: an environment
+# elsewhere still builds, but its dependencies are never updated.
 const TUTORIAL_ENVIRONMENTS = Pair{String, String}[]
 
 # The `docs/src/benchmarks/` Literate pipeline: its own heavy list and stubs,
