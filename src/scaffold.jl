@@ -713,15 +713,24 @@ const KIT_UUID = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 # release, and under 0.x semver a minor is a breaking bump. The test suite
 # asserts the two agree, so a release bump has to move this too.
 #
-# Deliberately the current minor rather than a range reaching back: the
-# templates already call bindings a previous release does not carry (e.g.
-# `test/ad/run_selected.jl` calls `run_selected`, added after v0.3.0). A wider
-# bound would let an adopter resolve a kit missing them and fail at run time,
-# which is the silent-staleness this whole area exists to avoid. The cost is
-# that this minor has to be registered before an adopter can resolve the
-# environments — a resolve error naming the missing version, not a green job
-# testing the wrong thing.
-const KIT_COMPAT = "0.4"
+# The bound reaches back one minor so it resolves against what is registered
+# TODAY, which is what lets the ecosystem move off its git `[sources]` pins
+# before this minor ships rather than after. Pkg takes the highest compatible
+# version, so an adopter gets the current minor the moment it is registered,
+# and the previous one only in the window before that.
+#
+# What that window costs was measured, not assumed. Of every kit binding the
+# managed templates call, exactly one is missing from the registered 0.3.0:
+# `run_selected`, which `test/ad/run_selected.jl` wraps. No workflow and no
+# Taskfile target invokes that script — it is a by-hand convenience for
+# checking one backend/scenario pair — so the window costs a manual script
+# that errors if used, and nothing in CI. Every other binding the templates
+# call resolves against 0.3.0.
+#
+# That is the whole trade: a transient by-hand failure, against blocking the
+# ecosystem's migration on a release. Tighten to a single minor if a template
+# ever comes to depend on a new binding from a job that actually runs.
+const KIT_COMPAT = "0.3, 0.4"
 
 # The SPDX licence identifiers a package may select, each backed by a bundled
 # `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.

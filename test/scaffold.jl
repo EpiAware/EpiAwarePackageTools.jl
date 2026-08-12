@@ -4970,15 +4970,20 @@ end
         return write(path, text)
     end
 
-    @testset "the managed bound tracks the kit's own version" begin
-        # Under 0.x semver a minor is a breaking bump, so a template binding
-        # added in this release must not resolve against the last one. Asserted
-        # rather than trusted: a release that moves `version` has to move this.
+    @testset "the managed bound admits the kit's own version" begin
+        # The bound reaches back a minor so an adopter can resolve it before
+        # this one is registered, which is what lets the ecosystem move off
+        # its git pins ahead of a release rather than after. Two properties
+        # matter, and both are asserted rather than trusted.
         proj = Pkg.TOML.parsefile(
             joinpath(pkgdir(EpiAwarePackageTools), "Project.toml")
         )
         v = VersionNumber(proj["version"])
-        @test KIT_COMPAT == "$(v.major).$(v.minor)"
+        # It admits what the templates are written against.
+        @test v in Pkg.Types.semver_spec(KIT_COMPAT)
+        # And its newest minor is this one, so a release that moves `version`
+        # has to move this too and the bound cannot silently lag behind.
+        @test endswith(KIT_COMPAT, "$(v.major).$(v.minor)")
     end
 
     @testset "every managed env bounds the kit instead of git-pinning it" begin
