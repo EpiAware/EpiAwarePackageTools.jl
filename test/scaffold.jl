@@ -2106,6 +2106,70 @@
             end
         end
 
+        @testset "update warns when package-owned prose names a retired tool" begin
+            # A sync converges the managed files and says nothing about the
+            # package's own docs, so prose describing the old standard
+            # survives every sync with nothing reporting it (#328). The
+            # observed case: EpiAwareADTools took the kit's Runic migration
+            # and kept telling contributors to run JuliaFormatter.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "StaleProse")
+                scaffold(dir)
+                page = _dest(dir, "docs/src/getting-started/index.md")
+                mkpath(dirname(page))
+                write(
+                    page,
+                    "# Getting started\n\nFormat with JuliaFormatter " *
+                        "before opening a pull request.\n"
+                )
+                local res
+                @test_logs (:warn, r"JuliaFormatter"i) match_mode = :any begin
+                    res = update(dir)
+                end
+                @test any(w -> occursin("JuliaFormatter", w), res.warnings)
+                @test any(w -> occursin("Runic", w), res.warnings)
+                @test any(
+                    w -> occursin("getting-started", w), res.warnings
+                )
+                # It reports only. The wording is the package's, so the file
+                # is left exactly as it was.
+                @test occursin("JuliaFormatter", read(page, String))
+            end
+            # A retired path should not still be documented either, so every
+            # RETIRED_PATHS entry gets a prose check without being listed
+            # twice.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "StalePath")
+                scaffold(dir)
+                write(
+                    _dest(dir, "CONTRIBUTING.md"),
+                    "Formatting settings live in `.JuliaFormatter.toml`.\n"
+                )
+                res = update(dir)
+                @test any(
+                    w -> occursin(".JuliaFormatter.toml", w), res.warnings
+                )
+            end
+            # A page naming a retired tool to explain the retirement is not
+            # drift, so the marker opts it out.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "ExplainsProse")
+                scaffold(dir)
+                write(
+                    _dest(dir, "CONTRIBUTING.md"),
+                    "<!-- EPIAWARE_PROSE_OK -->\n\nWe moved off " *
+                        "JuliaFormatter in v2.\n"
+                )
+                @test isempty(update(dir).warnings)
+            end
+            # A freshly scaffolded package's own prose is clean.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "FreshProse")
+                scaffold(dir)
+                @test isempty(update(dir).warnings)
+            end
+        end
+
         @testset "update warns when docs/Project.toml keeps a dropped AD dep" begin
             # `docs/Project.toml` is package-owned and write-once, so dropping
             # AlgebraOfGraphics from `_ad_docs_deps` only lands on a fresh

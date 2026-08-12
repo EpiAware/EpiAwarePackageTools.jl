@@ -398,6 +398,102 @@ const RETIRED_PATHS = String[
     ".JuliaFormatter.toml",
 ]
 
+# --- stale package-owned prose (#328) ---------------------------------------
+#
+# A sync converges the managed files and says nothing about the package's own
+# docs, so prose describing the old standard survives every sync and nothing
+# reports it. EpiAwareADTools is the case that prompted this: after adopting
+# the kit's Runic migration its `developer/contributing.md` and
+# `developer/faq.md` still told contributors to run JuliaFormatter, against a
+# `test/formatter/Project.toml` that pins Runic.
+#
+# `update` cannot rewrite package-owned prose — the wording is the package's —
+# so it names the file and the term instead, the same way the write-once docs
+# gaps above are reported.
+#
+# Two sources feed the scan. `RETIRED_PATHS` is free: a path the kit no longer
+# ships should not still be documented, so every future retirement gets a
+# prose check without anything being added here. `RETIRED_PROSE` covers what
+# retiring a path cannot express, namely a tool or concept the standard has
+# moved away from that was never a file in the package.
+const RETIRED_PROSE = [
+    (
+        term = "JuliaFormatter",
+        instead = "Runic",
+        why = "the managed formatter moved to Runic; the isolated " *
+            "test/formatter environment pins Runic and `task format` runs it",
+    ),
+]
+
+# A page that names a retired tool in order to explain the retirement is not
+# drift. Marking it opts it out of the scan, mirroring how
+# `EPIAWARE_MANAGED_OVERRIDE` opts a file out of resyncing. In markdown put it
+# in an HTML comment so it does not render.
+const _PROSE_OK_MARKER = "EPIAWARE_PROSE_OK"
+
+# Package-owned prose worth scanning: the README, a hand-written contributing
+# guide, and the authored docs pages. Literate `.jl` sources count — they are
+# prose that happens to execute. `NEWS.md` is deliberately absent: a changelog
+# records what the package used to do, so naming a retired tool is the point.
+function _package_prose_files(target_dir::AbstractString)
+    files = String[]
+    for rel in ("README.md", "CONTRIBUTING.md")
+        path = joinpath(target_dir, rel)
+        isfile(path) || continue
+        occursin(_PROSE_OK_MARKER, read(path, String)) || push!(files, path)
+    end
+    src = joinpath(target_dir, "docs", "src")
+    isdir(src) || return files
+    for (root, _, names) in walkdir(src), name in names
+        endswith(name, ".md") || endswith(name, ".jl") || continue
+        path = joinpath(root, name)
+        text = read(path, String)
+        # A kit-managed page carries the standard header and is rewritten by
+        # this sync, so it is never the package's to fix.
+        occursin("MANAGED by EpiAwarePackageTools", text) && continue
+        occursin(_PROSE_OK_MARKER, text) && continue
+        push!(files, path)
+    end
+    return files
+end
+
+# Scan package-owned prose for names the managed standard has retired,
+# returning one warning per (file, term) or `nothing` when the prose is clean.
+function _stale_prose_gap(target_dir::AbstractString)
+    terms = vcat(
+        [
+            (term = p, instead = nothing, why = "the kit no longer ships it")
+                for p in RETIRED_PATHS
+        ],
+        [
+            (term = e.term, instead = e.instead, why = e.why)
+                for e in RETIRED_PROSE
+        ]
+    )
+    hits = String[]
+    for path in _package_prose_files(target_dir)
+        text = read(path, String)
+        rel = relpath(path, target_dir)
+        for t in terms
+            occursin(t.term, text) || continue
+            push!(
+                hits, string(
+                    rel, " still mentions ", t.term,
+                    t.instead === nothing ? "" : " rather than $(t.instead)",
+                    " (", t.why, ")"
+                )
+            )
+        end
+    end
+    isempty(hits) && return nothing
+    return string(
+        "package-owned docs describe a standard this kit has retired: ",
+        join(hits, "; "),
+        ". A sync converges the managed files only, so this prose is yours ",
+        "to update (kit#328)."
+    )
+end
+
 # Absolute native path of a template destination. Every `dest` is written
 # posix-style, so a plain `joinpath` yields a mixed-separator path on Windows.
 # Windows accepts that for io, but the scaffold results are public API that
@@ -3760,6 +3856,14 @@ function _apply(
     if tag_gap !== nothing
         push!(warnings, tag_gap)
         @warn tag_gap
+    end
+    # The managed files converge on the current standard; the package's own
+    # prose about that standard does not, and nothing else reports it — see
+    # `_stale_prose_gap`.
+    prose_gap = _stale_prose_gap(target_dir)
+    if prose_gap !== nothing
+        push!(warnings, prose_gap)
+        @warn prose_gap
     end
     # Managed between markers so package-owned additions below the block
     # survive `update` (#65).
