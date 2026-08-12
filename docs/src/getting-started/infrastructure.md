@@ -74,7 +74,8 @@ package always starts fully managed.
 Use this sparingly. An overridden file stops tracking the standard, so kit fixes
 no longer reach it, which is the opposite of what the kit is for. Prefer the
 supported hooks (the package-owned config values, the marker-delimited regions,
-and the `ad`/`benchmarks`/`downgrade_compat` flags) where they cover the need.
+and the `ad`/`benchmarks`/`downgrade_compat`/`unregistered_sources` flags) where
+they cover the need.
 
 What the marker does **not** cover:
 
@@ -221,6 +222,27 @@ It runs two read-only checks.
   A breaking release legitimately strands a downstream bound, so this is a
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
+
+## Unregistered `[sources]` pins and the Julia floor
+
+`[sources]` is a Pkg 1.11 feature.
+Before 1.11 it is ignored without error, so Pkg resolves whatever a registry
+carries instead of the pin.
+
+EpiAwarePackageTools is registered in General, so every managed environment
+bounds it in `[compat]` and nothing in the standard is pinned by git.
+A package's own `[compat] julia` is free to reach 1.10.
+
+A package pinning a dependency of its own by git `[sources]`, such as an
+ecosystem sibling awaiting registration, is a different case.
+The kit detects such a pin from the committed environments, or takes
+`unregistered_sources = true` on `scaffold`/`update`, and then holds the package
+to Julia 1.11.
+It warns about a `[compat]` bound or a CI leg that reaches below it.
+
+The `tests.yml` matrix drops its `lts` leg either way.
+The managed test environment depends on EpiAwarePackageTools, whose own compat
+starts at 1.11, so that leg cannot resolve whatever the package declares.
 
 ## [Release documentation](@id release-docs)
 
