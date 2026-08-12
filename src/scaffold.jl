@@ -967,7 +967,7 @@ function scaffold_inputs(
         DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
         DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
-        AD_CODECOV_FLAGS = _ad_codecov_flags(),
+        AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir),
         AD_BACKENDS_JSON = _ad_backends_json(),
         AD_COV_TABLE = _ad_cov_table(rp),
         AD_BACKEND_PACKAGES = _ad_backend_packages(),
@@ -1502,17 +1502,70 @@ const _AD_BACKENDS = [
 # flag. Listing `ext` there made every AD upload report the extension at 0%,
 # redding codecov/patch even when the unit suite covered it fully (#180). But
 # an Enzyme rule-file extension only ever loads under the two Enzyme AD jobs,
-# so those two flags claim `ext` too, or that file is stuck at 0% forever.
-function _ad_codecov_flags()
+# so those two flags must claim it, or that file is stuck at 0% forever.
+#
+# They claim that file, not the whole `ext/` directory (#416). A directory
+# claim reinstates #180 one level down: in a package with several extensions
+# the Enzyme jobs execute one of them and are charged for all of them, so
+# every non-Enzyme extension counts as uncovered under an Enzyme flag.
+# Measured on EpiAwareADTools (seven extensions) as `ad-enzyme-forward
+# -17.05%` and `ad-enzyme-reverse -17.00%`, with no change to what either job
+# runs.
+#
+# Which files those are is read from the package's own `[extensions]` table
+# rather than guessed from a naming convention, so an extension named against
+# convention, or triggered by Enzyme plus other weakdeps, is still matched. A
+# package with no Enzyme-triggered extension claims `src` alone: there is
+# nothing under `ext/` those jobs can execute, so claiming any of it could
+# only deflate them.
+function _ad_codecov_flags(target_dir::AbstractString)
     blocks = map(_AD_BACKENDS) do b
-        paths = b.pkg == "Enzyme" ? "      - src\n      - ext\n" :
-            "      - src\n"
+        paths = ["      - src\n"]
+        for ext in _backend_extension_files(target_dir, b.pkg)
+            push!(paths, "      - ", ext, "\n")
+        end
         string(
-            "  ", b.slug, ":\n", "    paths:\n", paths,
+            "  ", b.slug, ":\n", "    paths:\n", join(paths),
             "    carryforward: true"
         )
     end
     return join(blocks, "\n")
+end
+
+# The `ext/` files an AD job for `pkg` can actually execute: the extensions
+# whose `[extensions]` trigger list names `pkg`. Sorted, so the generated
+# `codecov.yml` does not depend on TOML table order.
+#
+# Only Enzyme has any, by construction: the other AD jobs install their
+# backend but the package's weakdeps are not loaded there, which is the whole
+# reason the flags claim `src` only (#180). Keyed on `pkg` rather than
+# hard-coded to Enzyme so that stays true by derivation if a backend's
+# environment ever changes.
+function _backend_extension_files(
+        target_dir::AbstractString, pkg::AbstractString
+    )
+    pkg == "Enzyme" || return String[]
+    proj = joinpath(target_dir, "Project.toml")
+    isfile(proj) || return String[]
+    # An unsubstituted template still carrying `{{PLACEHOLDER}}` is not valid
+    # TOML; no extensions is the right answer there, as it is for a package
+    # with no `[extensions]` table at all.
+    parsed = try
+        Pkg.TOML.parsefile(proj)
+    catch
+        return String[]
+    end
+    exts = get(parsed, "extensions", nothing)
+    exts isa AbstractDict || return String[]
+    files = String[]
+    for (name, triggers) in exts
+        # A `[extensions]` value is one weakdep or a list of them.
+        weakdeps = triggers isa AbstractVector ? string.(triggers) :
+            [string(triggers)]
+        pkg in weakdeps || continue
+        push!(files, "ext/" * string(name) * ".jl")
+    end
+    return sort!(files)
 end
 
 # The `backends` JSON array the `ad.yaml` caller passes to the org reusable,

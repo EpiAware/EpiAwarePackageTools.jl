@@ -14,12 +14,13 @@
 # from finalising before CI reports. `auto` targets compare against the
 # parent commit with a small threshold.
 #
-# `unit` and the Enzyme AD flags claim `ext`; the other AD jobs don't: most
-# AD jobs run without weakdeps loaded, so extension files never execute
+# `unit` claims the whole `ext` directory; the AD flags claim `src` only.
+# Most AD jobs run without weakdeps loaded, so extension files never execute
 # there and an `ext` path under those `ad-*` flags would report 0% and drag
 # the aggregate down (#180). An Enzyme rule-file extension only ever loads
-# under the Enzyme AD jobs, so `ad-enzyme-forward`/`ad-enzyme-reverse` claim
-# `ext` too.
+# under the Enzyme AD jobs, so `ad-enzyme-forward`/`ad-enzyme-reverse` also
+# name that one file. They name the file, not the directory: a directory
+# claim would charge them for every other extension too (#416).
 codecov:
   notify:
     after_n_builds: {{AD_BUILD_COUNT}}
