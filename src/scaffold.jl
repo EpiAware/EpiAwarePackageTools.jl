@@ -1582,16 +1582,22 @@ function _ad_scenario_family(tag::AbstractString)
     return family
 end
 
+# The `tags = ` list for a backend's scenario item. Shared by the scaffolded
+# seed and by `_ad_backend_tag_gap`'s worked example, so the tags the warning
+# tells an adopter to write are the ones the seed would have written.
+function _ad_scenario_tags(b)
+    family = _ad_scenario_family(b.tag)
+    return family === nothing ? "[:ad, :$(b.tag)]" :
+        "[:ad, :$(family), :$(b.tag)]"
+end
+
 # The scaffolded `test/ad/scenarios.jl` starter `@testitem` blocks, one per
 # `_AD_BACKENDS` entry, so the seed never falls behind as backends are added.
 function _ad_scenario_testitems()
     blocks = map(_AD_BACKENDS) do b
-        family = _ad_scenario_family(b.tag)
-        tags = family === nothing ? "[:ad, :$(b.tag)]" :
-            "[:ad, :$(family), :$(b.tag)]"
         string(
             "@testitem \"", b.header, " gradients (marginal)\" tags = ",
-            tags, " setup = [ADHelpers] begin\n",
+            _ad_scenario_tags(b), " setup = [ADHelpers] begin\n",
             "    test_working_backend(\"", b.header, "\")\n",
             "end"
         )
@@ -2030,6 +2036,59 @@ function _ad_docs_deps_gap(target_dir::AbstractString, ad::Bool)
         "DimensionalData in via Makie, which conflicts with FlexiChains in ",
         "a package that hard-deps both (kit#283). Remove it from [deps] and ",
         "[compat] in docs/Project.toml."
+    )
+end
+
+# `test/ad/scenarios.jl` and `test/ADFixtures` are package-owned write-once
+# seeds, but `_AD_BACKENDS` drives the managed `ad.yaml` matrix, the
+# `codecov.yml` flags and the README badge row. So adding a backend to the kit
+# reaches an existing adopter's CI, badges and coverage flags on the next
+# sync, and reaches none of the files that make it test anything: the new job
+# runs zero tests, reports green, and uploads an empty coverage flag behind a
+# public badge (kit#415, seen as `ad-reversediff-compiled` on
+# EpiAwareADTools#69). `update` cannot write the test item itself, so scan for
+# each managed tag and name the ones with nothing behind them.
+#
+# Detection is textual because the AD items live in their own environment with
+# the heavy backends as deps, which `update` must not have to load. A tag is
+# matched with a trailing word boundary so `:reversediff` is not satisfied by
+# `:reversediff_compiled`.
+function _ad_backend_tag_gap(target_dir::AbstractString, ad::Bool)
+    ad || return nothing
+    dir = joinpath(target_dir, "test", "ad")
+    isdir(dir) || return nothing
+    # Walked recursively to match `run_tests(@__DIR__)`'s own discovery, so a
+    # package that files its items under `test/ad/scenarios/` is not reported
+    # as having none.
+    sources = String[]
+    for (root, _, files) in walkdir(dir), f in files
+        endswith(f, ".jl") && push!(sources, joinpath(root, f))
+    end
+    isempty(sources) && return nothing
+    # Comment lines are dropped before matching. The seeded `scenarios.jl`
+    # ends with a commented example item tagged `:forwarddiff`, which would
+    # otherwise read as a live item for a backend that has none.
+    lines = mapreduce(readlines, vcat, sources)
+    text = join(filter(l -> !startswith(lstrip(l), "#"), lines), "\n")
+    # No items at all means the package has not seeded its AD suite yet,
+    # which is the scaffold's own starting state rather than drift.
+    occursin("@testitem", text) || return nothing
+    gaps = filter(b -> !occursin(Regex(":$(b.tag)\\b"), text), _AD_BACKENDS)
+    isempty(gaps) && return nothing
+    example = first(gaps)
+    return string(
+        "test/ad/ has no @testitem tagged ",
+        join((":$(b.tag)" for b in gaps), ", "),
+        ", but the managed ad.yaml runs a job per backend: each of those ",
+        "jobs runs zero tests, reports green, and uploads an empty ",
+        join(("$(b.slug)" for b in gaps), ", "),
+        " coverage flag behind a public README badge (kit#415). ",
+        "test/ad/scenarios.jl and test/ADFixtures are package-owned seeds ",
+        "that update cannot extend. Add a test item per backend, e.g. ",
+        "`@testitem \"", example.header, " gradients\" tags = ",
+        _ad_scenario_tags(example), " setup = [ADHelpers] begin ",
+        "test_working_backend(\"", example.header, "\") end`, and the ",
+        "matching (; name, backend) entry to ADFixtures.backends()."
     )
 end
 
@@ -3652,6 +3711,15 @@ function _apply(
     if deps_gap !== nothing
         push!(warnings, deps_gap)
         @warn deps_gap
+    end
+    # A backend added to `_AD_BACKENDS` since the package was scaffolded
+    # reaches the managed ad.yaml matrix but not the package-owned test items,
+    # so its CI job would report green on zero tests — see
+    # `_ad_backend_tag_gap`.
+    tag_gap = _ad_backend_tag_gap(target_dir, ad)
+    if tag_gap !== nothing
+        push!(warnings, tag_gap)
+        @warn tag_gap
     end
     # Managed between markers so package-owned additions below the block
     # survive `update` (#65).
