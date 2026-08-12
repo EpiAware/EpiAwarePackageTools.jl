@@ -8,7 +8,7 @@
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
         scaffold_inputs, update, scaffold_update,
-        _ad_selected, _bench_selected
+        _ad_selected, _bench_selected, _backend_extension_files
     using Dates: year, now
 
     # Absolute native path of a scaffold destination, mirroring the scaffold's
@@ -2563,6 +2563,32 @@
                         occursin(r"^  ad-", block) || continue
                         @test !occursin("- ext", block)
                     end
+                end
+                # Reading the `[extensions]` table must degrade to "no
+                # extension paths" rather than throwing. The unparseable case
+                # is the real one: an unsubstituted template still holding
+                # `{{PLACEHOLDER}}` tokens is not valid TOML.
+                mktempdir() do dir
+                    @test _backend_extension_files(dir, "Enzyme") == String[]
+                    proj = joinpath(dir, "Project.toml")
+                    write(proj, "name = \"{{PACKAGE}}\"\nuuid = {{UUID}}\n")
+                    @test _backend_extension_files(dir, "Enzyme") == String[]
+                    write(proj, "name = \"Gadget\"\n")
+                    @test _backend_extension_files(dir, "Enzyme") == String[]
+                    # `extensions` present but not a table at all.
+                    write(proj, "name = \"Gadget\"\nextensions = \"nope\"\n")
+                    @test _backend_extension_files(dir, "Enzyme") == String[]
+                    # A bare-string trigger is matched, not dropped, and a
+                    # non-Enzyme backend never claims anything.
+                    write(
+                        proj,
+                        "name = \"Gadget\"\n\n[extensions]\n" *
+                            "GadgetEnzymeExt = \"Enzyme\"\n"
+                    )
+                    @test _backend_extension_files(dir, "Enzyme") ==
+                        ["ext/GadgetEnzymeExt.jl"]
+                    @test _backend_extension_files(dir, "ForwardDiff") ==
+                        String[]
                 end
             end
 
