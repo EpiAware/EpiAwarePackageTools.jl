@@ -43,9 +43,16 @@ package's own documentation.
 Neither restates a standard, because a copy drifts from the page it was copied
 from.
 
-Both carry the managed block between `<!-- epiaware-standards:start -->` and
-`<!-- epiaware-standards:end -->`, so a package's own notes go after the end
-marker and survive every sync.
+Both carry the managed block between a `<!-- epiaware-standards:start ... -->`
+marker and `<!-- epiaware-standards:end -->`, so a package's own notes go after
+the end marker and survive every sync.
+
+Both files are also read into an agent's context in full at the start of every
+session, so the block spends as few lines as it can on itself.
+The "managed, edit it in the kit" note rides inside the start marker on one
+line rather than sitting below it as its own comment.
+The marker is matched on its prefix, so a package still carrying the older
+multi-line header is rewritten to the short form on the next sync.
 
 ## Overriding a managed file
 

@@ -3127,17 +3127,21 @@ end
 # page it was copied from. A package's own notes go after the closing marker
 # and are preserved, exactly as with `.gitignore` and the README sections.
 
-const AGENTS_START = "<!-- epiaware-standards:start -->"
+# Both files are auto-loaded into an agent's context in every adopting
+# package, so every line of provenance note competes with the links that are
+# the point of the file. The note therefore rides inside the start marker as
+# one line rather than sitting under it as a five-line comment: the marker is
+# matched on its prefix, so a package still carrying the older six-line form
+# is rewritten to the short one on the next sync.
+const AGENTS_START_PREFIX = "<!-- epiaware-standards:start"
 const AGENTS_END = "<!-- epiaware-standards:end -->"
 
-# The managed-block header, written just inside the start marker so it is part
-# of the refreshed region and is never duplicated on a later sync.
-_agents_header(template) = string(
-    "<!--\n",
-    "MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.\n",
-    "Edit it in the kit's `templates/", template, "`. Package-specific notes\n",
-    "go after the closing marker; they are preserved across updates.\n",
-    "-->"
+# The start marker for `template`, carrying the managed-file note inline. Part
+# of the refreshed region, so it is never duplicated on a later sync.
+_agents_start(template) = string(
+    AGENTS_START_PREFIX, " MANAGED by EpiAwarePackageTools.scaffold; edit ",
+    "`templates/", template, "` in the kit, not here. Notes below the end ",
+    "marker are preserved. -->"
 )
 
 # Render a managed agent-file body (without markers) from the bundled template.
@@ -3164,14 +3168,17 @@ Mirrors `_apply_gitignore`.
 """
 function _apply_agent_file(target_dir::AbstractString, template, inputs)
     path = joinpath(target_dir, template)
-    block = AGENTS_START * "\n" * _agents_header(template) * "\n\n" *
+    block = _agents_start(template) * "\n\n" *
         _render_agent_file(template, inputs) * AGENTS_END
     if !isfile(path)
         write(path, block * "\n")
         return (:created, true)
     end
     text = read(path, String)
-    si = findfirst(AGENTS_START, text)
+    # Matched on the prefix, so both the current one-line marker and the older
+    # bare `<!-- epiaware-standards:start -->` are found; everything from there
+    # to the end marker is replaced, which retires the old header comment.
+    si = findfirst(AGENTS_START_PREFIX, text)
     ei = findlast(AGENTS_END, text)
     if si !== nothing && ei !== nothing && first(ei) > last(si)
         new = text[1:(first(si) - 1)] * block * text[(last(ei) + 1):end]
@@ -3893,10 +3900,13 @@ package-owned, one entry per repo's own formatting-only reformat commit
 (e.g. the Runic migration's `style:` commit), so it is never rendered or
 touched by `scaffold`/`update`.
 
-`AGENTS.md` works the same way. The managed block between `$(AGENTS_START)` /
-`$(AGENTS_END)` points at the human-facing docs rather than restating them, and
-`CLAUDE.md` points at `AGENTS.md`. Package-specific notes go after the end
-marker and survive every sync.
+`AGENTS.md` works the same way. The managed block between a
+`$(AGENTS_START_PREFIX) ... -->` marker and `$(AGENTS_END)` points at the
+human-facing docs rather than restating them, and `CLAUDE.md` points at
+`AGENTS.md`. Both files reach an agent's context in full on every session, so
+the start marker carries the "managed, edit it in the kit" note inline rather
+than spending a separate comment block on it. Package-specific notes go after
+the end marker and survive every sync.
 
 `docs_subdomain` selects how the docs site is hosted. The default (`nothing`)
 is a project-pages deploy: `deploy_url = nothing`, so DocumenterVitepress

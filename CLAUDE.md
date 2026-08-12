@@ -1,9 +1,4 @@
-<!-- epiaware-standards:start -->
-<!--
-MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
-Edit it in the kit's `templates/CLAUDE.md`. Package-specific notes
-go after the closing marker; they are preserved across updates.
--->
+<!-- epiaware-standards:start MANAGED by EpiAwarePackageTools.scaffold; edit `templates/CLAUDE.md` in the kit, not here. Notes below the end marker are preserved. -->
 
 See [AGENTS.md](AGENTS.md).
 <!-- epiaware-standards:end -->

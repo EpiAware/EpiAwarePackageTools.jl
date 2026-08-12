@@ -1038,8 +1038,13 @@
                 @test res.agents === :created
                 txt = read(joinpath(dir, "AGENTS.md"), String)
                 @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
-                @test occursin("<!-- epiaware-standards:start -->", txt)
+                @test occursin("<!-- epiaware-standards:start", txt)
                 @test occursin("<!-- epiaware-standards:end -->", txt)
+                # Both files land in an agent's context whole on every
+                # session, so the block spends one line on saying it is
+                # managed, not a separate multi-line comment.
+                @test count(==('\n'), txt) < 15
+                @test !occursin("<!--\nMANAGED by", txt)
                 # The block points at the standards docs rather than
                 # restating them, so a second copy cannot drift (#370).
                 @test occursin("Package standards", txt)
@@ -1053,6 +1058,9 @@
                 claude = read(joinpath(dir, "CLAUDE.md"), String)
                 @test occursin("[AGENTS.md](AGENTS.md)", claude)
                 @test !occursin("Package standards", claude)
+                # A one-line pointer, so the wrapper around it stays smaller
+                # than the line it wraps.
+                @test count(==('\n'), claude) <= 4
                 # The standards themselves are NOT copied in.
                 @test !occursin("Comment the reason, not the action.", txt)
             end
@@ -1084,11 +1092,43 @@
                 @test res.agents === :injected
                 txt = read(joinpath(dir, "AGENTS.md"), String)
                 @test occursin(own, txt)
-                @test occursin("<!-- epiaware-standards:start -->", txt)
+                @test occursin("<!-- epiaware-standards:start", txt)
                 # Idempotent once the markers exist.
                 before = txt
                 update(dir)
                 @test read(joinpath(dir, "AGENTS.md"), String) == before
+            end
+        end
+
+        @testset "the older multi-line agent header is retired on sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                path = joinpath(dir, "AGENTS.md")
+                # What an adopter scaffolded before this change carries: a
+                # bare start marker followed by the five-line header comment.
+                # The marker is matched on its prefix, so the whole region is
+                # rewritten rather than the old header surviving below a new
+                # marker.
+                legacy = string(
+                    "<!-- epiaware-standards:start -->\n",
+                    "<!--\n",
+                    "MANAGED by EpiAwarePackageTools.scaffold — do not edit ",
+                    "by hand.\n",
+                    "Edit it in the kit's `templates/AGENTS.md`. ",
+                    "Package-specific notes\n",
+                    "go after the closing marker; they are preserved across ",
+                    "updates.\n",
+                    "-->\n\n# Wombat\n",
+                    "<!-- epiaware-standards:end -->\n",
+                    "\n## Wombat notes\n"
+                )
+                write(path, legacy)
+                @test update(dir).agents === :refreshed
+                txt = read(path, String)
+                @test !occursin("<!--\nMANAGED by", txt)
+                @test !occursin("do not edit by hand", txt)
+                @test occursin("## Wombat notes", txt)
             end
         end
 
