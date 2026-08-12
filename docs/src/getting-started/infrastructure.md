@@ -134,43 +134,27 @@ needed, and none of these values has to be re-passed to `update`.
 
 ## Staying in sync
 
-Two workflows keep an adopting package aligned with the kit.
+Two workflows keep a package aligned with the kit.
 
-- The scheduled template-sync workflow
-  (`.github/workflows/template-sync.yaml`) re-runs `update` against the
-  repository on a schedule and on Dependabot updates, then opens or refreshes a
-  pull request whenever the committed infrastructure has drifted from the
-  current standard.
-  A scheduled run has nobody watching it, so a run that fails opens an issue on
-  the repository rather than leaving a red mark on the Actions tab.
-  It is one issue, labelled `template-sync`, edited in place on each failing run
-  and closed again by the first clean run.
-  The two routes out are to re-apply the standard locally and commit the result,
-  or, when `update` throws or overwrites something the package needs to keep, to
-  open an issue on the kit asking for the flexibility.
-  Editing the managed file to silence the failure is not one of them, since the
-  next sync reverts it.
-- The sync also freshens the reusable-workflow pins
-  (`update(...; freshen_reusable_refs = true)`).
-  Each managed caller is offered the newest commit that touched the shared
-  workflow it wraps, and takes it only when the committed pin is older.
-  A pin only ever moves forwards, so a Dependabot bump is never reverted, and a
-  pin the kit cannot resolve or compare, or one that floats on a branch or tag,
-  is left as committed with a warning.
-  Freshening is the one part of `update` that needs the network.
-  It is off by default, so a local run offline behaves exactly as one online;
-  the scheduled workflow, which has a token, turns it on.
-- Dependabot (`.github/dependabot.yml`) keeps the pinned reusable-workflow and
-  action references current, so fixes in the shared workflows reach the
-  repository without manual edits.
-  It runs daily, and every bump within an ecosystem is grouped into one pull
-  request, so a run refreshes that pull request rather than opening more.
-  The refresh is a new commit, so it costs a check run; a package that would
-  rather wait longer than spend the runner time sets the `julia` ecosystem
-  back to `weekly` in its own copy.
+- **Template sync** (`.github/workflows/template-sync.yaml`) re-runs `update`
+  on a schedule and on Dependabot updates, opening or refreshing a pull
+  request when infrastructure has drifted.
+  A failed run opens a single `template-sync` issue instead, edited in place
+  and closed by the next clean run.
+  Fix a failure by re-applying the standard locally, or ask the kit for more
+  flexibility if `update` overwrote something needed.
+  Hand-editing the managed file does not work: the next sync reverts it.
+  Scheduled runs also freshen reusable-workflow pins
+  (`freshen_reusable_refs = true`): each managed caller takes the newest
+  commit that touched the shared workflow it wraps, only ever moving a pin
+  forwards, and skips one it cannot resolve or that floats on a branch or tag.
+  This is the only part of `update` that needs the network, so it is off by
+  default and on only for the scheduled run's token.
+- **Dependabot** (`.github/dependabot.yml`) keeps pinned workflow and action
+  references current, daily, grouped into one pull request per ecosystem.
+  Slow it down by setting the `julia` ecosystem to `weekly` in your own copy.
 
-An improvement made once in the kit therefore propagates to every adopting
-package on the next sync.
+A fix made once in the kit reaches every adopting package on its next sync.
 
 ### After a sync, read your own docs
 
@@ -354,7 +338,7 @@ You can drive the same sync from a Julia session:
 using EpiAwarePackageTools
 
 # Re-apply the managed standard files and report drift. `update` is
-# `public`, not exported (#294), so call it qualified.
+# `public`, not exported, so call it qualified.
 EpiAwarePackageTools.update(pkgdir(MyPackage))
 ```
 
