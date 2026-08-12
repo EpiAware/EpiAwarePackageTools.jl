@@ -4626,8 +4626,9 @@ end # @testitem "scaffold + update (logic)"
     using Test
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _JULIA_FLOOR, _JULIA_COMPAT,
-        _JULIA_COMPAT_SOURCES, _julia_compat_below_floor,
-        _julia_versions_below_floor, update
+        _JULIA_COMPAT_SOURCES, _JULIA_TEST_VERSIONS,
+        _JULIA_TEST_VERSIONS_SOURCES, _julia_test_versions,
+        _julia_compat_below_floor, _julia_versions_below_floor, update
 
     function _fake_pkg(dir; name = "Wombat", julia = nothing)
         compat = julia === nothing ? "" : "\n[compat]\njulia = \"$(julia)\"\n"
@@ -4650,28 +4651,49 @@ end # @testitem "scaffold + update (logic)"
         @test _JULIA_COMPAT == "1.10, 1.11, 1.12"
         # A package that does still pin something unregistered keeps it.
         @test _JULIA_COMPAT_SOURCES == "1.11, 1.12"
+        # And the same split for the CI matrix: the standard tests lts, unless
+        # the package's own git `[sources]` pins would be ignored there.
+        @test _JULIA_TEST_VERSIONS == "'[\"1\", \"lts\", \"pre\"]'"
+        @test _JULIA_TEST_VERSIONS_SOURCES == "'[\"1\", \"pre\"]'"
+        @test _julia_test_versions(false) == _JULIA_TEST_VERSIONS
+        @test _julia_test_versions(true) == _JULIA_TEST_VERSIONS_SOURCES
     end
 
-    @testset "the test caller drops the lts leg" begin
+    @testset "the test caller keeps the lts leg" begin
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir)
             wf = read(_p(dir, ".github/workflows/test.yaml"), String)
-            # The reusable defaults to ["1", "lts", "pre"]; an lts (1.10) leg
-            # cannot resolve the managed test env, which depends on a kit whose
-            # own compat starts at 1.11. Unconditional, unlike the floor on the
-            # package's own declared compat (#410).
+            # The lts (1.10) leg runs `Pkg.test`, which develops the package
+            # under test itself, so `[sources]` being a Pkg 1.11 feature costs
+            # it nothing. The environments that do need the pin honoured are
+            # separate jobs on the current release, not legs of this matrix
+            # (#410).
             #
             # Asserted against the `julia_versions:` line itself, not the whole
-            # file: the block's own comment names the lts leg it drops, and a
-            # naive `occursin("lts", wf)` would match that comment rather than
-            # the matrix — passing or failing for the wrong reason.
+            # file: the block's own comment mentions the lts leg, and a naive
+            # `occursin("lts", wf)` would match that comment rather than the
+            # matrix — passing or failing for the wrong reason.
             lines = split(wf, '\n')
             vline = only(filter(l -> occursin("julia_versions:", l), lines))
-            @test occursin("[\"1\", \"pre\"]", vline)
-            @test !occursin("lts", vline)
+            @test occursin("[\"1\", \"lts\", \"pre\"]", vline)
             # And no placeholder survives into the emitted workflow.
             @test !occursin("{{JULIA_TEST_VERSIONS}}", wf)
+        end
+    end
+
+    @testset "a package holding to the floor is seeded without lts" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; unregistered_sources = true)
+            wf = read(_p(dir, ".github/workflows/test.yaml"), String)
+            lines = split(wf, '\n')
+            vline = only(filter(l -> occursin("julia_versions:", l), lines))
+            # Its git `[sources]` pins are silently ignored on 1.10, so the leg
+            # would resolve a registry instead. Seeding it would contradict the
+            # warning `_julia_versions_below_floor` raises for exactly that leg.
+            @test occursin("[\"1\", \"pre\"]", vline)
+            @test !occursin("lts", vline)
         end
     end
 
@@ -4693,20 +4715,22 @@ end # @testitem "scaffold + update (logic)"
         end
     end
 
-    @testset "the JET lower bound is one downgrade can actually resolve" begin
-        mktempdir() do dir
-            _fake_pkg(dir)
-            scaffold(dir)
-            compat = read(_p(dir, "test/Project.toml"), String)
-            # The downgrade job pins every dep to the LOWEST version its compat
-            # admits, so a lower bound that cannot resolve is not a lower bound
-            # — it is a red CI job waiting to happen. JET 0.9 admits only
-            # 0.9.19/0.9.20 on 1.11 and nothing at all on 1.12, and both need
-            # JuliaSyntax 0.4, which the pinned Runic 1.7.0 (JuliaSyntax 1)
-            # rules out. 0.10.2 is the lowest JET that resolves alongside it.
-            # Declaring 0.9 claimed support the standard never had.
-            @test occursin("JET = \"0.10.2\"", compat)
-            @test !occursin("JET = \"0.9", compat)
+    @testset "the JET bound is one every leg of the matrix can resolve" begin
+        for ad in (true, false)
+            mktempdir() do dir
+                _fake_pkg(dir)
+                scaffold(dir; ad = ad)
+                compat = read(_p(dir, "test/Project.toml"), String)
+                # JET publishes nothing past 0.9.18 for Julia 1.10, so a bound
+                # starting at 0.10 makes the seeded lts leg unresolvable and
+                # the matrix a lie. The bound reaches back to 0.9 in both the
+                # AD and no-AD variants, which had drifted apart.
+                #
+                # This costs the downgrade job nothing: `julia-downgrade-compat`
+                # resolves `projects: '.'` — the root Project.toml — so the
+                # test environment's bounds are never floor-resolved.
+                @test occursin("JET = \"0.9, 0.10\"", compat)
+            end
         end
     end
 

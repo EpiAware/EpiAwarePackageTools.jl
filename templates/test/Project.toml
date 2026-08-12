@@ -22,6 +22,9 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 # Bounded compat for the seeded QA + AD deps. The package under test is
 # pinned by `[sources]`, so carries no compat entry.
 # Add a bound for each test-only dep you add.
+# Every bound here has to resolve on every leg of the `test.yaml` matrix,
+# lts included: JET reaches 0.9 for that reason (it publishes nothing past
+# 0.9.18 for 1.10), matching the no-AD variant.
 [compat]
 ADTypes = "1"
 Aqua = "0.8"
@@ -31,7 +34,7 @@ DifferentiationInterfaceTest = "0.9, 0.10"
 Documenter = "1"
 {{KIT_COMPAT_LINE}}ExplicitImports = "1.6"
 ForwardDiff = "0.10, 1"
-JET = "0.10.2"
+JET = "0.9, 0.10"
 Pkg = "1"
 Runic = "1"
 Test = "1"

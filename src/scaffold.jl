@@ -578,23 +578,48 @@ const _JULIA_COMPAT = "1.10, 1.11, 1.12"
 # its `[sources]` pins have to be honoured, so the floor is real for it.
 const _JULIA_COMPAT_SOURCES = "1.11, 1.12"
 
-# The `julia_versions` matrix for the `tests.yml` caller, dropping the `lts`
-# entry the reusable defaults to. This stays unconditional, and is a statement
-# about the matrix rather than about what the package supports (#410): the
-# managed test environment depends on EpiAwarePackageTools, whose own
-# `[compat] julia` starts at 1.11, so an lts leg cannot resolve that
-# environment whatever the package itself declares. Managed, so an adopter's
-# resync keeps a matrix that can actually run (#183).
-const _JULIA_TEST_VERSIONS = "'[\"1\", \"pre\"]'"
-
-# The `julia_version` for the `downgrade.yml` caller, whose own default `'1.10'`
-# is below the floor the kit's own compat sets (#115).
+# The `julia_versions` matrix for the `tests.yml` caller: the reusable's own
+# default, `lts` included. The kit is registered and its `[compat] julia`
+# reaches 1.10, so the managed test environment resolves on lts like any other
+# leg, and the standard tests what the org supports (#410).
 #
-# The current release, not the floor: the job must also be a version the test
-# environment resolves on, and 1.11 is not one. JET publishes nothing for 1.11
-# beyond 0.9.19/0.9.20, which need JuliaSyntax 0.4 and cannot coexist with the
-# pinned Runic 1.7.0 (JuliaSyntax 1). Pinning to the floor would only make CI
-# red on a conflict unrelated to the package under test.
+# The lts leg is a `Pkg.test` run (`julia-actions/julia-runtest`), which
+# develops the package under test itself, so the `[sources]` path pin in
+# `test/Project.toml` being ignored before 1.11 costs it nothing. The isolated
+# environments that do need a resolvable pin — `test/jet`, `test/ad`, `docs`,
+# `benchmark` — are separate jobs pinned to the current release, not legs of
+# this matrix.
+#
+# Seeded rather than managed (`_WITH_SEED_DEFAULT_KEYS`): which versions to
+# test is the package's call (#73, #117), so an adopter naming its own matrix
+# keeps it across a resync.
+const _JULIA_TEST_VERSIONS = "'[\"1\", \"lts\", \"pre\"]'"
+
+# The same matrix for a package that declares `unregistered_sources`: its git
+# `[sources]` pins really are ignored below the floor, so an lts leg would
+# resolve a registry instead of the pin and test something stale. Seeding lts
+# there would contradict the warning `_julia_versions_below_floor` raises for
+# exactly that leg.
+const _JULIA_TEST_VERSIONS_SOURCES = "'[\"1\", \"pre\"]'"
+
+# The seeded matrix for a target, given whether its `[sources]` pins bind it to
+# the floor.
+function _julia_test_versions(unregistered_sources::Bool)
+    return unregistered_sources ? _JULIA_TEST_VERSIONS_SOURCES :
+        _JULIA_TEST_VERSIONS
+end
+
+# The `julia_version` for the `downgrade.yml` caller, overriding its own
+# default `'1.10'` (#115).
+#
+# Not about what the kit supports — its compat reaches 1.10, and the `tests.yml`
+# matrix runs an lts leg (#410). This job is different in kind: it resolves
+# every dependency at the lowest version its `[compat]` admits, so the version
+# it runs on has to be one where that floor-resolved environment still loads.
+# JET publishes nothing for 1.11 beyond 0.9.19/0.9.20, which need JuliaSyntax
+# 0.4 and cannot coexist with the pinned Runic 1.7.0 (JuliaSyntax 1). Pinning
+# this job low would only make CI red on a conflict unrelated to the package
+# under test, so it stays on the current release.
 const _JULIA_DOWNGRADE_VERSION = "'1'"
 
 # The Julia versions a `test.yaml` caller names that sit below the floor: an
@@ -1177,8 +1202,9 @@ function scaffold_inputs(
         SYNC_INSTALL = sync_install,
         RUNIC_VERSION = _RUNIC_VERSION,
         RUNIC_PRE_COMMIT_REV = _RUNIC_PRE_COMMIT_REV,
-        # The `tests.yml` caller's Julia matrix, dropping the reusable's `lts`
-        # leg: the managed test env depends on a kit that needs 1.11 (#410).
+        # The `tests.yml` caller's Julia matrix, the reusable's own default.
+        # `_apply` narrows it for an `unregistered_sources` target, which this
+        # function does not know about (#410).
         JULIA_TEST_VERSIONS = _JULIA_TEST_VERSIONS,
         LOGO_INITIAL = _logo_initial(pkg),
     )
@@ -1580,9 +1606,10 @@ end
 # and a destination naming the key keeps its own value (#246). Every other
 # template-rendered key is managed and wins on merge (#183). The Julia matrix
 # differs in kind: which versions to test is a package's call (#73/#117), and
-# the kit's stake is only that the floor is not below 1.11. So it seeds a
-# floor-respecting default and `_julia_versions_below_floor` warns when an
-# override reaches back below the floor.
+# the kit's stake is only that an `unregistered_sources` package does not test
+# below the floor its pins need. So it seeds `_julia_test_versions` and
+# `_julia_versions_below_floor` warns when such a package's override reaches
+# back below the floor.
 #
 # Scoped to the reusable that renders the key, not global by name:
 # `codecoverage.yaml`'s caller renders a `julia_version` of its own which IS
@@ -3855,8 +3882,8 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
         "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
         _seed_ref("downgrade.yml"), "\n",
         "    with:\n",
-        # The reusable defaults to '1.10', which the managed test env cannot
-        # resolve on: the kit it depends on needs 1.11 (#246, #115).
+        # The reusable defaults to '1.10'; see `_JULIA_DOWNGRADE_VERSION` for
+        # why this job runs on the current release instead (#246, #115).
         "      julia_version: ", _JULIA_DOWNGRADE_VERSION, "\n",
         "    secrets: inherit  # pragma: allowlist secret"
     )
@@ -4049,6 +4076,9 @@ function _apply(
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
             DOWNGRADE_COMPAT = string(downgrade_compat),
             UNREGISTERED_SOURCES = string(unregistered_sources),
+            # `scaffold_inputs` seeds the full matrix; only here is it known
+            # whether this package's `[sources]` pins hold it above lts (#410).
+            JULIA_TEST_VERSIONS = _julia_test_versions(unregistered_sources),
             DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
                 inputs.ORG, downgrade_compat
             ),
