@@ -188,8 +188,10 @@ A page that names a retired tool in order to explain the retirement is not
 drift.
 Put `EPIAWARE_PROSE_OK` in it, in an HTML comment so it does not render, and
 the scan skips that file.
-`NEWS.md` is never scanned, because a changelog recording what the package used
-to do is the point of a changelog.
+Changelogs are never scanned, because recording what the package used to do is
+the point of one.
+That covers `NEWS.md`, `CHANGELOG.md`, and the generated
+`docs/src/release-notes.md` this kit writes in their place.
 
 ## Registration safety
 
