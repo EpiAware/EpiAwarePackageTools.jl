@@ -509,6 +509,32 @@ function _stale_prose_gap(target_dir::AbstractString)
     )
 end
 
+# Flag a comment in the package-owned Project.toml, returning one warning
+# naming every hit line or `nothing` when the file is clean. Pkg silently
+# drops any comment the next time it rewrites the file (Pkg.add,
+# Pkg.compat!, a dependency bump), so one left there is a note that reads
+# fine today and vanishes without a trace on the first routine edit.
+# Weak on purpose: quoted `#`s inside a value are stripped line-by-line
+# before the check, and the file itself is never touched, only reported.
+function _project_toml_comment_gap(target_dir::AbstractString)
+    path = joinpath(target_dir, "Project.toml")
+    isfile(path) || return nothing
+    hit_lines = Int[]
+    for (i, line) in enumerate(eachline(path))
+        bare = replace(replace(line, r"\"[^\"]*\"" => ""), r"'[^']*'" => "")
+        occursin('#', bare) && push!(hit_lines, i)
+    end
+    isempty(hit_lines) && return nothing
+    plural = length(hit_lines) == 1 ? "" : "s"
+    return string(
+        "Project.toml has a comment on line", plural, " ",
+        join(hit_lines, ", "),
+        ": Pkg silently drops it the next time something rewrites the file ",
+        "(Pkg.add, Pkg.compat!, a dependency bump), so anything worth ",
+        "keeping belongs in a commit message or the docs instead."
+    )
+end
+
 # Absolute native path of a template destination. Every `dest` is written
 # posix-style, so a plain `joinpath` yields a mixed-separator path on Windows.
 # Windows accepts that for io, but the scaffold results are public API that
@@ -4350,6 +4376,13 @@ function _apply(
     if prose_gap !== nothing
         push!(warnings, prose_gap)
         @warn prose_gap
+    end
+    # A comment in the package-owned Project.toml reads fine until the next
+    # Pkg-mediated rewrite silently drops it — see `_project_toml_comment_gap`.
+    toml_comment_gap = _project_toml_comment_gap(target_dir)
+    if toml_comment_gap !== nothing
+        push!(warnings, toml_comment_gap)
+        @warn toml_comment_gap
     end
     # Managed between markers so package-owned additions below the block
     # survive `update` (#65).

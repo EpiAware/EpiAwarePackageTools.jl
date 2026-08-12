@@ -34,6 +34,12 @@ while anything you add outside the markers is preserved. The managed "How to
 cite" section points at the package-owned `CITATION.cff`, so GitHub renders a
 "Cite this repository" widget and the citation content stays yours to edit.
 
+`Project.toml` is package-owned like the rest, but a sync also warns (never
+edits) if it carries a comment: Pkg silently drops any comment the next time
+something rewrites the file (`Pkg.add`, `Pkg.compat!`, a dependency bump), so
+one left there reads fine today and vanishes without a trace on the first
+routine edit.
+
 ## Agent files
 
 `AGENTS.md` links the docs an agent should read: [Package standards](@ref
