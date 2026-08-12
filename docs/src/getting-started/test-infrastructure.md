@@ -187,3 +187,34 @@ The scaffolded `Taskfile.yml` wraps the common modes.
 The formatter gate also runs in CI through the managed `pre-commit.yaml`
 workflow, pinned to the same formatter version as the local pre-commit hook and
 the isolated formatter environment so a local format and CI never disagree.
+
+## Running only what you need, and running slices at once
+
+Reach for a filter (see "TestItemRunner and `@testitem`" above) instead of the
+full suite when you only care about one part of it.
+`skip_quality` and `quality_only` cover the two halves the Taskfile already
+names; run any other tag combination directly:
+
+```julia
+Pkg.test(test_args=["readme_only"])
+```
+
+Each mode is an independent, single-process run — this kit's runner does not
+itself run test items concurrently within one process — so nothing stops you
+starting several at once and letting your machine's cores do the rest.
+`task test-parallel` does exactly this for the two built-in halves,
+using Task's own `deps:` (which runs listed tasks concurrently by default):
+
+```yaml
+test-parallel:
+  desc: Run test-fast and test-quality concurrently (faster local iteration)
+  deps: [test-fast, test-quality]
+```
+
+The same pattern extends to any filter combination Task doesn't name for you:
+background two `julia --project=. -e 'Pkg.test(test_args=[...])'` invocations
+and wait on both.
+There is nothing to reconcile between them — each is a fully separate process
+and test report, so a package with a slow README/tutorial suite might, for
+example, run `skip_quality` and `readme_only` side by side rather than adding
+a third named task for a combination only one package needs.
