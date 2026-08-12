@@ -14,9 +14,10 @@
 # The Benchmarks entry is written with `benchmarks = true`, `ad = true`, or
 # both: its own top-level nav group under `docs/src/benchmarks/`, never
 # nested inside Tutorials. Performance over time appears with
-# `benchmarks = true`, the AD-comparison report with `ad = true`. The AD
-# tutorial (its own nested "Tutorials" subgroup under Getting started) is
-# written only with `ad = true`, carrying the kit-managed AD-backends page.
+# `benchmarks = true`, the AD-comparison report with `ad = true`. That report
+# is the only AD page the kit writes; the AD-backends tutorial that used to sit
+# under Getting started is retired, and its `ad-backends` anchor moved onto the
+# report.
 #
 # Every entry must resolve to a page the package writes or `make.jl`
 # generates. Docs about the kit itself live on the kit's own site (#194).
@@ -24,11 +25,10 @@
 pages = [
     "Home" => "index.md",
     # Authored quickstart, distinct from the README-derived home page. The
-    # optional FAQ and the package's own tutorials (both docs_config.jl
-    # supplied) are listed here, ahead of the kit-managed AD tutorial
-    # subgroup.
+    # optional FAQ and the package's own tutorials are both supplied from
+    # docs_config.jl.
     "Getting started" => [
-        "Overview" => "getting-started/index.md"{{GETTING_STARTED_FAQ}}{{PACKAGE_TUTORIALS}}{{AD_TUTORIALS_NAV}},
+        "Overview" => "getting-started/index.md"{{GETTING_STARTED_FAQ}}{{PACKAGE_TUTORIALS}},
     ],
     "API reference" => [
         "Public API" => "lib/public.md",

@@ -2142,10 +2142,25 @@ function _render_tutorials(
         light, heavy, stubs; force_stub = String[],
         envs = Pair{String, String}[]
     )
+    # A registration whose Literate source is not there is dropped rather than
+    # fatal. `docs_config.jl` is package-owned and write-once, so when the kit
+    # retires a managed page (the AD-backends tutorial) the sync deletes the
+    # source but cannot remove the adopter's entry for it. Erroring here would
+    # red every docs build between the sync and the hand edit, over a page that
+    # is deliberately gone. `update` warns about the dead entry separately.
+    #
+    # Scoped to execution only. Stubbing needs no source — a stub is written
+    # from the `TUTORIAL_STUBS` heading — so the fast-build path below is left
+    # exactly as it was.
+    present(files) = filter(files) do f
+        isfile(joinpath(tutorials_dir, f)) && return true
+        @warn "skipping $f: registered in docs_config.jl but not present"
+        return false
+    end
     if !skip_notebooks
-        run_heavy = filter(!in(force_stub), heavy)
+        run_heavy = filter(!in(force_stub), present(heavy))
         _process_tutorials(
-            docs_dir, tutorials_dir, light, run_heavy; envs = envs
+            docs_dir, tutorials_dir, present(light), run_heavy; envs = envs
         )
         if !isempty(force_stub)
             force_stub_md = _tutorial_md_names(force_stub)
@@ -2161,7 +2176,7 @@ function _render_tutorials(
                 "SKIP_NOTEBOOKS=true)"
         )
         _process_tutorials(
-            docs_dir, tutorials_dir, light, String[]; envs = envs
+            docs_dir, tutorials_dir, present(light), String[]; envs = envs
         )
         heavy_md = _tutorial_md_names(heavy)
         heavy_stubs = filter(p -> first(p) in heavy_md, stubs)

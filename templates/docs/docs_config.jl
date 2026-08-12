@@ -12,10 +12,9 @@ const LIGHT_TUTORIALS = String[]
 
 # Heavy tutorials (live MCMC fits, multi-backend AD, plotting) each run once
 # in a fresh subprocess so native/memory state cannot accumulate. The
-# `ad-backends.jl` entry is seeded when scaffolded with `ad = true`: the page
-# itself is kit-managed; only this registration is package-owned. Its
-# `ad-comparison.jl` sibling is registered in `HEAVY_BENCHMARKS` below.
-const HEAVY_TUTORIALS = String[{{AD_HEAVY_TUTORIALS}}]
+# kit-managed AD-comparison page is registered in `HEAVY_BENCHMARKS` below
+# instead, so this list starts empty and is yours to fill.
+const HEAVY_TUTORIALS = String[]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
 # `docs/src`.
@@ -24,7 +23,7 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # Fast-build stubs (`--skip-notebooks`): `"file.md" => "# Heading"` pairs.
 # Preserve the tutorial's `@id` in the heading (e.g. `"# [Title](@id
 # my-anchor)"`) so cross-references still resolve in a fast build.
-const TUTORIAL_STUBS = Pair{String, String}[{{AD_TUTORIAL_STUBS}}]
+const TUTORIAL_STUBS = Pair{String, String}[]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a
@@ -137,9 +136,8 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # The package's own Getting-started tutorials, as `"Title" => "page.md"`
 # pairs (relative to `docs/src`), listed right after Overview (and the
 # optional FAQ below) in the generated nav — one placement for the whole
-# ecosystem rather than a per-repo choice (#354). The kit-managed AD-backends
-# tutorial (when `ad = true`) keeps its own nested "Tutorials" subgroup
-# alongside these, unaffected by this list.
+# ecosystem rather than a per-repo choice (#354). These are the only tutorials
+# in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = Pair{String, String}[]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",

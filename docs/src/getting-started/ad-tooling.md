@@ -42,12 +42,13 @@ registry skeleton, and the AD test environment.
 
 ## The backend matrix
 
-The kit tests six backends across four AD packages.
+The kit tests seven backends across four AD packages.
 
 | Backend | Package |
 |---|---|
 | ForwardDiff | ForwardDiff |
 | ReverseDiff (tape) | ReverseDiff |
+| ReverseDiff (compiled) | ReverseDiff |
 | Enzyme forward | Enzyme |
 | Enzyme reverse | Enzyme |
 | Mooncake forward | Mooncake |
@@ -55,6 +56,26 @@ The kit tests six backends across four AD packages.
 
 ForwardDiff doubles as the reference: each scenario carries a ForwardDiff
 gradient, and the remaining backends are checked against it.
+
+## The AD docs page
+
+An `ad = true` package gets one managed AD page, `AD comparison`, under its own
+top-level Benchmarks nav group.
+It reports what each backend costs on the package's own scenario set, and
+carries a short section on choosing between them.
+
+There used to be a second page, an `AD backends` tutorial under Getting started.
+It is retired.
+Its support table repeated the README's per-backend coverage badge row and the
+comparison page's own scenario coverage, and the rest was generic advice about
+using AD that belonged to no package in particular.
+
+Package pages across the org link to that page by its Documenter anchor,
+`@ref ad-backends`, so the anchor moved to the comparison page's
+`Choosing a backend` section rather than disappearing.
+A sync deletes the retired source, and warns when a package's own
+`docs/docs_config.jl` still registers it, because that file is package-owned and
+the sync cannot edit it.
 
 ### One single source of truth
 
