@@ -2,10 +2,7 @@
 #
 # Scheduled template-sync. Re-applies the managed EpiAware standard and, when
 # committed infra has drifted from the kit, opens (or refreshes) a PR with
-# the refresh. This is the auto-refresh half of the self-sync loop: the
-# `self-drift` check guards every push/PR, and this workflow proactively
-# pulls the newest standard on a schedule so a repo never silently falls
-# behind.
+# the refresh, so a repo never silently falls behind.
 #
 # Refs are preserved: `update` keeps whatever reusable-workflow SHA
 # Dependabot has pinned, so a sync never reverts a Dependabot bump.
@@ -86,7 +83,13 @@ jobs:
               Pkg.activate("."); Pkg.instantiate()
               using EpiAwarePackageTools
               res = EpiAwarePackageTools.update("."; ad = false, benchmarks = false, downgrade_compat = true)
-              println("re-applied ", length(res.updated), " managed files")'
+              println("re-applied ", length(res.updated), " managed files")
+              # Gaps a sync cannot close itself: write-once seeds it cannot
+              # extend, and package-owned prose describing a retired standard.
+              # Printed here so they are in the job log as well as the PR body.
+              for w in res.warnings
+                  println("warning: ", w)
+              end'
       # Mint a GitHub App token so the sync PR can carry workflow-file drift:
       # the default `GITHUB_TOKEN` is forbidden from pushing under
       # `.github/workflows/`, so a managed *workflow* change made the sync
@@ -126,6 +129,13 @@ jobs:
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,
             `LICENSE`) are never touched.
+
+            Because they are never touched, this sync can leave your own
+            documentation describing the standard as it was. Before merging,
+            check the README and the authored pages under `docs/src/` against
+            what changed here — a formatter, a task name, or a page that moved
+            is a common one. The job log lists any drift the sync could detect
+            but not fix.
       # A clean run means any open tracker issue is stale, so close it.
       - name: Close the drift issue once a sync lands cleanly
         if: github.event_name != 'pull_request'

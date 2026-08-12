@@ -161,6 +161,38 @@ Two workflows keep an adopting package aligned with the kit.
 An improvement made once in the kit therefore propagates to every adopting
 package on the next sync.
 
+### After a sync, read your own docs
+
+<!-- EPIAWARE_PROSE_OK: this section names a retired tool to explain the
+     scan, which is the one thing the scan itself cannot tell apart from
+     drift. -->
+
+A sync converges the managed files and nothing else.
+Your README and the authored pages under `docs/src/` are package-owned, so
+prose describing the standard as it used to be survives every sync.
+This is the common way an adopting package ends up documenting something it no
+longer does: the kit moved the formatter to Runic, and a contributing guide
+still telling readers to run JuliaFormatter kept telling them so.
+
+`update` scans that prose for names the standard has retired (the entries in
+`RETIRED_PATHS`, plus tools the standard has moved away from) and reports each
+one in `warnings`, which the sync prints to its job log.
+It only reports; the wording is yours, so it never rewrites it.
+
+The scan catches a retired name, not a stale claim.
+Counts, worked examples and descriptions of how a suite is organised all go
+stale silently, so read the pages that describe the parts of the standard the
+sync changed.
+
+A page that names a retired tool in order to explain the retirement is not
+drift.
+Put `EPIAWARE_PROSE_OK` in it, in an HTML comment so it does not render, and
+the scan skips that file.
+Changelogs are never scanned, because recording what the package used to do is
+the point of one.
+That covers `NEWS.md`, `CHANGELOG.md`, and the generated
+`docs/src/release-notes.md` this kit writes in their place.
+
 ## Registration safety
 
 The managed `registrability.yaml` caller runs the shared
