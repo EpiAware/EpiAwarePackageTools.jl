@@ -68,6 +68,16 @@ updates:
   - package-ecosystem: "julia"
     directories:
       - "/test/*"
+      # The docs project, and one environment per tutorial that needs its own.
+      # A tutorial environment resolves standalone rather than joining the
+      # root `[workspace]`, which is what lets two tutorials hold
+      # incompatible versions, and also what leaves nothing else watching
+      # them. Both depths are listed so an environment tree may mirror the
+      # tutorial tree: `*` is documented, `**` is not, so the recursive
+      # pattern is additive rather than relied on.
+      - "/docs"
+      - "/docs/environments/*"
+      - "/docs/environments/**"
     schedule:
       interval: "daily"
     groups:
