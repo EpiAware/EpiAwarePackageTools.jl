@@ -2031,6 +2031,26 @@
                 scaffold(dir; ad = false)
                 @test isempty(update(dir; ad = false).warnings)
             end
+            # The other direction: a dep the managed AD pages load is absent,
+            # because docs/Project.toml is write-once and the kit added it
+            # after this package was scaffolded.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "MissingDeps")
+                scaffold(dir)
+                proj = joinpath(dir, "docs", "Project.toml")
+                write(
+                    proj,
+                    replace(
+                        read(proj, String), r"Chairmarks = \"[^\"]*\"\n" => ""
+                    )
+                )
+                @test_logs (:warn, r"missing Chairmarks"i) match_mode = :any begin
+                    global res = update(dir)
+                end
+                @test any(w -> occursin("Chairmarks", w), res.warnings)
+                # Package-owned, so the warning is the whole remedy here too.
+                @test !occursin("Chairmarks", read(proj, String))
+            end
         end
 
         @testset "update warns when a bespoke pages.jl lacks Benchmarks nav entries (#305)" begin
