@@ -1544,7 +1544,6 @@
                 pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test !occursin("ad-backends.md", pgs)
                 @test !occursin("ad-comparison", pgs)
-                @test !occursin("{{AD_TUTORIALS_NAV}}", pgs)
                 dp = read(_dest(dir, "docs/Project.toml"), String)
                 @test !occursin("ADFixtures = ", dp)
                 @test !occursin("CairoMakie = ", dp)
@@ -1614,7 +1613,32 @@
             end
         end
 
-        @testset "ad = true ships the AD-backends tutorial page" begin
+        @testset "the AD-backends tutorial is retired" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # Neither the page nor any trace of its registration.
+                @test !isfile(
+                    _dest(
+                        dir,
+                        "docs/src/getting-started/tutorials/ad-backends.jl"
+                    )
+                )
+                cfg = read(_dest(dir, "docs/docs_config.jl"), String)
+                # No Literate registration and no stub for it. The string
+                # "ad-backends" does still appear, as the anchor the
+                # AD-comparison stub carries, so match the registration.
+                @test !occursin("ad-backends.jl", cfg)
+                @test !occursin("\"ad-backends.md\" =>", cfg)
+                @test occursin("const HEAVY_TUTORIALS = String[]", cfg)
+                @test occursin("const TUTORIAL_STUBS = Pair{String, String}[]", cfg)
+                pgs = read(_dest(dir, "docs/pages.jl"), String)
+                @test !occursin("getting-started/tutorials/ad-backends", pgs)
+                @test !occursin("\"Tutorials\"", pgs)
+            end
+            # An adopter carrying the page and its registration has the page
+            # deleted, and is told to drop the registration `update` cannot
+            # reach (docs_config.jl is package-owned).
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
@@ -1622,76 +1646,29 @@
                     dir,
                     "docs/src/getting-started/tutorials/ad-backends.jl"
                 )
-                @test isfile(tut)
-                txt = read(tut, String)
-                # Managed, substituted, and anchored for cross-references.
-                @test occursin("MANAGED by EpiAwarePackageTools.scaffold", txt)
-                @test occursin("@id ad-backends", txt)
-                @test occursin(
-                    "github.com/EpiAware/Wombat.jl/actions/workflows/ad.yaml",
-                    txt
+                mkpath(dirname(tut))
+                write(tut, "# stale managed page\n")
+                write(
+                    joinpath(dirname(tut), "ad-backends.md"),
+                    "# stale rendered page\n"
                 )
-                @test !occursin("{{", txt)
-                # The support table is rendered at docs-build time from the
-                # package-owned registry, so broken-scenario declarations
-                # never live in the (managed) page body.
-                @test occursin("ad_backend_support_table(ADFixtures)", txt)
-                # One coverage-flag badge per backend, from `_AD_BACKENDS`
-                # (the same table the README badge block renders).
-                n = length(EpiAwarePackageTools._AD_BACKENDS)
-                @test count("graph/badge.svg?flag=ad-", txt) == n
-                # The benchmark itself moved to the sibling ad-comparison page
-                # (#299): this page keeps the how-to-choose narrative and
-                # links there rather than duplicating the DIT/Chairmarks setup.
-                @test occursin("@ref ad-comparison", txt)
-                @test !occursin("using Chairmarks", txt)
-                @test !occursin("benchmark_differentiation", txt)
-                # The substituted script is valid Julia (Literate executes it
-                # in the docs build): parse it whole and require no error or
-                # incomplete trailing expression.
-                parsed = Meta.parseall(txt)
-                @test parsed isa Expr
-                @test !any(
-                    ex -> ex isa Expr && ex.head in (:error, :incomplete),
-                    parsed.args
-                )
-
-                # Registered in the package-owned docs seeds: the Literate
-                # pipeline (heavy tutorial + fast-build stub) and the nav.
-                cfg = read(_dest(dir, "docs/docs_config.jl"), String)
-                @test occursin("\"ad-backends.jl\"", cfg)
-                @test occursin(
-                    "\"ad-backends.md\" => \"# [Automatic differentiation " *
-                        "backends](@id ad-backends)\"", cfg
-                )
-                pgs = read(_dest(dir, "docs/pages.jl"), String)
-                @test occursin(
-                    "getting-started/tutorials/ad-backends.md", pgs
-                )
-                @test occursin("\"Tutorials\"", pgs)
-
-                # The docs env reaches the registry by path, keyed to the same
-                # seeded ADFixtures UUID as the AD test env, and carries the
-                # page's execution deps with compat.
-                dp = read(_dest(dir, "docs/Project.toml"), String)
-                reg = read(
-                    _dest(dir, "test/ADFixtures/Project.toml"), String
-                )
-                m = match(r"uuid = \"([^\"]+)\"", reg)
-                @test m !== nothing
-                @test occursin("ADFixtures = \"$(m.captures[1])\"", dp)
-                @test occursin(
-                    "ADFixtures = {path = \"../test/ADFixtures\"}", dp
-                )
-                for dep in (
-                        "DifferentiationInterfaceTest", "CairoMakie",
-                        "Chairmarks", "DataFramesMeta",
-                        "Statistics", "Markdown",
+                cfg = _dest(dir, "docs/docs_config.jl")
+                write(
+                    cfg,
+                    replace(
+                        read(cfg, String),
+                        "const HEAVY_TUTORIALS = String[]" =>
+                            "const HEAVY_TUTORIALS = String[\"ad-backends.jl\"]"
                     )
-                    @test occursin(dep, dp)
+                )
+                local res
+                @test_logs (:warn, r"ad-backends"i) match_mode = :any begin
+                    res = update(dir)
                 end
-                @test occursin("CairoMakie = \"0.15\"", dp)
-                @test !occursin("{{", dp)
+                @test !isfile(tut)
+                @test !isfile(joinpath(dirname(tut), "ad-backends.md"))
+                @test any(w -> occursin("ad-backends", w), res.warnings)
+                @test any(w -> occursin("HEAVY_TUTORIALS", w), res.warnings)
             end
         end
 
@@ -1707,11 +1684,10 @@
                 @test occursin("@id ad-comparison", txt)
                 @test occursin("using Wombat", txt)
                 @test !occursin("{{", txt)
-                # Links back to the AD-backends page for the how-to-choose
-                # narrative and configuration, rather than duplicating it.
-                @test occursin("@ref ad-backends", txt)
-                # The benchmark computation itself, moved here from
-                # ad-backends.jl (#299).
+                # Carries the retired tutorial's anchor, so the @ref links
+                # package pages across the org already hold keep resolving.
+                @test occursin("@id ad-backends", txt)
+                # The benchmark computation itself.
                 @test occursin("benchmark_differentiation", txt)
                 # DIT 0.11 needs Chairmarks loaded explicitly for
                 # `benchmark_differentiation`/`run_benchmark!` to resolve.
@@ -1816,9 +1792,13 @@
                 # split, #305).
                 cfg = read(_dest(dir, "docs/docs_config.jl"), String)
                 @test occursin("\"ad-comparison.jl\"", cfg)
+                # The stub carries both anchors: `ad-comparison` for this
+                # page and `ad-backends` for the retired tutorial, whose
+                # cross-references must keep resolving in a fast build.
                 @test occursin(
                     "\"ad-comparison.md\" => \"# [AD backend " *
-                        "comparison](@id ad-comparison)\"", cfg
+                        "comparison](@id ad-comparison)\\n\\n## " *
+                        "[Choosing a backend](@id ad-backends)\"", cfg
                 )
                 @test occursin(
                     "HEAVY_BENCHMARKS = String[\n    " *
@@ -1895,14 +1875,11 @@
             end
         end
 
-        @testset "update() refreshes the managed AD tutorial page" begin
+        @testset "update() refreshes the managed AD comparison page" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                tut = _dest(
-                    dir,
-                    "docs/src/getting-started/tutorials/ad-backends.jl"
-                )
+                tut = _dest(dir, "docs/src/benchmarks/ad-comparison.jl")
                 # A drifted page body is re-applied from the kit (that is the
                 # point: the page stays kit-current; declarations live in the
                 # package-owned ADFixtures registry instead).
@@ -1974,10 +1951,8 @@
 
         @testset "update warns when docs_config.jl lacks HEAVY_BENCHMARKS (#305)" begin
             # An `ad = true` adopter who synced before the ad-comparison.jl
-            # split (#299/#305) has "ad-backends.jl" registered under
-            # HEAVY_TUTORIALS in their package-owned docs/docs_config.jl, but
-            # no HEAVY_BENCHMARKS/BENCHMARK_STUBS consts at all (they did not
-            # exist yet). `update` cannot add the missing registration itself
+            # split (#299/#305) has no HEAVY_BENCHMARKS/BENCHMARK_STUBS
+            # consts at all (they did not exist yet). `update` cannot add the missing registration itself
             # (docs_config.jl is package-owned), so it should warn that the
             # new managed page it just wrote is never rendered rather than
             # leaving the gap undiscovered.
@@ -1991,11 +1966,14 @@
                     "const HEAVY_BENCHMARKS = String[\n" *
                         "    \"ad-comparison.jl\",\n]" => "const HEAVY_BENCHMARKS = String[]"
                 )
+                # Matched by regex rather than by the literal seeded text:
+                # the stub heading carries two anchors now (ad-comparison and
+                # the retired tutorial's ad-backends), so pinning the exact
+                # string here would make this fixture track the wording.
                 txt = replace(
                     txt,
-                    "const BENCHMARK_STUBS = Pair{String, String}[\n" *
-                        "    \"ad-comparison.md\" => \"# [AD backend " *
-                        "comparison](@id ad-comparison)\",\n]" => "const BENCHMARK_STUBS = Pair{String, String}[]"
+                    r"const BENCHMARK_STUBS = Pair\{String, String\}\[.*?\]"s =>
+                        "const BENCHMARK_STUBS = Pair{String, String}[]"
                 )
                 write(cfg, txt)
                 local res

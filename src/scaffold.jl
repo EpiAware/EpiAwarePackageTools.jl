@@ -268,28 +268,22 @@ const SCAFFOLD_TEMPLATES = Template[
         "docs/src/components/stargazers.data.ts",
         "docs/src/components/stargazers.data.ts", true, true
     ),
-    # The AD-backends tutorial page. Managed so the body stays kit-current;
-    # everything package-specific it reports (scenarios, backends, broken/skip
-    # declarations) is read at docs-build time from the package-owned
-    # `test/ADFixtures` registry, so a package never edits this file. Its
-    # registration and docs-env deps live in the package-owned docs seeds,
-    # filled via the `AD_*` fragments (see `_ad_heavy_tutorials`). Its
-    # backend-comparison benchmark lives on the sibling `ad-comparison.jl`
-    # page under `docs/src/benchmarks/`.
-    Template(
-        "docs/src/getting-started/tutorials/ad-backends.jl",
-        "docs/src/getting-started/tutorials/ad-backends.jl", true, true,
-        :ad_only
-    ),
-    # The AD backend-comparison benchmark, split out of `ad-backends.jl`
-    # (#299) so the cost report gets its own top-level "Benchmarks" nav group
-    # (alongside the performance-over-time page, when the package has one)
-    # rather than reading as a how-to guide under Tutorials -- physically
-    # under `docs/src/benchmarks/`, not nested inside Tutorials (#305, the
-    # shape EpiAwareADTools#28 asked for). Same management/registration
-    # story as `ad-backends.jl` above, but via `HEAVY_BENCHMARKS`/
-    # `BENCHMARK_STUBS` (see `_ad_heavy_benchmarks` etc.), not
-    # `HEAVY_TUTORIALS`/`TUTORIAL_STUBS`.
+    # The AD backend-comparison benchmark. Managed so the body stays
+    # kit-current; everything package-specific it reports (scenarios,
+    # backends, broken/skip declarations) is read at docs-build time from the
+    # package-owned `test/ADFixtures` registry, so a package never edits this
+    # file. Its registration and docs-env deps live in the package-owned docs
+    # seeds, filled via the `AD_*` fragments (see `_ad_heavy_benchmarks`).
+    #
+    # This was once two pages: a cost report here and an `ad-backends.jl`
+    # tutorial under Getting started carrying a support table and a
+    # how-to-choose narrative. The two were halves of one story, cross-linking
+    # each other nine times, and everything the tutorial reported was already
+    # somewhere else -- the coverage table in the README badge block, per-
+    # backend scenario coverage in this page's own summary table, and the
+    # generic choosing/debugging advice in no package in particular. The
+    # tutorial is retired and this page carries the `ad-backends` anchor, so
+    # the cross-references other packages' pages already hold keep resolving.
     Template(
         "docs/src/benchmarks/ad-comparison.jl",
         "docs/src/benchmarks/ad-comparison.jl", true, true,
@@ -396,6 +390,12 @@ const RETIRED_PATHS = String[
     # Retired rather than left behind, so an adopting package converges
     # instead of keeping a dead config file forever.
     ".JuliaFormatter.toml",
+    # The AD-backends tutorial, folded into the AD-comparison benchmark page.
+    # Both the Literate source and the `.md` a previous build rendered from
+    # it: leaving the rendered page behind would keep publishing the retired
+    # content on any package whose docs build does not clean `docs/src` first.
+    "docs/src/getting-started/tutorials/ad-backends.jl",
+    "docs/src/getting-started/tutorials/ad-backends.md",
 ]
 
 # --- stale package-owned prose (#328) ---------------------------------------
@@ -1080,7 +1080,6 @@ function scaffold_inputs(
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir),
         AD_BACKENDS_JSON = _ad_backends_json(),
-        AD_COV_TABLE = _ad_cov_table(rp),
         AD_BACKEND_PACKAGES = _ad_backend_packages(),
         AD_BACKEND_ENTRIES = _ad_backend_entries(),
         AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
@@ -1788,40 +1787,20 @@ function _ad_cov_flag_table(repo::AbstractString)
     return (headers, sep, badges)
 end
 
-# The `{{AD_COV_TABLE}}` substitution for the AD-backends tutorial page: the
-# three table lines joined, or `nothing` when the repo slug is unknown (then
-# `_substitute` errors only if the ad-gated tutorial is actually emitted,
-# matching every other `{{REPO}}`-bearing template).
-_ad_cov_table(repo::Nothing) = nothing
-_ad_cov_table(repo::AbstractString) = join(_ad_cov_flag_table(repo), "\n")
-
 # --- the ad=true docs surface -----------------------------------------------
 #
-# The managed AD-backends tutorial page and its AD-comparison benchmark
-# sibling need three package-owned docs seeds: `docs/docs_config.jl`
-# registers each with its own Literate pipeline (`HEAVY_TUTORIALS` for
-# `ad-backends.jl`, `HEAVY_BENCHMARKS` for `ad-comparison.jl`),
-# `docs/pages.jl` adds their nav entries, and `docs/Project.toml` reaches the
-# `ADFixtures` registry by path and carries both pages' execution deps. Each
-# helper below renders the fragment substituted into those seeds, empty for
-# `ad = false`, mirroring the `BENCHMARKS_NAV` pattern.
-
-# The `HEAVY_TUTORIALS` entry: `ad-backends.jl`'s support-table setup gets
-# fresh-subprocess isolation like every other heavy tutorial. Its
-# `ad-comparison.jl` sibling is a `HEAVY_BENCHMARKS` entry instead (see
-# `_ad_heavy_benchmarks`).
-function _ad_heavy_tutorials(ad::Bool)
-    ad || return ""
-    return "\n    \"ad-backends.jl\",\n"
-end
-
-# The fast-build stub, preserving the page's `@id` so cross-references still
-# resolve under `--skip-notebooks`.
-function _ad_tutorial_stubs(ad::Bool)
-    ad || return ""
-    return "\n    \"ad-backends.md\" => \"# [Automatic differentiation " *
-        "backends](@id ad-backends)\",\n"
-end
+# The managed AD-comparison benchmark page needs three package-owned docs
+# seeds: `docs/docs_config.jl` registers it with the `docs/src/benchmarks`
+# Literate pipeline (`HEAVY_BENCHMARKS`), `docs/pages.jl` adds its nav entry,
+# and `docs/Project.toml` reaches the `ADFixtures` registry by path and
+# carries the page's execution deps. Each helper below renders the fragment
+# substituted into those seeds, empty for `ad = false`, mirroring the
+# `BENCHMARKS_NAV` pattern.
+#
+# There was a second managed page here, the `ad-backends.jl` tutorial, with a
+# `HEAVY_TUTORIALS`/`TUTORIAL_STUBS` pair and a nav fragment of its own. It is
+# retired: see the `SCAFFOLD_TEMPLATES` entry above for why, and
+# `RETIRED_PATHS` for its removal from adopters.
 
 # The `HEAVY_BENCHMARKS` entry for `ad-comparison.jl` -- it executes DIT
 # benchmarks over every registry backend plus CairoMakie plotting, exactly
@@ -1832,24 +1811,16 @@ function _ad_heavy_benchmarks(ad::Bool)
     return "\n    \"ad-comparison.jl\",\n"
 end
 
-# The fast-build stub for `ad-comparison.jl`, same convention as
-# `_ad_tutorial_stubs`.
+# The fast-build stub, preserving BOTH of the page's `@id`s so cross-references
+# still resolve under `--skip-notebooks`. `ad-backends` is the retired
+# tutorial's anchor, which package-owned pages across the org already link to;
+# a stub carrying only `ad-comparison` would dangle every one of them in a fast
+# build.
 function _ad_benchmark_stubs(ad::Bool)
     ad || return ""
     return "\n    \"ad-comparison.md\" => \"# [AD backend " *
-        "comparison](@id ad-comparison)\",\n"
-end
-
-# The Getting started nav entry for the AD-backends page. `ad-comparison.md`
-# is not listed here: it gets its own top-level Benchmarks nav group instead
-# (#299/#305, see `_benchmarks_nav`), which is the entire point of the
-# split -- a cost report reads as a how-to guide if left under Tutorials.
-function _ad_tutorials_nav(ad::Bool)
-    ad || return ""
-    return ",\n        \"Tutorials\" => [\n" *
-        "            \"Automatic differentiation backends\" =>\n" *
-        "                \"getting-started/tutorials/ad-backends.md\",\n" *
-        "        ]"
+        "comparison](@id ad-comparison)\\n\\n## [Choosing a backend](@id " *
+        "ad-backends)\",\n"
 end
 
 # The docs-env `[deps]` block the page executes against: the seeded
@@ -2142,36 +2113,60 @@ function _ad_docs_compat(ad::Bool)
     )
 end
 
-# `docs/docs_config.jl` is package-owned, so `update` cannot add the
-# `ad-comparison.jl` Literate registration to an existing `ad = true`
-# adopter's file: `AD_HEAVY_TUTORIALS`/`AD_TUTORIAL_STUBS`/
-# `AD_HEAVY_BENCHMARKS`/`AD_BENCHMARK_STUBS` above only reach a
-# package-owned file on first scaffold (#299/#305). An adopter who synced
-# before the split still only has `ad-backends.jl` registered (and no
-# `HEAVY_BENCHMARKS`/`BENCHMARK_STUBS` consts at all), so the managed
-# `ad-comparison.jl` page this sync writes is never Literate-processed or
-# stubbed into a `.md` page, and `ad-backends.md`'s cross-references to it
-# dangle. Detected the same way as the diverged `test/ad/setup.jl` case:
-# scan the destination and warn rather than silently leaving the page
-# unbuilt.
+# `docs/docs_config.jl` is package-owned, so `update` can neither add the
+# `ad-comparison.jl` Literate registration nor drop the retired
+# `ad-backends.jl` one from an existing `ad = true` adopter's file: the
+# `AD_HEAVY_BENCHMARKS`/`AD_BENCHMARK_STUBS` fragments above only reach a
+# package-owned file on first scaffold (#299/#305). Two gaps follow, both
+# detected the same way as the diverged `test/ad/setup.jl` case -- scan the
+# destination and warn rather than leaving a page silently unbuilt.
+#
+#   - A registration for the retired `ad-backends.jl` names a source this
+#     sync has just deleted. The docs build skips it (see
+#     `_render_tutorials`), so the page is simply gone; the dead entry is
+#     still the package's to remove.
+#   - An adopter who synced before the split has no `HEAVY_BENCHMARKS`/
+#     `BENCHMARK_STUBS` consts at all, so the managed `ad-comparison.jl` page
+#     is written but never rendered, and every `@ref ad-comparison`/
+#     `@ref ad-backends` in the package dangles -- the anchors now live on
+#     that page.
 function _ad_benchmarks_config_gap(target_dir::AbstractString, ad::Bool)
     ad || return nothing
     cfg = joinpath(target_dir, "docs", "docs_config.jl")
     isfile(cfg) || return nothing
     txt = read(cfg, String)
-    occursin("\"ad-backends.jl\"", txt) || return nothing
-    occursin("\"ad-comparison.jl\"", txt) && return nothing
-    return string(
-        "docs/docs_config.jl registers \"ad-backends.jl\" but has no ",
-        "HEAVY_BENCHMARKS entry for \"ad-comparison.jl\": the managed ",
-        "ad-comparison.jl page (#299/#305) is written but never rendered, ",
-        "and ad-backends.md's cross-references to it will not resolve. ",
-        "Add \"ad-comparison.jl\" to HEAVY_BENCHMARKS and ",
-        "\"ad-comparison.md\" => \"# [AD backend comparison](@id ",
-        "ad-comparison)\" to BENCHMARK_STUBS in docs/docs_config.jl (a ",
-        "docs_config.jl that predates #305 has neither const yet -- add ",
-        "both, mirroring HEAVY_TUTORIALS/TUTORIAL_STUBS above them)."
-    )
+    msgs = String[]
+    if occursin("\"ad-backends.jl\"", txt) || occursin("\"ad-backends.md\"", txt)
+        push!(
+            msgs, string(
+                "docs/docs_config.jl still registers the retired ",
+                "ad-backends tutorial: its source is deleted by this sync, ",
+                "so the entry names a file that no longer exists. Remove ",
+                "\"ad-backends.jl\" from HEAVY_TUTORIALS and the ",
+                "\"ad-backends.md\" pair from TUTORIAL_STUBS. Its content ",
+                "now lives on the AD-comparison benchmark page, which ",
+                "carries the ad-backends anchor so existing @ref links keep ",
+                "resolving."
+            )
+        )
+    end
+    if !occursin("\"ad-comparison.jl\"", txt)
+        push!(
+            msgs, string(
+                "docs/docs_config.jl has no HEAVY_BENCHMARKS entry for ",
+                "\"ad-comparison.jl\": the managed ad-comparison.jl page is ",
+                "written but never rendered, so every @ref ad-comparison and ",
+                "@ref ad-backends in this package will dangle. Add ",
+                "\"ad-comparison.jl\" to HEAVY_BENCHMARKS and ",
+                "\"ad-comparison.md\" => \"# [AD backend comparison](@id ",
+                "ad-comparison)\\n\\n## [Choosing a backend](@id ",
+                "ad-backends)\" to BENCHMARK_STUBS (a docs_config.jl that ",
+                "predates #305 has neither const yet -- add both)."
+            )
+        )
+    end
+    isempty(msgs) && return nothing
+    return join(msgs, " ")
 end
 
 # `docs/Project.toml` is package-owned and write-once, so dropping a dep from
@@ -2342,8 +2337,7 @@ end
 # (regardless of `ad`) who synced before #305 still has the pre-#305 flat
 # `"Benchmarks" => "benchmarks.md"` entry, which now points at a path the
 # build no longer writes (the performance-history page moved to
-# `benchmarks/over-time.md`). Either gap leaves a page that still builds
-# (and, for AD comparison, is still cross-linked from `ad-backends.md`) but
+# `benchmarks/over-time.md`). Either gap leaves a page that still builds but
 # does not appear in the docs sidebar. NEWS.md documents the fix; warn at
 # update time too, so it is not discoverable only by reading NEWS.md.
 function _benchmarks_nav_gap(
@@ -2387,7 +2381,7 @@ end
 # drift ("Modules" for "API reference", "Developer" for "Development")
 # nothing could self-heal. It is now a MANAGED template like any other:
 # `scaffold`/`update` regenerate it in full on every run from the same
-# `_ad_tutorials_nav`/`_benchmarks_nav`/`_extensions_nav` fragments used
+# `_benchmarks_nav`/`_extensions_nav` fragments used
 # above, now spliced in on every sync rather than only the first. A package
 # extends it through four optional constants in the package-owned
 # `docs/docs_config.jl` (see `templates/docs/docs_config.jl`) instead of
@@ -2484,7 +2478,7 @@ end
 
 # The optional Getting-started FAQ leaf (`GETTING_STARTED_FAQ`), spliced
 # right after "Overview". Empty (no entry) when unset, exactly as
-# `_ad_tutorials_nav` is empty for `ad = false`.
+# the AD fragments are empty for `ad = false`.
 function _getting_started_faq(faq)
     faq === nothing && return ""
     return string(",\n        \"FAQ\" => \"", faq, "\"")
@@ -2596,7 +2590,7 @@ for any other template: `update`/`scaffold` only regenerate it when the
 committed file already carries `_MANAGED_PAGES_MARKER` in its header, or no
 file exists yet. A committed file without the marker is preserved untouched
 no matter what `force` says -- see the section header above for why. The
-regenerated content splices `AD_TUTORIALS_NAV`/`EXTENSIONS_NAV`/
+regenerated content splices `EXTENSIONS_NAV`/
 `BENCHMARKS_NAV` from `inputs` (computed in `_apply`, unchanged fragments)
 and the four `docs_config.jl` extension points read fresh from disk here, so
 a package's docs_config.jl edits and a `force` reset of it (which happens
@@ -3683,9 +3677,6 @@ function _apply(
             BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
                 _detect_benchmark_history_parked(target_dir)
             ),
-            AD_HEAVY_TUTORIALS = _ad_heavy_tutorials(ad),
-            AD_TUTORIAL_STUBS = _ad_tutorial_stubs(ad),
-            AD_TUTORIALS_NAV = _ad_tutorials_nav(ad),
             # The AD-comparison page's registration in the sibling
             # `docs/src/benchmarks/` pipeline, not the Tutorials one above;
             # its nav entry is part of `BENCHMARKS_NAV`.

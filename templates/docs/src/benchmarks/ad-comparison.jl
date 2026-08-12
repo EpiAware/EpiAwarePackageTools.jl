@@ -1,25 +1,37 @@
 #src MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
-#src Split out of `ad-backends.jl` (#299): the backend-support/how-to-choose
-#src narrative lives there, under Getting started/Tutorials; this page is the
-#src cost report, and lives under `docs/src/benchmarks/` with its own
-#src top-level "Benchmarks" nav group, alongside the performance-over-time
-#src page (when the package has one) — not nested inside Tutorials (#305,
-#src the shape EpiAwareADTools#28 asked for). The page body is re-applied on
-#src every update so it stays kit-current; everything package-specific it
-#src reports (scenarios, backends, broken/skip declarations) is read at
-#src docs-build time from the package-owned `test/ADFixtures` registry, so
-#src declare a broken scenario there, never here. If this page cannot
-#src execute for this package, park it via `FORCE_STUB_TUTORIALS` in
-#src `docs/docs_config.jl` instead of editing it.
+#src The AD page: a cost report, plus the short backend-choice note that
+#src carries the `ad-backends` anchor. Lives under `docs/src/benchmarks/`
+#src with its own top-level "Benchmarks" nav group, alongside the
+#src performance-over-time page (when the package has one) — not nested
+#src inside Tutorials (#305, the shape EpiAwareADTools#28 asked for).
+#src
+#src There was a separate `ad-backends.jl` tutorial under Getting started
+#src carrying a support table and a how-to-choose narrative. It is retired:
+#src the support table duplicated the README's per-backend coverage badge
+#src row and this page's own per-backend scenario coverage, and the generic
+#src advice belongs to the ecosystem rather than to any one package
+#src (epiaware.github.io#28). Package pages across the org link to its
+#src `@ref ad-backends` anchor, so that anchor now lives on the "Choosing a
+#src backend" section below and must stay there.
+#src
+#src The page body is re-applied on every update so it stays kit-current;
+#src everything package-specific it reports (scenarios, backends,
+#src broken/skip declarations) is read at docs-build time from the
+#src package-owned `test/ADFixtures` registry, so declare a broken scenario
+#src there, never here. If this page cannot execute for this package, park
+#src it via `FORCE_STUB_TUTORIALS` in `docs/docs_config.jl` instead of
+#src editing it.
 
 md"""
 # [AD backend comparison](@id ad-comparison)
 
-What each [AD backend](@ref ad-backends) costs on {{PACKAGE}}.jl's shared
-AD scenario set, so a decision between backends can be made from numbers
-rather than the general pattern alone.
-See the [AD backends](@ref ad-backends) page for which backends are
-supported, how to configure them, and how to debug one that misbehaves.
+What each AD backend costs on {{PACKAGE}}.jl's shared AD scenario set, so a
+decision between backends can be made from numbers rather than the general
+pattern alone.
+
+Which backends are supported is the per-backend badge row in the
+[README](https://github.com/{{REPO}}#readme), which reports each backend's
+CI status and its coverage flag from the gradient suite.
 
 ## Packages used
 """
@@ -100,9 +112,9 @@ md"""
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) pair the registry supports.
 Combinations declared broken or skipped in the registry are excluded from
-their backend's rows, so they show up as reduced scenario coverage here
-and as named entries in the [AD backends](@ref ad-backends) support table,
-rather than as timings of gradients that are wrong or crash.
+their backend's rows, so they show up as reduced scenario coverage in the
+`Scenarios` column below, rather than as timings of gradients that are
+wrong or crash.
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
@@ -353,6 +365,52 @@ The full long-format result is available as `raw_bench` if you want GC
 fraction, compile fraction, the `value_and_gradient` rows, or absolute
 timings.
 
+## [Choosing a backend](@id ad-backends)
+
+The numbers above are this package's scenarios, but the shape of them is
+general.
+Forward mode (ForwardDiff, Enzyme forward, Mooncake forward) costs one pass
+per parameter, so it wins when the parameter count is small.
+Reverse mode (ReverseDiff, Enzyme reverse, Mooncake reverse) costs one pass
+per output regardless of the parameter count, so it pays off once this
+package's quantities sit inside a larger model with many latent parameters.
+Turing's
+[AD guidance](https://turinglang.org/docs/usage/automatic-differentiation/)
+puts the crossover around 20 parameters.
+
+ForwardDiff is the simplest fast default below that and needs no
+configuration.
+Above it, switch to a reverse-mode backend through the sampler's `adtype`,
+for example `sample(model, NUTS(; adtype = AutoMooncake()), 1000)`.
+The surest choice is to benchmark the backends on your own model.
+
+Where the registry enables Enzyme, the standard configuration defers
+per-value activity decisions to runtime:
+
+```julia
+using ADTypes, Enzyme
+AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))
+```
+
+Runtime activity is not free. On paths that do not need it, it can make
+Enzyme several times slower, so where one Enzyme configuration is applied
+to every scenario the rows for it above are conservative.
+
+When a backend misbehaves, start with ForwardDiff: it fails with ordinary
+Julia `MethodError`s that point at the offending call, where Enzyme and
+Mooncake report at the compiled-IR level.
+`test/ad/run_selected.jl` checks a single (backend, scenario) pair without
+running the full suite:
+
+```
+julia --project=test/ad test/ad/run_selected.jl --backend enzyme --scenario AR
+```
+
+A combination that is genuinely broken is declared in the `ADFixtures`
+registry (`backend_broken_scenarios`, or `backend_skip_scenarios` when it
+cannot run at all), which excludes it here and marks it `@test_broken` in
+the gradient tests rather than leaving the suite red.
+
 ## Reproducing this page
 
 The numbers above are measured on the docs-build machine, so they reflect
@@ -371,8 +429,11 @@ julia --project=docs docs/make.jl
 
 ## See also
 
-- The [AD backends](@ref ad-backends) page explains what each backend is,
-  how to configure it, and how to debug one that misbehaves.
+- `test/ad/` holds the gradient tests as tagged `@testitem`s, validated
+  against a ForwardDiff reference with
+  `DifferentiationInterfaceTest.test_differentiation`. Pass a backend tag
+  (e.g. `TAG=enzyme_reverse task test-ad-backend`) to run a single backend,
+  as the per-backend CI does.
 - `test/ADFixtures` is the package-owned registry this page renders from;
   scenarios, backends, and broken/skip declarations all live there.
 - The shared harness and the `ADRegistry` contract live in

@@ -154,24 +154,22 @@
         end
     end
 
-    @testset "an AD-enabled package's nav links the AD tutorial (no orphan)" begin
+    @testset "an AD-enabled package's nav links the AD page (no orphan)" begin
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir; ad = true)
             pgs = read(_dest(dir, "docs/pages.jl"), String)
-            @test occursin(
-                "getting-started/tutorials/ad-backends.md", pgs
-            )
+            @test occursin("benchmarks/ad-comparison.md", pgs)
             @test isfile(
-                _dest(
-                    dir,
-                    "docs/src/getting-started/tutorials/ad-backends.jl"
-                )
+                _dest(dir, "docs/src/benchmarks/ad-comparison.jl")
             )
+            # The retired tutorial leaves no nav entry behind (the header
+            # comment still names it, so match the path).
+            @test !occursin("getting-started/tutorials/ad-backends", pgs)
             # Still linked after a resync, not just at first scaffold.
             update(dir; ad = true)
             @test occursin(
-                "getting-started/tutorials/ad-backends.md",
+                "benchmarks/ad-comparison.md",
                 read(_dest(dir, "docs/pages.jl"), String)
             )
         end
