@@ -149,6 +149,16 @@ Two workflows keep an adopting package aligned with the kit.
   open an issue on the kit asking for the flexibility.
   Editing the managed file to silence the failure is not one of them, since the
   next sync reverts it.
+- The sync also freshens the reusable-workflow pins
+  (`update(...; freshen_reusable_refs = true)`).
+  Each managed caller is offered the newest commit that touched the shared
+  workflow it wraps, and takes it only when the committed pin is older.
+  A pin only ever moves forwards, so a Dependabot bump is never reverted, and a
+  pin the kit cannot resolve or compare, or one that floats on a branch or tag,
+  is left as committed with a warning.
+  Freshening is the one part of `update` that needs the network.
+  It is off by default, so a local run offline behaves exactly as one online;
+  the scheduled workflow, which has a token, turns it on.
 - Dependabot (`.github/dependabot.yml`) keeps the pinned reusable-workflow and
   action references current, so fixes in the shared workflows reach the
   repository without manual edits.

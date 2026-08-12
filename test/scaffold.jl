@@ -3736,39 +3736,42 @@
         end
 
         @testset "reusable-workflow seed refs are single-sourced (#186)" begin
-            using EpiAwarePackageTools: _DOWNGRADE_SEED_REF,
-                _REGISTRABILITY_SEED_REF,
-                _RELEASE_NUDGE_SEED_REF,
-                _RUNIC_CHECK_SEED_REF,
-                _templates_dir
-            # Every template pins the org reusables at the same seed commit, so
-            # a fresh scaffold never starts life behind on some workflows and
-            # current on others (#186: the seed had drifted from `.github` head
-            # on some callers and not others). Three documented exceptions
-            # post-date the shared seed and pin their own newer commit until it
-            # merges to `.github` main and Dependabot converges the pins:
-            # `registrability.yml`, `release-nudge.yml`, and `runic-check.yml`.
+            using EpiAwarePackageTools: _REUSABLE_SEED_REFS, _seed_ref,
+                _downgrade_compat_job, _templates_dir
+            # Every bundled caller pins the seed recorded for the workflow it
+            # wraps, so the templates and `_REUSABLE_SEED_REFS` cannot drift
+            # apart (#186). The seeds are per workflow rather than one shared
+            # commit (#425): a shared seed is by construction wrong for any
+            # workflow that post-dates it, which is how three callers came to
+            # carry their own newer ref anyway.
+            #
+            # Every ref is a full SHA, `downstream.yaml`'s included (#425).
+            # A floating `@main` ref is moved by nothing — Dependabot cannot
+            # bump a branch ref and freshening leaves it alone — so an
+            # org-side edit reaches every adopter untested.
             wf = joinpath(_templates_dir(), ".github", "workflows")
-            pins = String[]
+            seen = String[]
             for f in readdir(wf; join = true)
-                expected = if endswith(f, "registrability.yaml")
-                    _REGISTRABILITY_SEED_REF
-                elseif endswith(f, "release-nudge.yaml")
-                    _RELEASE_NUDGE_SEED_REF
-                elseif endswith(f, "pre-commit.yaml")
-                    _RUNIC_CHECK_SEED_REF
-                else
-                    _DOWNGRADE_SEED_REF
-                end
                 for m in eachmatch(
-                        r"/\.github/\.github/workflows/[^@\s]+@([0-9a-f]{40})",
+                        r"/\.github/\.github/workflows/([^@\s]+)@(\S+)",
                         read(f, String)
                     )
-                    @test String(m.captures[1]) == expected
-                    push!(pins, String(m.captures[1]))
+                    workflow = String(m.captures[1])
+                    @test String(m.captures[2]) == _seed_ref(workflow)
+                    push!(seen, workflow)
                 end
             end
-            @test !isempty(pins)
+            @test !isempty(seen)
+            # The opt-in downgrade-compat job is rendered, not templated, and
+            # is seeded from the same table.
+            @test occursin(
+                "downgrade.yml@" * _seed_ref("downgrade.yml"),
+                _downgrade_compat_job("FakeOrg", true)
+            )
+            # No stale entry: every seed recorded is one a caller wraps.
+            @test issetequal(
+                union(seen, ["downgrade.yml"]), keys(_REUSABLE_SEED_REFS)
+            )
         end
 
         @testset "docs_timeout sets the Documenter build timeout (#154)" begin
@@ -4024,7 +4027,8 @@
                 )
                 @test occursin(
                     "update(\".\"; ad = false, benchmarks = false, " *
-                        "downgrade_compat = true)", sync
+                        "downgrade_compat = true, freshen_reusable_refs = true)",
+                    sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
@@ -5866,4 +5870,195 @@ end
     # since a template is free to be written somewhere other than its own
     # path (the AD/no-AD pairs do exactly that).
     @test setdiff(Set(keys(dest_to_src)), covered) == Set{String}()
+end
+
+# Freshening moves a managed caller's reusable-workflow ref forwards to the
+# newest commit that touched the workflow it wraps, and does nothing else: a
+# ref that is already current or ahead, one that floats on a branch, and one
+# the resolver cannot speak to are all left exactly as committed (#425).
+@testitem "reusable-workflow refs are freshened forwards only (#425)" begin
+    using Test
+    using Logging: NullLogger, with_logger
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: scaffold, update, ReusableRefSource,
+        _REUSABLE_SEED_REFS
+
+    _dest(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    function _fake_pkg(dir)
+        write(
+            joinpath(dir, "Project.toml"),
+            "name = \"FakePkg\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n"
+        )
+        return dir
+    end
+
+    # A stubbed resolver, so the policy is exercised with no network. `latest`
+    # answers from `refs`, falling back to the workflow's own seed so every
+    # caller the test is not about resolves to what it already pins and stays
+    # quiet; `nothing` in `refs` models an unresolvable workflow. `is_newer`
+    # answers from `ahead`, keyed by the (committed, candidate) pair, and
+    # `nothing` (the default) models a pair that cannot be compared. Both
+    # record their calls, so a test can assert none were made.
+    function _stub_source(refs::Dict, ahead::Dict = Dict())
+        calls = String[]
+        latest = function (_org, workflow)
+            push!(calls, "latest:" * workflow)
+            return haskey(refs, workflow) ? refs[workflow] :
+                get(_REUSABLE_SEED_REFS, workflow, nothing)
+        end
+        is_newer = function (_org, current, candidate)
+            push!(calls, "is_newer:" * current * ":" * candidate)
+            return get(ahead, (current, candidate), nothing)
+        end
+        return ReusableRefSource(latest, is_newer), calls
+    end
+
+    committed = "a"^40
+    newest = "b"^40
+
+    # Pin `test.yaml`'s `tests.yml` caller at `ref`, as Dependabot or an
+    # earlier adoption would have left it.
+    function _pin_tests_caller(dir, ref)
+        caller = _dest(dir, ".github/workflows/test.yaml")
+        write(
+            caller,
+            replace(
+                read(caller, String),
+                r"(tests\.yml@)\S+" => SubstitutionString("\\1" * ref)
+            )
+        )
+        return caller
+    end
+
+    @testset "a ref behind the workflow's newest commit is advanced" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _pin_tests_caller(dir, committed)
+            source, calls = _stub_source(
+                Dict("tests.yml" => newest), Dict((committed, newest) => true)
+            )
+            res = with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source)
+            end
+            @test occursin("tests.yml@" * newest, read(caller, String))
+            @test isempty(res.warnings)
+            @test "is_newer:" * committed * ":" * newest in calls
+            # Idempotent: a second run has nothing left to move.
+            after = read(caller, String)
+            source2, _ = _stub_source(
+                Dict("tests.yml" => newest), Dict((committed, newest) => true)
+            )
+            with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source2)
+            end
+            @test read(caller, String) == after
+        end
+    end
+
+    @testset "a ref already at the newest commit is left alone" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _dest(dir, ".github/workflows/test.yaml")
+            before = read(caller, String)
+            source, calls = _stub_source(Dict())
+            res = with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source)
+            end
+            @test read(caller, String) == before
+            @test isempty(res.warnings)
+            # Nothing to compare when the candidate is what is already there.
+            @test !any(startswith(c, "is_newer:") for c in calls)
+        end
+    end
+
+    @testset "a ref ahead of the newest commit is never rewound" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            # The Dependabot case: it bumps to the `.github` head, which is a
+            # descendant of the newest commit touching any one workflow. A
+            # freshener that took the newest per-file commit unconditionally
+            # would revert every such bump.
+            caller = _pin_tests_caller(dir, committed)
+            source, _ = _stub_source(
+                Dict("tests.yml" => newest), Dict((committed, newest) => false)
+            )
+            res = with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source)
+            end
+            @test occursin("tests.yml@" * committed, read(caller, String))
+            @test isempty(res.warnings)
+        end
+    end
+
+    @testset "an unresolvable workflow keeps its committed ref" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _pin_tests_caller(dir, committed)
+            before = read(caller, String)
+            # Offline, unauthenticated, rate-limited or simply absent
+            # upstream: all reach `update` as an unresolved candidate.
+            source, _ = _stub_source(Dict("tests.yml" => nothing))
+            res = with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source)
+            end
+            @test read(caller, String) == before
+            @test any(
+                occursin("could not resolve", w) && occursin("tests.yml", w)
+                    for w in res.warnings
+            )
+        end
+    end
+
+    @testset "an uncomparable ref keeps its committed ref" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            # A SHA the org repository does not know (e.g. taken from a fork)
+            # cannot be shown to be older, so it is not moved.
+            caller = _pin_tests_caller(dir, committed)
+            source, _ = _stub_source(Dict("tests.yml" => newest))
+            res = with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source)
+            end
+            @test occursin("tests.yml@" * committed, read(caller, String))
+            @test any(occursin("could not compare", w) for w in res.warnings)
+        end
+    end
+
+    @testset "a branch or tag ref is never resolved or replaced" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _pin_tests_caller(dir, "main")
+            source, calls = _stub_source(Dict("tests.yml" => newest))
+            res = with_logger(NullLogger()) do
+                update(dir; freshen_reusable_refs = true, ref_source = source)
+            end
+            @test occursin("tests.yml@main", read(caller, String))
+            @test isempty(res.warnings)
+            @test !("latest:tests.yml" in calls)
+        end
+    end
+
+    @testset "update makes no network call by default" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            caller = _pin_tests_caller(dir, committed)
+            before = read(caller, String)
+            source, calls = _stub_source(
+                Dict("tests.yml" => newest), Dict((committed, newest) => true)
+            )
+            update(dir; ref_source = source)
+            @test read(caller, String) == before
+            @test isempty(calls)
+        end
+    end
 end

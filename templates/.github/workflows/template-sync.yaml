@@ -4,8 +4,10 @@
 # committed infra has drifted from the kit, opens (or refreshes) a PR with
 # the refresh, so a repo never silently falls behind.
 #
-# Refs are preserved: `update` keeps whatever reusable-workflow SHA
-# Dependabot has pinned, so a sync never reverts a Dependabot bump.
+# Refs only move forwards: `update` keeps whatever reusable-workflow SHA
+# Dependabot has pinned, so a sync never reverts a Dependabot bump, and
+# `freshen_reusable_refs` (below) advances a pin that has fallen behind the
+# workflow it wraps.
 #
 # The sync only ever pushes to a branch it opened itself (#215), so it does
 # no work on a pull request. The `pull_request` trigger is kept only so the
@@ -77,12 +79,21 @@ jobs:
         run: git fetch --depth=1 origin gh-pages || true
       - name: Re-apply the managed EpiAware standard
         if: github.event_name != 'pull_request'
+        # `freshen_reusable_refs` moves each caller's EpiAware/.github pin
+        # forwards to the newest commit that touched the workflow it wraps,
+        # so a repo whose Dependabot is off or lagging still tracks the shared
+        # workflows. It only ever moves a pin forwards, so it cannot revert a
+        # Dependabot bump. It needs `gh` (preinstalled on the runner) and a
+        # token that can read the org's `.github`; without one the step still
+        # succeeds and keeps the committed pins.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           julia --color=yes -e '
               using Pkg
               {{SYNC_INSTALL}}
               using EpiAwarePackageTools
-              res = EpiAwarePackageTools.update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}})
+              res = EpiAwarePackageTools.update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}}, freshen_reusable_refs = true)
               println("re-applied ", length(res.updated), " managed files")
               # Gaps a sync cannot close itself: write-once seeds it cannot
               # extend, and package-owned prose describing a retired standard.
@@ -124,7 +135,7 @@ jobs:
             ci
           body: |
             Automated re-apply of the managed EpiAwarePackageTools standard
-            (`update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}})`).
+            (`update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}}, freshen_reusable_refs = true)`).
 
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,
