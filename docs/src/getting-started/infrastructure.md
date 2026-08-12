@@ -240,9 +240,31 @@ The kit detects such a pin from the committed environments, or takes
 to Julia 1.11.
 It warns about a `[compat]` bound or a CI leg that reaches below it.
 
-The `tests.yml` matrix drops its `lts` leg either way.
-The managed test environment depends on EpiAwarePackageTools, whose own compat
-starts at 1.11, so that leg cannot resolve whatever the package declares.
+The `tests.yml` matrix is seeded with its `lts` leg for every other package.
+That leg runs `Pkg.test`, which develops the package under test itself, so the
+`[sources]` path pin in `test/Project.toml` being ignored costs it nothing.
+Only a package holding to the floor is seeded without the leg.
+
+The jobs that run a managed environment directly rather than through
+`Pkg.test` — the isolated `test/jet` and `test/ad` runners, the docs build and
+the benchmark suite — do need their path pins honoured, so they stay on the
+current release.
+They are separate jobs, not legs of the test matrix.
+
+Every `[compat]` bound in `test/Project.toml` has to resolve on every leg the
+matrix names.
+JET is the one to watch: it publishes nothing past 0.9.18 for Julia 1.10, so a
+bound starting at 0.10 makes the `lts` leg unresolvable.
+The seeded bound reaches back to 0.9 for that reason.
+`test/Project.toml` is package-owned, so a package scaffolded before this
+either widens the bound or drops `lts` from its own `julia_versions`.
+
+The kit's own bound is the same kind of gate.
+EpiAwarePackageTools declares `julia = "1.10, 1.11, 1.12"` from 0.4.0 onward;
+0.2.0 and 0.3.0 start at 1.11.
+A test environment bounded at `EpiAwarePackageTools = "0.3"` therefore has no
+resolvable version on an `lts` leg.
+Bump that bound before adding the leg.
 
 ## [Release documentation](@id release-docs)
 
