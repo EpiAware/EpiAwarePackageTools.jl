@@ -1986,6 +1986,83 @@
             end
         end
 
+        @testset "update warns when a managed AD backend has no test item" begin
+            # A backend added to `_AD_BACKENDS` after a package scaffolded
+            # reaches its managed ad.yaml matrix, codecov flags and README
+            # badge row on the next sync, but not the package-owned
+            # `test/ad/scenarios.jl` seed. The job then runs zero tests,
+            # reports green, and uploads an empty coverage flag (#415).
+
+            # The seed writes one `tags = [.., :<tag>]` item per backend, so
+            # retagging that list drops exactly that backend's items, as an
+            # adopter scaffolded before the backend existed would have.
+            # `count` leaves the file's trailing commented example alone.
+            function _drop_backend(dir, tag; count = typemax(Int))
+                scen = _dest(dir, "test/ad/scenarios.jl")
+                txt = read(scen, String)
+                write(
+                    scen,
+                    replace(
+                        txt, ":$(tag)]" => ":placeholder_other]"; count = count
+                    )
+                )
+                return scen
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "PreBackend")
+                scaffold(dir)
+                _drop_backend(dir, "reversediff_compiled")
+                local res
+                pat = r"reversediff_compiled"
+                @test_logs (:warn, pat) match_mode = :any begin
+                    res = update(dir)
+                end
+                @test any(
+                    w -> occursin(":reversediff_compiled", w), res.warnings
+                )
+                @test any(w -> occursin("kit#415", w), res.warnings)
+            end
+            # The same boundary the other way round. Dropping `:reversediff`
+            # while the `:reversediff_compiled` items remain must still warn,
+            # or a tag that merely prefixes another looks covered by it.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "PrefixBackend")
+                scaffold(dir)
+                _drop_backend(dir, "reversediff")
+                res = update(dir)
+                @test any(w -> occursin(r":reversediff\b", w), res.warnings)
+                @test !any(
+                    w -> occursin(":reversediff_compiled", w), res.warnings
+                )
+            end
+            # A commented-out item is not an item. The seed ships a commented
+            # `:forwarddiff` example below the live items, so dropping only
+            # the live one must still warn.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "CommentedBackend")
+                scaffold(dir)
+                _drop_backend(dir, "forwarddiff"; count = 1)
+                res = update(dir)
+                @test occursin(
+                    ":forwarddiff",
+                    read(_dest(dir, "test/ad/scenarios.jl"), String)
+                )
+                @test any(w -> occursin(":forwarddiff", w), res.warnings)
+            end
+            # A freshly scaffolded package seeds an item per managed backend.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "FreshBackends")
+                scaffold(dir)
+                @test isempty(update(dir).warnings)
+            end
+            # `ad = false` ships no ad.yaml matrix, so there is no gap.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "NoADBackends")
+                scaffold(dir; ad = false)
+                @test isempty(update(dir; ad = false).warnings)
+            end
+        end
+
         @testset "update warns when docs/Project.toml keeps a dropped AD dep" begin
             # `docs/Project.toml` is package-owned and write-once, so dropping
             # AlgebraOfGraphics from `_ad_docs_deps` only lands on a fresh
