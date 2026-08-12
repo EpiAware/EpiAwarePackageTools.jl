@@ -2063,6 +2063,154 @@ function _reject_light_tutorial_envs(light, env_map)
     )
 end
 
+# The `--threads` value each heavy-tutorial subprocess is launched with.
+#
+# A serial build passes `JULIA_NUM_THREADS` straight through, exactly as it
+# always has, so a non-numeric setting (`auto`) still reaches the subprocess
+# verbatim. A parallel build divides that same budget between the workers, so
+# `workers x threads` never exceeds what one serial subprocess was already
+# given and the tutorials do not thrash: `auto` (or anything else that is not
+# a plain integer) resolves to `Sys.CPU_THREADS` first, since text cannot be
+# divided, and every worker keeps at least one thread.
+function _tutorial_thread_budget(workers::Integer)
+    requested = get(ENV, "JULIA_NUM_THREADS", "4")
+    workers > 1 || return requested
+    total = something(tryparse(Int, requested), Sys.CPU_THREADS)
+    return string(max(1, total ÷ workers))
+end
+
+# The subprocess command for one heavy tutorial. `env` is the environment the
+# tutorial opted into, or `nothing` for the shared docs one; it is kept as a
+# `Union{Nothing,String}` rather than defaulting to `docs_dir` (whose type is
+# unconstrained here) so the call stays concrete for JET.
+function _tutorial_command(
+        jl, runner, docs_dir, tutorials_dir, file,
+        env::Union{Nothing, String}, threads::AbstractString
+    )
+    project = env === nothing ? docs_dir : env
+    opts = `--threads=$(threads) --project=$(project)`
+    input = joinpath(tutorials_dir, file)
+    return `$jl $opts $runner $input $tutorials_dir`
+end
+
+# Run the heavy tutorials one at a time, each in a fresh subprocess, streaming
+# its output live: the default, and unchanged from before the parallel mode
+# existed. The first failure stops the build, named by the tutorial that
+# caused it rather than by the julia command line it was buried in.
+function _run_heavy_tutorials_serially(
+        jl, runner, docs_dir, tutorials_dir, heavy, env_map, threads
+    )
+    for file in heavy
+        env = get(env_map, file, nothing)
+        env === nothing || _prepare_tutorial_env(file, env)
+        println("  executing $file in a fresh subprocess...")
+        cmd = _tutorial_command(
+            jl, runner, docs_dir, tutorials_dir, file, env, threads
+        )
+        try
+            run(cmd)
+        catch err
+            error("heavy tutorial $file failed to execute: $(err)")
+        end
+    end
+    return
+end
+
+# Run the heavy tutorials `nworkers` at a time. Each subprocess's output is
+# captured to its own log and printed as one block when it finishes, so a
+# failure still reads against the tutorial that produced it instead of
+# interleaving with whatever else was sampling at the time.
+#
+# A failure does not cancel its siblings: they are already running, and
+# reporting every failure at the end beats the first one masking the rest.
+# `run` throws on a non-zero exit, so each launch is caught individually --
+# letting it escape `asyncmap` would lose both the other failures and, with
+# them, which tutorial was at fault.
+function _run_heavy_tutorials_concurrently(
+        jl, runner, docs_dir, tutorials_dir, heavy, env_map, threads, nworkers
+    )
+    failed = String[]
+    reporting = ReentrantLock()
+    asyncmap(heavy; ntasks = nworkers) do file
+        env = get(env_map, file, nothing)
+        cmd = _tutorial_command(
+            jl, runner, docs_dir, tutorials_dir, file, env, threads
+        )
+        log = tempname()
+        ok = true
+        try
+            open(log, "w") do io
+                run(pipeline(cmd; stdout = io, stderr = io))
+            end
+        catch
+            ok = false
+        end
+        # One lock around the whole report, so two tutorials finishing
+        # together cannot interleave their blocks.
+        lock(reporting) do
+            println("---- $file: $(ok ? "finished" : "FAILED") ----")
+            isfile(log) && print(read(log, String))
+            println("---- end $file ----")
+            flush(stdout)
+            ok || push!(failed, file)
+        end
+        rm(log; force = true)
+        return nothing
+    end
+    isempty(failed) && return
+    return error(
+        "heavy tutorial(s) failed: " * join(failed, ", ") *
+            ". Each one's output is above, printed as a single block under " *
+            "its own name."
+    )
+end
+
+# Execute the heavy tutorials, up to `workers` subprocesses at a time.
+#
+# `workers` defaults to 1 everywhere it is threaded through: memory, not
+# cores, is what bounds a Turing tutorial, and two concurrent samplers can
+# each hold several GB. Raising it is a per-package judgement about that
+# package's own tutorials, made in its `docs_config.jl`.
+#
+# With more workers than tutorials, the surplus buys no concurrency and would
+# only shrink each subprocess's share of the thread budget, so the count is
+# capped at the work available.
+function _execute_heavy_tutorials(
+        docs_dir, tutorials_dir, heavy, env_map, workers::Integer
+    )
+    workers >= 1 || error(
+        "heavy_tutorial_workers must be at least 1, got $workers"
+    )
+    nworkers = max(1, min(workers, length(heavy)))
+    threads = _tutorial_thread_budget(nworkers)
+    runner = joinpath(docs_dir, "run_literate_tutorial.jl")
+    jl = Base.julia_cmd()
+    if nworkers == 1
+        println(
+            "Executing heavy Literate tutorials, one per subprocess " *
+                "($(threads) threads each)..."
+        )
+        return _run_heavy_tutorials_serially(
+            jl, runner, docs_dir, tutorials_dir, heavy, env_map, threads
+        )
+    end
+    println(
+        "Executing heavy Literate tutorials, $(nworkers) at a time, one " *
+            "per subprocess ($(threads) threads each)..."
+    )
+    # Every opted-in environment is instantiated before any subprocess
+    # starts: concurrent `Pkg.instantiate` calls would race on the shared
+    # depot, and a broken environment is a config mistake worth failing on
+    # before hours of sampling rather than after.
+    for file in heavy
+        env = get(env_map, file, nothing)
+        env === nothing || _prepare_tutorial_env(file, env)
+    end
+    return _run_heavy_tutorials_concurrently(
+        jl, runner, docs_dir, tutorials_dir, heavy, env_map, threads, nworkers
+    )
+end
+
 # Render the Literate tutorial pipeline into `tutorials_dir`. Light tutorials
 # emit `@example` blocks Documenter runs in-process; heavy tutorials are each
 # executed once in a fresh subprocess (via the package-owned
@@ -2072,9 +2220,12 @@ end
 # instead of the shared `docs/` one, for a dependency that cannot co-resolve
 # with the rest of the docs environment. Every other tutorial is built exactly
 # as before, against `docs_dir`.
+#
+# `workers` runs that subprocess step up to N tutorials at a time (default 1,
+# strictly one after another as before); see `_execute_heavy_tutorials`.
 function _process_tutorials(
         docs_dir, tutorials_dir, light, heavy;
-        envs = Pair{String, String}[]
+        envs = Pair{String, String}[], workers::Integer = 1
     )
     (isempty(light) && isempty(heavy)) && return
     env_map = _tutorial_env_map(docs_dir, envs)
@@ -2095,25 +2246,9 @@ function _process_tutorials(
         end
     end
     if !isempty(heavy)
-        tutorial_threads = get(ENV, "JULIA_NUM_THREADS", "4")
-        println(
-            "Executing heavy Literate tutorials, one per subprocess " *
-                "($(tutorial_threads) threads each)..."
+        _execute_heavy_tutorials(
+            docs_dir, tutorials_dir, heavy, env_map, workers
         )
-        runner = joinpath(docs_dir, "run_literate_tutorial.jl")
-        jl = Base.julia_cmd()
-        for file in heavy
-            input = joinpath(tutorials_dir, file)
-            # Kept as a `Union{Nothing,String}` rather than defaulting to
-            # `docs_dir` (whose type is unconstrained here) so the
-            # `_prepare_tutorial_env` call stays concrete for JET.
-            env = get(env_map, file, nothing)
-            project = env === nothing ? docs_dir : env
-            env === nothing || _prepare_tutorial_env(file, env)
-            println("  executing $file in a fresh subprocess...")
-            opts = `--threads=$(tutorial_threads) --project=$(project)`
-            run(`$jl $opts $runner $input $tutorials_dir`)
-        end
     end
     println("Literate tutorial processing complete")
     return
@@ -2136,11 +2271,13 @@ _tutorial_md_names(files) = Set(_tutorial_md_name(f) for f in files)
 # (e.g. a non-terminating sampler), leaving its siblings unaffected. `envs`
 # carries the per-tutorial environment opt-in through to the subprocess
 # launcher; a force-stubbed or skipped tutorial never reaches it, so its
-# environment is never instantiated.
+# environment is never instantiated. `workers` is passed through on the same
+# terms: it only reaches the subprocess step, so a skipped or force-stubbed
+# tutorial is never counted as work to spread over.
 function _render_tutorials(
         docs_dir, tutorials_dir, skip_notebooks::Bool,
         light, heavy, stubs; force_stub = String[],
-        envs = Pair{String, String}[]
+        envs = Pair{String, String}[], workers::Integer = 1
     )
     # A registration whose Literate source is not there is dropped rather than
     # fatal. `docs_config.jl` is package-owned and write-once, so when the kit
@@ -2167,7 +2304,8 @@ function _render_tutorials(
     if !skip_notebooks
         run_heavy = filter(!in(force_stub), present(heavy))
         _process_tutorials(
-            docs_dir, tutorials_dir, present(light), run_heavy; envs = envs
+            docs_dir, tutorials_dir, present(light), run_heavy;
+            envs = envs, workers = workers
         )
         if !isempty(force_stub)
             force_stub_md = _tutorial_md_names(force_stub)
@@ -2337,8 +2475,8 @@ end
     build_docs(mod; repo, authors, pages, deploy_url=nothing,
                skip_notebooks=false, tutorials_subdir, light_tutorials=[],
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
-               tutorial_environments=[], heavy_benchmarks=[],
-               benchmark_stubs=[],
+               tutorial_environments=[], heavy_tutorial_workers=1,
+               heavy_benchmarks=[], benchmark_stubs=[],
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
                index_strip_sections=[], benchmark_page=true,
                history_suites=[], history_commits=5,
@@ -2368,7 +2506,20 @@ absolute, is package-owned (the kit never writes it, as it never writes
 dependencies. It is instantiated before the tutorial runs; a missing,
 Literate-less or unresolvable environment fails the build rather than
 quietly stubbing the page. Every tutorial not named here is built against
-`docs/` exactly as before. `heavy_benchmarks`/`benchmark_stubs` drive the
+`docs/` exactly as before.
+
+`heavy_tutorial_workers` runs that many heavy tutorials concurrently, each
+still in its own subprocess. It defaults to `1`, one after another as
+before: memory rather than cores is what bounds a sampling tutorial, so
+raising it is a judgement about one package's own tutorials. The thread
+budget is divided rather than multiplied — each worker is launched with
+`JULIA_NUM_THREADS ÷ workers` threads (at least one), so the total stays what
+a serial build already asked for. Under it, each tutorial's output is
+captured and printed as one block when it finishes rather than interleaved,
+and every failure is reported by name at the end rather than the first
+masking the rest.
+
+`heavy_benchmarks`/`benchmark_stubs` drive the
 same pipeline again over `src/benchmarks/`, so a benchmark report renders
 under its own top-level "Benchmarks" nav group rather than under Tutorials.
 `deploy=false` builds without deploying and `build_vitepress=false` runs
@@ -2402,6 +2553,7 @@ function build_docs(
         tutorial_stubs = Pair{String, String}[],
         force_stub_tutorials = String[],
         tutorial_environments = Pair{String, String}[],
+        heavy_tutorial_workers::Integer = 1,
         heavy_benchmarks = String[],
         benchmark_stubs = Pair{String, String}[],
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
@@ -2426,7 +2578,7 @@ function build_docs(
     _render_tutorials(
         docs_dir, tutorials_dir, skip_notebooks, light_tutorials,
         heavy_tutorials, tutorial_stubs; force_stub = force_stub_tutorials,
-        envs = tutorial_environments
+        envs = tutorial_environments, workers = heavy_tutorial_workers
     )
 
     # --- docs/src/benchmarks/ (e.g. the AD-comparison report) --------------
@@ -2437,11 +2589,12 @@ function build_docs(
     # Shares `force_stub_tutorials` with the tutorials pipeline above -- it
     # is matched against whichever `heavy` list is passed at each call site,
     # so one config list parks a heavy page in either directory by name.
-    # `tutorial_environments` is shared on the same terms.
+    # `tutorial_environments` and `heavy_tutorial_workers` are shared on the
+    # same terms.
     _render_tutorials(
         docs_dir, benchmarks_dir, skip_notebooks, String[],
         heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials,
-        envs = tutorial_environments
+        envs = tutorial_environments, workers = heavy_tutorial_workers
     )
 
     # --- generated pages ---------------------------------------------------
