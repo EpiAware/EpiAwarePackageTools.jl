@@ -479,16 +479,16 @@
                 @test occursin("Wombat = \"00000000", dp)
                 @test !occursin("{{", dp)
                 # make.jl does `using EpiAwarePackageTools`, so the docs env
-                # must carry the kit as a dep + (until registered) a git source,
-                # or the docs build fails with "package not found" (#115).
+                # must carry the kit as a dep with a registry bound, or the
+                # docs build fails with "package not found" (#115, #361).
                 @test occursin(
                     "EpiAwarePackageTools = \"7aaea248", dp
                 )
                 @test occursin(
-                    "EpiAwarePackageTools = {url = " *
-                        "\"https://github.com/EpiAware/EpiAwarePackageTools.jl\", " *
-                        "rev = \"main\"}", dp
+                    "EpiAwarePackageTools = " *
+                        "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", dp
                 )
+                @test !occursin("rev = \"main\"", dp)
                 # The VitePress config keeps the DocumenterVitepress markers and
                 # points social links at the package repo.
                 cfg = read(
@@ -1181,18 +1181,22 @@
             end
         end
 
-        @testset "test envs pin EpiAwarePackageTools via [sources]" begin
+        @testset "test envs bound EpiAwarePackageTools in [compat]" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
-                # Every env that depends on the kit must resolve it: an active
-                # (not commented-out) [sources] git pin, since it is unregistered.
+                # Every env that depends on the kit must resolve it. The kit is
+                # registered, so that is an ordinary registry bound rather than
+                # a git `[sources]` pin (#361).
+                bound = "EpiAwarePackageTools = " *
+                    "\"$(EpiAwarePackageTools.KIT_COMPAT)\""
                 for f in (
                         "test/Project.toml", "test/ad/Project.toml",
                         "test/jet/Project.toml", "benchmark/Project.toml",
                     )
                     txt = read(joinpath(dir, f), String)
-                    @test occursin(
+                    @test occursin(bound, txt)
+                    @test !occursin(
                         r"(?m)^EpiAwarePackageTools = \{url = ", txt
                     )
                 end
@@ -4041,8 +4045,9 @@
                 )
                 @test occursin(
                     "update(\".\"; ad = false, benchmarks = false, " *
-                        "downgrade_compat = true, freshen_reusable_refs = true)",
-                    sync
+                        "downgrade_compat = true, " *
+                        "unregistered_sources = false, " *
+                        "freshen_reusable_refs = true)", sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
@@ -4355,12 +4360,17 @@
                 @test occursin("[compat]", tp)
                 @test occursin("Aqua = \"0.8\"", tp)
                 @test occursin("ForwardDiff =", tp)
-                # The path/source-pinned packages carry no compat bound: the
-                # package + kit are absent from the [compat] section.
-                compat = tp[first(findfirst("[compat]", tp)):end]
+                # The path-pinned package under test carries no compat bound;
+                # the kit, being registered, does (#361). Matched on the
+                # section header, not the bare word: the file's own header
+                # comment mentions `[compat]` too.
+                compat = tp[first(findfirst(r"(?m)^\[compat\]", tp)):end]
                 compat = split(compat, "[sources]")[1]
                 @test !occursin("Wombat", compat)
-                @test !occursin("EpiAwarePackageTools", compat)
+                @test occursin(
+                    "EpiAwarePackageTools = " *
+                        "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", compat
+                )
             end
             mktempdir() do dir
                 _fake_pkg(dir; name = "Tooly")
@@ -4441,12 +4451,10 @@
                 end
 
                 # Instantiating the generated environments needs Pkg
-                # `[sources]` (the path/git dep pins), which only exists on
-                # Julia >= 1.11. On the LTS (1.10) `[sources]` is ignored, so
-                # these envs cannot resolve their local/unregistered pins at
-                # all — the same reason an adopter's full env needs >= 1.11
-                # until the kit is registered. The TOML round-trip above still
-                # runs on every version.
+                # `[sources]` (the path pin on the package under test), which
+                # only exists on Julia >= 1.11. On the LTS (1.10) `[sources]`
+                # is ignored, so these envs cannot resolve their local pins at
+                # all. The TOML round-trip above still runs on every version.
                 if VERSION >= v"1.11"
                     # The ADFixtures registry skeleton carries no
                     # EpiAwarePackageTools dependency at all, so instantiating it
@@ -4456,15 +4464,18 @@
                         @test _env_instantiates(joinpath(dir, env))
                     end
 
-                    # The remaining envs pin EpiAwarePackageTools by git
-                    # (`rev = "main"`) so a fresh adopter resolves out of the
-                    # box; that network fetch is an extra dependency the kit's
-                    # own tests should not take on. The `docs` env carries the
-                    # same git pin now that `make.jl` uses the kit (#115). Patch
-                    # the pin to the local kit checkout instead — the same switch
-                    # the template comments themselves suggest for kit
-                    # development — so the rest of each env (every other
-                    # dep/compat bound) is proven to resolve hermetically.
+                    # The remaining envs bound EpiAwarePackageTools in
+                    # `[compat]` at the kit's current minor (#361), which the
+                    # registry only carries once that minor is released. Point
+                    # each at the local kit checkout with a `[sources]` path
+                    # entry instead — the same switch a maintainer developing
+                    # the kit alongside a package makes — so the rest of every
+                    # env is proven to resolve hermetically, with no network
+                    # fetch and no dependency on the release having landed.
+                    # A path-sourced kit still has to satisfy the bound, so
+                    # this also proves `KIT_COMPAT` admits the kit's own
+                    # version.
+                    #
                     # Forward-slash the absolute path: a backslashed Windows
                     # path (`C:\...`) in a TOML basic string is an invalid
                     # escape sequence, and Julia/Pkg resolve forward slashes on
@@ -4472,16 +4483,18 @@
                     kit_root = replace(
                         pkgdir(EpiAwarePackageTools), '\\' => '/'
                     )
-                    kit_pin = r"EpiAwarePackageTools = \{url = \"[^\"]+\", " *
-                        r"rev = \"main\"\}"
+                    kit_path = "EpiAwarePackageTools = {path = \"" *
+                        kit_root * "\"}"
                     for env in ("test", "test/jet", "docs")
                         proj = joinpath(dir, env, "Project.toml")
                         txt = read(proj, String)
+                        # Every one of these envs already has a `[sources]`
+                        # table (the path pin on the package under test), so
+                        # the entry goes under the existing header.
+                        @test occursin(r"(?m)^\[sources\]", txt)
                         patched = replace(
-                            txt,
-                            kit_pin =>
-                                "EpiAwarePackageTools = {path = \"" *
-                                kit_root * "\"}"
+                            txt, r"(?m)^\[sources\]" =>
+                                "[sources]\n" * kit_path; count = 1
                         )
                         @test patched != txt
                         write(proj, patched)
