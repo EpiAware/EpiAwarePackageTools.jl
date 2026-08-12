@@ -167,7 +167,6 @@ package on the next sync.
      scan, which is the one thing the scan itself cannot tell apart from
      drift. -->
 
-
 A sync converges the managed files and nothing else.
 Your README and the authored pages under `docs/src/` are package-owned, so
 prose describing the standard as it used to be survives every sync.
