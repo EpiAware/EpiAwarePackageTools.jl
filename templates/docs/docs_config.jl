@@ -58,6 +58,26 @@ const FORCE_STUB_TUTORIALS = String[]
 # elsewhere still builds, but its dependencies are never updated.
 const TUTORIAL_ENVIRONMENTS = Pair{String, String}[]
 
+# How many heavy tutorials execute at once, each still in its own subprocess.
+# `1` runs them one after another, which is the right default: memory rather
+# than cores is what bounds a sampling tutorial, and two concurrent Turing
+# subprocesses can each hold several GB.
+#
+# Raise it when this package has several heavy tutorials and its docs build
+# is running long — the tutorials have no ordering between them, so the wall
+# clock falls close to linearly. The thread budget is divided, not
+# multiplied: each worker is launched with `JULIA_NUM_THREADS ÷ workers`
+# threads (at least one), so `2` on a 4-core runner gives two tutorials two
+# threads each rather than four apiece. Chains within a tutorial then get
+# fewer threads, so this trades intra-tutorial parallelism for
+# inter-tutorial parallelism. It wins when there are more tutorials than
+# there are chains to spread over.
+#
+# Watch memory before raising it above 2 on a standard CI runner. Under a
+# parallel build each tutorial's output is printed as one block when it
+# finishes, and every failure is named at the end.
+const HEAVY_TUTORIAL_WORKERS = 1
+
 # The `docs/src/benchmarks/` Literate pipeline: its own heavy list and stubs,
 # mirroring `HEAVY_TUTORIALS`/`TUTORIAL_STUBS` above but rooted at
 # `docs/src/benchmarks`, so a benchmark report gets its own top-level

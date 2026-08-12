@@ -112,6 +112,44 @@ Reach for this only when a dependency genuinely cannot co-resolve.
 Everything else belongs in `docs/Project.toml`, and a tutorial listed here
 pays for a second environment to resolve and precompile on every build.
 
+## [Running heavy tutorials in parallel](@id parallel-tutorials)
+
+Heavy tutorials run one after another by default.
+Nothing orders them: each runs in its own subprocess against its own project,
+with no shared state.
+A package with several of them can therefore run them at once.
+
+`HEAVY_TUTORIAL_WORKERS` in `docs/docs_config.jl` sets how many execute
+concurrently.
+It defaults to `1`, which is the behaviour every package had before the
+setting existed.
+
+The default stays serial because memory, not cores, is what bounds a sampling
+tutorial.
+Two concurrent Turing subprocesses can each hold several GB, and a runner that
+runs out of memory kills the build outright.
+Whether that is affordable depends on the package's own tutorials, so it is a
+per-package choice rather than an ecosystem-wide one.
+
+The thread budget is divided, not multiplied.
+Each worker is launched with `JULIA_NUM_THREADS ÷ workers` threads, at least
+one, so two workers on a four-core runner get two threads each rather than
+four apiece.
+Total demand stays what a serial build already asked for.
+This trades parallelism within a tutorial (chains under `MCMCThreads()`) for
+parallelism between tutorials, so it wins when there are more tutorials than
+there are chains to spread across the cores.
+
+Output stays attributable.
+Under a parallel build each tutorial's output is captured and printed as a
+single block when it finishes, headed by the tutorial's name, rather than
+interleaved with whatever else was sampling at the time.
+A failure does not cancel its siblings, and every failure is named at the
+end, so one broken tutorial cannot hide another.
+
+Raise it when the docs build is running long against a CI time limit, and
+watch memory before going above `2` on a standard runner.
+
 ## What stays managed
 
 - `docs/make.jl`, the thin caller into the kit's build logic.

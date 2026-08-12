@@ -2910,3 +2910,347 @@ end
         end
     end
 end
+
+@testitem "heavy tutorial workers: thread budget" begin
+    using Test
+    using EpiAwarePackageTools
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    @testset "a serial build passes JULIA_NUM_THREADS through verbatim" begin
+        withenv("JULIA_NUM_THREADS" => "8") do
+            @test DB._tutorial_thread_budget(1) == "8"
+        end
+        # Including a setting that is not a number at all.
+        withenv("JULIA_NUM_THREADS" => "auto") do
+            @test DB._tutorial_thread_budget(1) == "auto"
+        end
+        withenv("JULIA_NUM_THREADS" => nothing) do
+            @test DB._tutorial_thread_budget(1) == "4"
+        end
+    end
+
+    @testset "a parallel build divides that budget between workers" begin
+        withenv("JULIA_NUM_THREADS" => "8") do
+            @test DB._tutorial_thread_budget(2) == "4"
+            @test DB._tutorial_thread_budget(4) == "2"
+            # Never below one thread, however many workers are asked for.
+            @test DB._tutorial_thread_budget(16) == "1"
+        end
+        # `auto` cannot be divided as text, so it resolves first.
+        withenv("JULIA_NUM_THREADS" => "auto") do
+            @test DB._tutorial_thread_budget(2) ==
+                string(max(1, Sys.CPU_THREADS ÷ 2))
+        end
+        withenv("JULIA_NUM_THREADS" => nothing) do
+            @test DB._tutorial_thread_budget(2) == "2"
+        end
+    end
+
+    @testset "fewer than one worker is a config mistake" begin
+        err = try
+            DB._execute_heavy_tutorials(
+                "docs", "tutorials", ["heavy.jl"], Dict{String, String}(), 0
+            )
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("at least 1", err.msg)
+    end
+end
+
+@testitem "heavy tutorial workers: concurrency and failure reporting" begin
+    using Test
+    using EpiAwarePackageTools
+    using Literate
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    # These cases assert what the subprocesses actually did, not the command
+    # line the kit assembled: each tutorial records when it ran, whether its
+    # sibling was running at the same time, and how many threads it was given.
+    runner_src = joinpath(
+        pkgdir(EpiAwarePackageTools), "templates", "docs",
+        "run_literate_tutorial.jl"
+    )
+
+    # A docs environment the launcher can really build against: `Literate`
+    # pinned to the version this session already has, so resolving it needs no
+    # download and the cached precompile is reused.
+    function docs_env(dir)
+        docs_dir = mkpath(joinpath(dir, "docs"))
+        write(
+            joinpath(docs_dir, "Project.toml"),
+            """
+            [deps]
+            Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+
+            [compat]
+            Literate = "=$(pkgversion(Literate))"
+            """
+        )
+        cp(runner_src, joinpath(docs_dir, "run_literate_tutorial.jl"))
+        run(
+            pipeline(
+                `$(Base.julia_cmd()) --project=$docs_dir -e
+                "using Pkg; Pkg.instantiate()"`;
+                stdout = devnull
+            )
+        )
+        return docs_dir
+    end
+
+    # A tutorial that touches `marker` while it runs and waits up to `timeout`
+    # seconds for its sibling's marker to appear, which can only happen while
+    # that sibling's subprocess is alive. It then records its own interval,
+    # what it saw, and its thread count.
+    function witness_tutorial(
+            tutorials_dir, name; marker, peer, result, timeout
+        )
+        write(
+            joinpath(tutorials_dir, name),
+            """
+            # # $(name)
+
+            function wait_for_peer(path, timeout)
+                deadline = time() + timeout
+                while time() < deadline
+                    isfile(path) && return true
+                    sleep(0.05)
+                end
+                return false
+            end
+
+            started = time()
+            touch($(repr(marker)))
+            saw_peer = wait_for_peer($(repr(peer)), $(timeout))
+            sleep(0.5)
+            rm($(repr(marker)); force = true)
+            write(
+                $(repr(result)),
+                string(
+                    started, "\\n", time(), "\\n", saw_peer, "\\n",
+                    Threads.nthreads()
+                )
+            )
+            """
+        )
+        return nothing
+    end
+
+    function witness(path)
+        lines = readlines(path)
+        return (
+            start = parse(Float64, lines[1]),
+            stop = parse(Float64, lines[2]),
+            saw_peer = parse(Bool, lines[3]),
+            threads = parse(Int, lines[4]),
+        )
+    end
+
+    # Two witness tutorials wired to watch each other, run through the real
+    # `_render_tutorials` entry point with the given worker count.
+    function run_pair(dir, workers, timeout)
+        docs_dir = docs_env(dir)
+        tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+        markers = Dict(n => joinpath(dir, "$(n).running") for n in ("a", "b"))
+        results = Dict(n => joinpath(dir, "$(n).result") for n in ("a", "b"))
+        witness_tutorial(
+            tutorials_dir, "a.jl"; marker = markers["a"],
+            peer = markers["b"], result = results["a"], timeout = timeout
+        )
+        witness_tutorial(
+            tutorials_dir, "b.jl"; marker = markers["b"],
+            peer = markers["a"], result = results["b"], timeout = timeout
+        )
+        DB._render_tutorials(
+            docs_dir, tutorials_dir, false, String[], ["a.jl", "b.jl"],
+            Pair{String, String}[]; workers = workers
+        )
+        return (
+            a = witness(results["a"]), b = witness(results["b"]),
+            tutorials_dir = tutorials_dir,
+        )
+    end
+
+    @testset "the default runs one tutorial at a time" begin
+        mktempdir() do dir
+            # `timeout = 0`: nothing to wait for, since under the default no
+            # sibling can be running to be seen.
+            res = withenv("JULIA_NUM_THREADS" => "4") do
+                run_pair(dir, 1, 0)
+            end
+            @test !res.a.saw_peer
+            @test !res.b.saw_peer
+            # The two intervals do not overlap at all.
+            @test res.a.stop <= res.b.start || res.b.stop <= res.a.start
+            # Each got the whole thread budget, as it always has.
+            @test res.a.threads == 4
+            @test res.b.threads == 4
+            # Both still rendered.
+            @test isfile(joinpath(res.tutorials_dir, "a.md"))
+            @test isfile(joinpath(res.tutorials_dir, "b.md"))
+        end
+    end
+
+    @testset "two workers run two tutorials at once" begin
+        mktempdir() do dir
+            res = withenv("JULIA_NUM_THREADS" => "4") do
+                run_pair(dir, 2, 60)
+            end
+            # Each subprocess saw the other's marker, so both were alive
+            # together; the intervals agree.
+            @test res.a.saw_peer
+            @test res.b.saw_peer
+            @test res.a.start < res.b.stop && res.b.start < res.a.stop
+            # The thread budget was divided, not multiplied: two workers of
+            # two threads against the four a serial build would have used.
+            @test res.a.threads == 2
+            @test res.b.threads == 2
+            @test isfile(joinpath(res.tutorials_dir, "a.md"))
+            @test isfile(joinpath(res.tutorials_dir, "b.md"))
+        end
+    end
+
+    @testset "more workers than tutorials keeps the full budget" begin
+        mktempdir() do dir
+            docs_dir = docs_env(dir)
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            result = joinpath(dir, "only.result")
+            witness_tutorial(
+                tutorials_dir, "only.jl"; marker = joinpath(dir, "only.run"),
+                peer = joinpath(dir, "absent"), result = result, timeout = 0
+            )
+            withenv("JULIA_NUM_THREADS" => "4") do
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, String[], ["only.jl"],
+                    Pair{String, String}[]; workers = 4
+                )
+            end
+            # One tutorial cannot be spread over four workers, so it keeps
+            # the four threads rather than being cut to one.
+            @test witness(result).threads == 4
+        end
+    end
+end
+
+@testitem "heavy tutorial workers: a failure names its tutorial" begin
+    using Test
+    using EpiAwarePackageTools
+    using Literate
+    const DB = EpiAwarePackageTools.DocsBuild
+
+    runner_src = joinpath(
+        pkgdir(EpiAwarePackageTools), "templates", "docs",
+        "run_literate_tutorial.jl"
+    )
+
+    function docs_env(dir)
+        docs_dir = mkpath(joinpath(dir, "docs"))
+        write(
+            joinpath(docs_dir, "Project.toml"),
+            """
+            [deps]
+            Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+
+            [compat]
+            Literate = "=$(pkgversion(Literate))"
+            """
+        )
+        cp(runner_src, joinpath(docs_dir, "run_literate_tutorial.jl"))
+        run(
+            pipeline(
+                `$(Base.julia_cmd()) --project=$docs_dir -e
+                "using Pkg; Pkg.instantiate()"`;
+                stdout = devnull
+            )
+        )
+        return docs_dir
+    end
+
+    # A tutorial whose body throws, so its subprocess exits non-zero.
+    function failing_tutorial(tutorials_dir, name)
+        write(
+            joinpath(tutorials_dir, name),
+            """
+            # # $(name)
+
+            error("this tutorial is broken")
+            """
+        )
+        return nothing
+    end
+
+    @testset "serial: the failure is attributed to the tutorial" begin
+        mktempdir() do dir
+            docs_dir = docs_env(dir)
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            failing_tutorial(tutorials_dir, "broken.jl")
+            err = try
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, String[], ["broken.jl"],
+                    Pair{String, String}[]
+                )
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("broken.jl", err.msg)
+        end
+    end
+
+    @testset "parallel: every failure is reported, not just the first" begin
+        mktempdir() do dir
+            docs_dir = docs_env(dir)
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            failing_tutorial(tutorials_dir, "first.jl")
+            failing_tutorial(tutorials_dir, "second.jl")
+            err = try
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, String[],
+                    ["first.jl", "second.jl"], Pair{String, String}[];
+                    workers = 2
+                )
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            # Neither failure masks the other.
+            @test occursin("first.jl", err.msg)
+            @test occursin("second.jl", err.msg)
+        end
+    end
+
+    @testset "parallel: a good tutorial still renders beside a bad one" begin
+        mktempdir() do dir
+            docs_dir = docs_env(dir)
+            tutorials_dir = mkpath(joinpath(docs_dir, "src", "tutorials"))
+            failing_tutorial(tutorials_dir, "broken.jl")
+            write(
+                joinpath(tutorials_dir, "fine.jl"),
+                """
+                # # A working tutorial
+
+                x = 1 + 1
+                """
+            )
+            err = try
+                DB._render_tutorials(
+                    docs_dir, tutorials_dir, false, String[],
+                    ["broken.jl", "fine.jl"], Pair{String, String}[];
+                    workers = 2
+                )
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("broken.jl", err.msg)
+            @test !occursin("fine.jl", err.msg)
+            @test isfile(joinpath(tutorials_dir, "fine.md"))
+            @test !isfile(joinpath(tutorials_dir, "broken.md"))
+        end
+    end
+end
