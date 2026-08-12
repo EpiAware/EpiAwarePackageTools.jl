@@ -1592,13 +1592,14 @@
             # AD jobs run without the weakdeps loaded, so an `ext` path under
             # an `ad-*` flag reports 0% and drags the aggregate down; the
             # unit job (which loads them) may claim extension coverage. The
-            # two Enzyme AD jobs are the exception: an Enzyme rule-file
-            # extension only ever loads there, so they claim `ext` too.
+            # two Enzyme AD jobs are the exception, but they name the Enzyme
+            # extension file rather than the directory (#416), so a package
+            # with no Enzyme extension claims no `ext` path under any AD flag.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = true)
                 cov = read(joinpath(dir, "codecov.yml"), String)
-                @test count("      - ext", cov) == 3
+                @test count("      - ext", cov) == 1
                 unit = split(cov, "  unit:")[2]
                 @test occursin("- ext", split(unit, "carryforward")[1])
             end
@@ -2486,9 +2487,26 @@
                 end
             end
 
-            @testset "enzyme codecov flags claim ext (#386)" begin
+            @testset "enzyme codecov flags name the Enzyme ext (#386/#416)" begin
+                # The Enzyme jobs are the only AD jobs that load one of the
+                # package's extensions, so they are the only AD flags that
+                # may claim anything under `ext/`. They claim the Enzyme
+                # extension file, not the directory: a directory claim
+                # charges them for every OTHER extension too, which is #180
+                # one level down (#416).
                 mktempdir() do dir
                     _fake_pkg(dir; name = "NumericEnzyme")
+                    proj = joinpath(dir, "Project.toml")
+                    write(
+                        proj,
+                        read(proj, String) *
+                            "\n[weakdeps]\n" *
+                            "Enzyme = \"7da242da-08ed-463a-9acd-ee780be4f1d9\"\n" *
+                            "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                            "\n[extensions]\n" *
+                            "NumericEnzymeEnzymeExt = \"Enzyme\"\n" *
+                            "NumericEnzymePlotsExt = \"Plots\"\n"
+                    )
                     scaffold(dir)
                     cov = read(joinpath(dir, "codecov.yml"), String)
                     blocks = split(cov, r"(?=^  ad-)"m)
@@ -2498,15 +2516,53 @@
                         m === nothing && continue
                         flag = m.captures[1]
                         push!(tested, flag)
-                        has_ext = occursin("- ext", block)
-                        if flag in ("ad-enzyme-forward", "ad-enzyme-reverse")
-                            @test has_ext
-                        else
-                            @test !has_ext
-                        end
+                        enzyme = flag in
+                            ("ad-enzyme-forward", "ad-enzyme-reverse")
+                        @test occursin(
+                            "ext/NumericEnzymeEnzymeExt.jl", block
+                        ) == enzyme
+                        # Never the bare directory, and never the unrelated
+                        # extension, under any AD flag.
+                        @test !occursin("      - ext\n", block)
+                        @test !occursin("NumericEnzymePlotsExt", block)
                     end
                     @test "ad-enzyme-forward" in tested
                     @test "ad-enzyme-reverse" in tested
+                    # `unit` still claims the whole directory: that job loads
+                    # every weakdep.
+                    unit = split(cov, "  unit:")[2]
+                    @test occursin("- ext", split(unit, "carryforward")[1])
+                end
+                # An extension triggered by Enzyme plus another weakdep still
+                # matches, and a package with no Enzyme extension claims none.
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "NumericMulti")
+                    proj = joinpath(dir, "Project.toml")
+                    write(
+                        proj,
+                        read(proj, String) *
+                            "\n[weakdeps]\n" *
+                            "Enzyme = \"7da242da-08ed-463a-9acd-ee780be4f1d9\"\n" *
+                            "ChainRulesCore = \"d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4\"\n" *
+                            "\n[extensions]\n" *
+                            "NumericMultiRulesExt = [\"ChainRulesCore\", \"Enzyme\"]\n"
+                    )
+                    scaffold(dir)
+                    cov = read(joinpath(dir, "codecov.yml"), String)
+                    fwd = split(cov, "  ad-enzyme-forward:")[2]
+                    @test occursin(
+                        "ext/NumericMultiRulesExt.jl",
+                        split(fwd, "carryforward")[1]
+                    )
+                end
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "NumericNoExt")
+                    scaffold(dir)
+                    cov = read(joinpath(dir, "codecov.yml"), String)
+                    for block in split(cov, r"(?=^  ad-)"m)
+                        occursin(r"^  ad-", block) || continue
+                        @test !occursin("- ext", block)
+                    end
                 end
             end
 
