@@ -22,6 +22,24 @@
         return dir
     end
 
+    # Set one of `docs_config.jl`'s extension-point constants, the way an
+    # adopter does: rewrite the seeded `const` in place. Appending a second
+    # `const` of a different type instead is an error before Julia 1.12
+    # ("invalid redefinition of constant"), which `_read_docs_config` catches
+    # and turns into "no config at all" — so every extension point would read
+    # as unset and the test would fail on lts for a reason of its own making.
+    function _set_cfg(cfg, name, value_src)
+        write(
+            cfg,
+            replace(
+                read(cfg, String),
+                Regex("(?m)^const $(name) = .*\$") => "const $(name) = " *
+                    value_src
+            )
+        )
+        return cfg
+    end
+
     @testset "regenerated on update, and idempotent" begin
         mktempdir() do dir
             _fake_pkg(dir)
@@ -55,12 +73,10 @@
             cfg = _dest(dir, "docs/docs_config.jl")
             fresh = read(_dest(dir, "docs/pages.jl"), String)
             @test !occursin("Fitting a Wombat", fresh)
-            write(
-                cfg,
-                read(cfg, String) *
-                    "\nconst PACKAGE_TUTORIALS = [\n" *
-                    "    \"Fitting a Wombat\" => " *
-                    "\"getting-started/tutorials/fitting.md\"\n]\n"
+            _set_cfg(
+                cfg, "PACKAGE_TUTORIALS",
+                "[\n    \"Fitting a Wombat\" => " *
+                    "\"getting-started/tutorials/fitting.md\"\n]"
             )
             res = update(dir; ad = false)
             @test res.pages == :refreshed
@@ -78,11 +94,7 @@
             _fake_pkg(dir)
             scaffold(dir; ad = false)
             cfg = _dest(dir, "docs/docs_config.jl")
-            write(
-                cfg,
-                read(cfg, String) *
-                    "\nconst GETTING_STARTED_FAQ = \"getting-started/faq.md\"\n"
-            )
+            _set_cfg(cfg, "GETTING_STARTED_FAQ", "\"getting-started/faq.md\"")
             update(dir; ad = false)
             pgs = read(_dest(dir, "docs/pages.jl"), String)
             @test occursin(
@@ -99,14 +111,12 @@
             fresh = read(_dest(dir, "docs/pages.jl"), String)
             @test !occursin("\"Tools\"", fresh)
             cfg = _dest(dir, "docs/docs_config.jl")
-            write(
-                cfg,
-                read(cfg, String) *
-                    "\nconst PACKAGE_SECTIONS = [\n" *
-                    "    \"Tools\" => [\n" *
+            _set_cfg(
+                cfg, "PACKAGE_SECTIONS",
+                "[\n    \"Tools\" => [\n" *
                     "        \"Charter\" => \"tools/index.md\",\n" *
                     "        \"Widget\" => \"tools/widget.md\"\n" *
-                    "    ]\n]\n"
+                    "    ]\n]"
             )
             update(dir; ad = false, benchmarks = false)
             pgs = read(_dest(dir, "docs/pages.jl"), String)
@@ -132,11 +142,9 @@
                 read(_dest(dir, "docs/pages.jl"), String)
             )
             cfg = _dest(dir, "docs/docs_config.jl")
-            write(
-                cfg,
-                read(cfg, String) *
-                    "\nconst DEVELOPMENT_EXTEND_PAGE = \"Adding a workaround\" " *
-                    "=> \"developer/adding-a-tool.md\"\n"
+            _set_cfg(
+                cfg, "DEVELOPMENT_EXTEND_PAGE",
+                "\"Adding a workaround\" => \"developer/adding-a-tool.md\""
             )
             update(dir)
             pgs = read(_dest(dir, "docs/pages.jl"), String)

@@ -323,12 +323,12 @@
             # `test/Project.toml` (+ `.noad.toml`) and `test/ad/Project.toml`
             # hardcoded an EpiAwarePackageTools `[deps]`/`[sources]` entry with
             # no `is_kit` switch, unlike the JET env (`KIT_DEP_LINE`/
-            # `KIT_SOURCE_LINE`). Scaffolding the kit onto itself would then
+            # `KIT_COMPAT_LINE`). Scaffolding the kit onto itself would then
             # render `EpiAwarePackageTools = "<uuid>"` twice in `[deps]` (once
             # from the hardcoded line, once from `{{PACKAGE}}`) — a duplicate
-            # TOML key — and a self-referential git `[sources]` pin clashing
-            # with the package's own `{path = ...}` entry. These templates now
-            # share the same `is_kit` placeholders as the JET env.
+            # TOML key — and a self-referential `[compat]` bound on the very
+            # package the env path-pins. These templates now share the same
+            # `is_kit` placeholders as the JET env.
             mktempdir() do dir
                 _fake_pkg(dir; name = EpiAwarePackageTools.KIT_NAME)
                 scaffold(dir; ad = true)
@@ -337,7 +337,13 @@
                     txt = read(path, String)
                     @test !occursin("rev = \"main\"", txt)
                     @test !occursin("{{KIT_DEP_LINE}}", txt)
-                    @test !occursin("{{KIT_SOURCE_LINE}}", txt)
+                    @test !occursin("{{KIT_COMPAT_LINE}}", txt)
+                    @test !occursin("{{KIT_COMPAT_SECTION}}", txt)
+                    # The kit never bounds itself in its own environments.
+                    @test !occursin(
+                        "$(EpiAwarePackageTools.KIT_NAME) = " *
+                            "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", txt
+                    )
                     # Valid TOML: a duplicate `EpiAwarePackageTools` [deps] key
                     # (the pre-#60 bug — the hardcoded line plus `{{PACKAGE}}`
                     # both resolving to the kit's own name) is a parse error.
@@ -350,17 +356,21 @@
                 end
             end
             # A normal (non-kit) adopter is unaffected: it still gets the kit
-            # dep + git `[sources]` pin in both env variants.
+            # dep, now bounded in `[compat]` rather than git-pinned (#361).
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = true)
                 for f in ("test/Project.toml", "test/ad/Project.toml")
                     path = joinpath(dir, f)
                     txt = read(path, String)
-                    @test occursin("rev = \"main\"", txt)
+                    @test !occursin("rev = \"main\"", txt)
                     @test occursin(
                         "$(EpiAwarePackageTools.KIT_NAME) = " *
                             "\"$(EpiAwarePackageTools.KIT_UUID)\"", txt
+                    )
+                    @test occursin(
+                        "$(EpiAwarePackageTools.KIT_NAME) = " *
+                            "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", txt
                     )
                     @test Pkg.TOML.parsefile(path) isa AbstractDict
                 end
@@ -370,7 +380,11 @@
                 scaffold(dir; ad = false)
                 path = _dest(dir, "test/Project.toml")
                 txt = read(path, String)
-                @test occursin("rev = \"main\"", txt)
+                @test !occursin("rev = \"main\"", txt)
+                @test occursin(
+                    "$(EpiAwarePackageTools.KIT_NAME) = " *
+                        "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", txt
+                )
                 @test Pkg.TOML.parsefile(path) isa AbstractDict
             end
         end
@@ -465,16 +479,16 @@
                 @test occursin("Wombat = \"00000000", dp)
                 @test !occursin("{{", dp)
                 # make.jl does `using EpiAwarePackageTools`, so the docs env
-                # must carry the kit as a dep + (until registered) a git source,
-                # or the docs build fails with "package not found" (#115).
+                # must carry the kit as a dep with a registry bound, or the
+                # docs build fails with "package not found" (#115, #361).
                 @test occursin(
                     "EpiAwarePackageTools = \"7aaea248", dp
                 )
                 @test occursin(
-                    "EpiAwarePackageTools = {url = " *
-                        "\"https://github.com/EpiAware/EpiAwarePackageTools.jl\", " *
-                        "rev = \"main\"}", dp
+                    "EpiAwarePackageTools = " *
+                        "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", dp
                 )
+                @test !occursin("rev = \"main\"", dp)
                 # The VitePress config keeps the DocumenterVitepress markers and
                 # points social links at the package repo.
                 cfg = read(
@@ -1167,18 +1181,22 @@
             end
         end
 
-        @testset "test envs pin EpiAwarePackageTools via [sources]" begin
+        @testset "test envs bound EpiAwarePackageTools in [compat]" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; benchmarks = true)
-                # Every env that depends on the kit must resolve it: an active
-                # (not commented-out) [sources] git pin, since it is unregistered.
+                # Every env that depends on the kit must resolve it. The kit is
+                # registered, so that is an ordinary registry bound rather than
+                # a git `[sources]` pin (#361).
+                bound = "EpiAwarePackageTools = " *
+                    "\"$(EpiAwarePackageTools.KIT_COMPAT)\""
                 for f in (
                         "test/Project.toml", "test/ad/Project.toml",
                         "test/jet/Project.toml", "benchmark/Project.toml",
                     )
                     txt = read(joinpath(dir, f), String)
-                    @test occursin(
+                    @test occursin(bound, txt)
+                    @test !occursin(
                         r"(?m)^EpiAwarePackageTools = \{url = ", txt
                     )
                 end
@@ -4027,8 +4045,9 @@
                 )
                 @test occursin(
                     "update(\".\"; ad = false, benchmarks = false, " *
-                        "downgrade_compat = true, freshen_reusable_refs = true)",
-                    sync
+                        "downgrade_compat = true, " *
+                        "unregistered_sources = false, " *
+                        "freshen_reusable_refs = true)", sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
@@ -4341,12 +4360,17 @@
                 @test occursin("[compat]", tp)
                 @test occursin("Aqua = \"0.8\"", tp)
                 @test occursin("ForwardDiff =", tp)
-                # The path/source-pinned packages carry no compat bound: the
-                # package + kit are absent from the [compat] section.
-                compat = tp[first(findfirst("[compat]", tp)):end]
+                # The path-pinned package under test carries no compat bound;
+                # the kit, being registered, does (#361). Matched on the
+                # section header, not the bare word: the file's own header
+                # comment mentions `[compat]` too.
+                compat = tp[first(findfirst(r"(?m)^\[compat\]", tp)):end]
                 compat = split(compat, "[sources]")[1]
                 @test !occursin("Wombat", compat)
-                @test !occursin("EpiAwarePackageTools", compat)
+                @test occursin(
+                    "EpiAwarePackageTools = " *
+                        "\"$(EpiAwarePackageTools.KIT_COMPAT)\"", compat
+                )
             end
             mktempdir() do dir
                 _fake_pkg(dir; name = "Tooly")
@@ -4427,12 +4451,10 @@
                 end
 
                 # Instantiating the generated environments needs Pkg
-                # `[sources]` (the path/git dep pins), which only exists on
-                # Julia >= 1.11. On the LTS (1.10) `[sources]` is ignored, so
-                # these envs cannot resolve their local/unregistered pins at
-                # all — the same reason an adopter's full env needs >= 1.11
-                # until the kit is registered. The TOML round-trip above still
-                # runs on every version.
+                # `[sources]` (the path pin on the package under test), which
+                # only exists on Julia >= 1.11. On the LTS (1.10) `[sources]`
+                # is ignored, so these envs cannot resolve their local pins at
+                # all. The TOML round-trip above still runs on every version.
                 if VERSION >= v"1.11"
                     # The ADFixtures registry skeleton carries no
                     # EpiAwarePackageTools dependency at all, so instantiating it
@@ -4442,15 +4464,18 @@
                         @test _env_instantiates(joinpath(dir, env))
                     end
 
-                    # The remaining envs pin EpiAwarePackageTools by git
-                    # (`rev = "main"`) so a fresh adopter resolves out of the
-                    # box; that network fetch is an extra dependency the kit's
-                    # own tests should not take on. The `docs` env carries the
-                    # same git pin now that `make.jl` uses the kit (#115). Patch
-                    # the pin to the local kit checkout instead — the same switch
-                    # the template comments themselves suggest for kit
-                    # development — so the rest of each env (every other
-                    # dep/compat bound) is proven to resolve hermetically.
+                    # The remaining envs bound EpiAwarePackageTools in
+                    # `[compat]` at the kit's current minor (#361), which the
+                    # registry only carries once that minor is released. Point
+                    # each at the local kit checkout with a `[sources]` path
+                    # entry instead — the same switch a maintainer developing
+                    # the kit alongside a package makes — so the rest of every
+                    # env is proven to resolve hermetically, with no network
+                    # fetch and no dependency on the release having landed.
+                    # A path-sourced kit still has to satisfy the bound, so
+                    # this also proves `KIT_COMPAT` admits the kit's own
+                    # version.
+                    #
                     # Forward-slash the absolute path: a backslashed Windows
                     # path (`C:\...`) in a TOML basic string is an invalid
                     # escape sequence, and Julia/Pkg resolve forward slashes on
@@ -4458,16 +4483,18 @@
                     kit_root = replace(
                         pkgdir(EpiAwarePackageTools), '\\' => '/'
                     )
-                    kit_pin = r"EpiAwarePackageTools = \{url = \"[^\"]+\", " *
-                        r"rev = \"main\"\}"
+                    kit_path = "EpiAwarePackageTools = {path = \"" *
+                        kit_root * "\"}"
                     for env in ("test", "test/jet", "docs")
                         proj = joinpath(dir, env, "Project.toml")
                         txt = read(proj, String)
+                        # Every one of these envs already has a `[sources]`
+                        # table (the path pin on the package under test), so
+                        # the entry goes under the existing header.
+                        @test occursin(r"(?m)^\[sources\]", txt)
                         patched = replace(
-                            txt,
-                            kit_pin =>
-                                "EpiAwarePackageTools = {path = \"" *
-                                kit_root * "\"}"
+                            txt, r"(?m)^\[sources\]" =>
+                                "[sources]\n" * kit_path; count = 1
                         )
                         @test patched != txt
                         write(proj, patched)
@@ -4599,8 +4626,9 @@ end # @testitem "scaffold + update (logic)"
     using Test
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _JULIA_FLOOR, _JULIA_COMPAT,
-        _julia_compat_below_floor,
-        _julia_versions_below_floor, update
+        _JULIA_COMPAT_SOURCES, _JULIA_TEST_VERSIONS,
+        _JULIA_TEST_VERSIONS_SOURCES, _julia_test_versions,
+        _julia_compat_below_floor, _julia_versions_below_floor, update
 
     function _fake_pkg(dir; name = "Wombat", julia = nothing)
         compat = julia === nothing ? "" : "\n[compat]\njulia = \"$(julia)\"\n"
@@ -4615,31 +4643,57 @@ end # @testitem "scaffold + update (logic)"
     _p(dir, rel) = joinpath(dir, split(rel, '/')...)
 
     @testset "the floor is 1.11 (where [sources] starts working)" begin
-        # `[sources]` — how test/Project.toml pins the kit to main — is a Pkg
-        # 1.11 feature, silently ignored on 1.10. That is the whole reason for
-        # the floor, so pin it rather than let it drift.
+        # `[sources]` is a Pkg 1.11 feature, silently ignored on 1.10. That is
+        # the whole reason for the floor, so pin it rather than let it drift.
         @test _JULIA_FLOOR == v"1.11"
-        @test _JULIA_COMPAT == "1.11, 1.12"
+        # The default no longer imposes that floor on a consuming package: the
+        # kit is registered, so the standard pins nothing by git (#410/#361).
+        @test _JULIA_COMPAT == "1.10, 1.11, 1.12"
+        # A package that does still pin something unregistered keeps it.
+        @test _JULIA_COMPAT_SOURCES == "1.11, 1.12"
+        # And the same split for the CI matrix: the standard tests lts, unless
+        # the package's own git `[sources]` pins would be ignored there.
+        @test _JULIA_TEST_VERSIONS == "'[\"1\", \"lts\", \"pre\"]'"
+        @test _JULIA_TEST_VERSIONS_SOURCES == "'[\"1\", \"pre\"]'"
+        @test _julia_test_versions(false) == _JULIA_TEST_VERSIONS
+        @test _julia_test_versions(true) == _JULIA_TEST_VERSIONS_SOURCES
     end
 
-    @testset "the test caller drops the lts leg" begin
+    @testset "the test caller keeps the lts leg" begin
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir)
             wf = read(_p(dir, ".github/workflows/test.yaml"), String)
-            # The reusable defaults to ["1", "lts", "pre"]; a leg on lts (1.10)
-            # silently resolves the registered kit, not the pinned rev.
+            # The lts (1.10) leg runs `Pkg.test`, which develops the package
+            # under test itself, so `[sources]` being a Pkg 1.11 feature costs
+            # it nothing. The environments that do need the pin honoured are
+            # separate jobs on the current release, not legs of this matrix
+            # (#410).
             #
             # Asserted against the `julia_versions:` line itself, not the whole
-            # file: the block's own comment names the lts leg it drops, and a
-            # naive `occursin("lts", wf)` would match that comment rather than
-            # the matrix — passing or failing for the wrong reason.
+            # file: the block's own comment mentions the lts leg, and a naive
+            # `occursin("lts", wf)` would match that comment rather than the
+            # matrix — passing or failing for the wrong reason.
             lines = split(wf, '\n')
             vline = only(filter(l -> occursin("julia_versions:", l), lines))
-            @test occursin("[\"1\", \"pre\"]", vline)
-            @test !occursin("lts", vline)
+            @test occursin("[\"1\", \"lts\", \"pre\"]", vline)
             # And no placeholder survives into the emitted workflow.
             @test !occursin("{{JULIA_TEST_VERSIONS}}", wf)
+        end
+    end
+
+    @testset "a package holding to the floor is seeded without lts" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; unregistered_sources = true)
+            wf = read(_p(dir, ".github/workflows/test.yaml"), String)
+            lines = split(wf, '\n')
+            vline = only(filter(l -> occursin("julia_versions:", l), lines))
+            # Its git `[sources]` pins are silently ignored on 1.10, so the leg
+            # would resolve a registry instead. Seeding it would contradict the
+            # warning `_julia_versions_below_floor` raises for exactly that leg.
+            @test occursin("[\"1\", \"pre\"]", vline)
+            @test !occursin("lts", vline)
         end
     end
 
@@ -4649,9 +4703,9 @@ end # @testitem "scaffold + update (logic)"
             scaffold(dir; downgrade_compat = true)
             wf = read(_p(dir, ".github/workflows/test.yaml"), String)
             @test occursin("downgrade-compat:", wf)
-            # downgrade.yml's own default is '1.10' — exactly the version where
-            # the [sources] pin is ignored — so the job must be given a version
-            # above the floor. The current release, not the floor itself: the
+            # downgrade.yml's own default is '1.10', which the managed test env
+            # cannot resolve on, so the job must be given a version above the
+            # floor. The current release, not the floor itself: the
             # standard's test env cannot resolve on 1.11 (JET ships nothing for
             # 1.11 past 0.9.20, and that needs JuliaSyntax 0.4, which the pinned
             # Runic 1.7.0 rules out), so pinning the job to the floor would
@@ -4661,36 +4715,57 @@ end # @testitem "scaffold + update (logic)"
         end
     end
 
-    @testset "the JET lower bound is one downgrade can actually resolve" begin
-        mktempdir() do dir
-            _fake_pkg(dir)
-            scaffold(dir)
-            compat = read(_p(dir, "test/Project.toml"), String)
-            # The downgrade job pins every dep to the LOWEST version its compat
-            # admits, so a lower bound that cannot resolve is not a lower bound
-            # — it is a red CI job waiting to happen. JET 0.9 admits only
-            # 0.9.19/0.9.20 on 1.11 and nothing at all on 1.12, and both need
-            # JuliaSyntax 0.4, which the pinned Runic 1.7.0 (JuliaSyntax 1)
-            # rules out. 0.10.2 is the lowest JET that resolves alongside it.
-            # Declaring 0.9 claimed support the standard never had.
-            @test occursin("JET = \"0.10.2\"", compat)
-            @test !occursin("JET = \"0.9", compat)
+    @testset "the JET bound is one every leg of the matrix can resolve" begin
+        for ad in (true, false)
+            mktempdir() do dir
+                _fake_pkg(dir)
+                scaffold(dir; ad = ad)
+                compat = read(_p(dir, "test/Project.toml"), String)
+                # JET publishes nothing past 0.9.18 for Julia 1.10, so a bound
+                # starting at 0.10 makes the seeded lts leg unresolvable and
+                # the matrix a lie. The bound reaches back to 0.9 in both the
+                # AD and no-AD variants, which had drifted apart.
+                #
+                # This costs the downgrade job nothing: `julia-downgrade-compat`
+                # resolves `projects: '.'` — the root Project.toml — so the
+                # test environment's bounds are never floor-resolved.
+                @test occursin("JET = \"0.9, 0.10\"", compat)
+            end
         end
     end
 
-    @testset "a generated package is seeded at the floor" begin
+    @testset "a generated package is seeded below the floor by default" begin
         mktempdir() do dir
             scaffold_generate(dir, "Fresh"; authors = ["Ada Lovelace"])
+            proj = read(joinpath(dir, "Project.toml"), String)
+            # 1.10 LTS is not dropped for a reason internal to the kit's own
+            # release process (#410).
+            @test occursin("julia = \"1.10, 1.11, 1.12\"", proj)
+        end
+        # Unless the package declares it pins something unregistered.
+        mktempdir() do dir
+            scaffold_generate(
+                dir, "Fresh"; authors = ["Ada Lovelace"],
+                unregistered_sources = true
+            )
             proj = read(joinpath(dir, "Project.toml"), String)
             @test occursin("julia = \"1.11, 1.12\"", proj)
             @test !occursin("1.10", proj)
         end
     end
 
-    @testset "a package still claiming 1.10 is warned, not silently broken" begin
+    @testset "claiming 1.10 is only warned about under the opt-out" begin
+        # The default: the standard needs nothing above 1.10, so a package
+        # claiming it is claiming support the standard can deliver (#410).
         mktempdir() do dir
             _fake_pkg(dir; julia = "1.10, 1.11, 1.12")
             res = scaffold(dir)
+            @test !any(w -> occursin("#246", w), res.warnings)
+        end
+        # With unregistered `[sources]` pins of its own, 1.10 really is broken.
+        mktempdir() do dir
+            _fake_pkg(dir; julia = "1.10, 1.11, 1.12")
+            res = scaffold(dir; unregistered_sources = true)
             @test any(
                 w -> occursin("1.11", w) && occursin("sources", w),
                 res.warnings
@@ -4704,13 +4779,13 @@ end # @testitem "scaffold + update (logic)"
         # A package already at the floor is not nagged.
         mktempdir() do dir
             _fake_pkg(dir; julia = "1.11, 1.12")
-            res = scaffold(dir)
+            res = scaffold(dir; unregistered_sources = true)
             @test !any(w -> occursin("#246", w), res.warnings)
         end
         # Nor is one with no julia compat at all (nothing claimed).
         mktempdir() do dir
             _fake_pkg(dir)
-            res = scaffold(dir)
+            res = scaffold(dir; unregistered_sources = true)
             @test !any(w -> occursin("#246", w), res.warnings)
         end
     end
@@ -4751,7 +4826,8 @@ end # @testitem "scaffold + update (logic)"
             scaffold(dir)
             caller = _p(dir, ".github/workflows/test.yaml")
             # Putting the lts leg back is allowed — the kit does not fight the
-            # package — but it silently tests a stale kit, so it must be said.
+            # package — but under `unregistered_sources` it silently tests
+            # something stale, so it must be said.
             write(
                 caller,
                 replace(
@@ -4759,15 +4835,18 @@ end # @testitem "scaffold + update (logic)"
                     r"(?m)^      julia_versions: .*$" => "      julia_versions: '[\"1\", \"lts\", \"pre\"]'"
                 )
             )
-            res = update(dir)
+            res = update(dir; unregistered_sources = true)
             @test occursin(
                 "julia_versions: '[\"1\", \"lts\", \"pre\"]'",
                 read(caller, String)
             )
             @test any(
-                w -> occursin("lts", w) && occursin("stale kit", w),
+                w -> occursin("lts", w) && occursin("stale", w),
                 res.warnings
             )
+            # Without the opt-out the kit says nothing: an lts leg is the
+            # package's own call once nothing managed is git-pinned (#410).
+            @test !any(w -> occursin("#246", w), update(dir).warnings)
         end
     end
 
@@ -4829,7 +4908,7 @@ end # @testitem "scaffold + update (logic)"
                 own,
                 "jobs:\n  x:\n    with:\n      julia_version: '1.10'\n"
             )
-            res = update(dir)
+            res = update(dir; unregistered_sources = true)
             @test any(
                 w -> occursin("nightly.yaml", w) && occursin("1.10", w),
                 res.warnings
@@ -4882,6 +4961,153 @@ end # @testitem "scaffold + update (logic)"
         @test _julia_compat_below_floor("1.12, 1.10") == v"1.10"
         # No version named at all.
         @test _julia_compat_below_floor("") === nothing
+    end
+end
+
+@testitem "the kit is depended on as a registered package (#361)" begin
+    using Test
+    using Pkg
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: KIT_NAME, KIT_COMPAT,
+        _detect_unregistered_sources, _kit_git_pin_gap, _SOURCES_ENVS, update
+
+    function _fake_pkg(dir; name = "Wombat")
+        write(
+            joinpath(dir, "Project.toml"),
+            "name = \"$name\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n"
+        )
+        return dir
+    end
+    _p(dir, rel) = joinpath(dir, split(rel, '/')...)
+
+    # A `[sources]` entry pinning `name` by git, appended to an env.
+    function _git_pin!(path, name; url = "https://example.invalid/$name.jl")
+        pin = "$name = {url = \"$url\", rev = \"main\"}"
+        text = read(path, String)
+        text = if occursin(r"(?m)^\[sources\]", text)
+            replace(text, r"(?m)^\[sources\]" => "[sources]\n$pin"; count = 1)
+        else
+            text * "\n[sources]\n$pin\n"
+        end
+        return write(path, text)
+    end
+
+    @testset "the managed bound admits the kit's own version" begin
+        # The bound reaches back a minor so an adopter can resolve it before
+        # this one is registered, which is what lets the ecosystem move off
+        # its git pins ahead of a release rather than after. Two properties
+        # matter, and both are asserted rather than trusted.
+        proj = Pkg.TOML.parsefile(
+            joinpath(pkgdir(EpiAwarePackageTools), "Project.toml")
+        )
+        v = VersionNumber(proj["version"])
+        # It admits what the templates are written against.
+        @test v in Pkg.Types.semver_spec(KIT_COMPAT)
+        # And its newest minor is this one, so a release that moves `version`
+        # has to move this too and the bound cannot silently lag behind.
+        @test endswith(KIT_COMPAT, "$(v.major).$(v.minor)")
+    end
+
+    @testset "every managed env bounds the kit instead of git-pinning it" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true, benchmarks = true)
+            for rel in _SOURCES_ENVS
+                path = _p(dir, rel)
+                isfile(path) || continue
+                parsed = Pkg.TOML.parsefile(path)
+                # No git pin anywhere, on the kit or otherwise.
+                for (_, spec) in get(parsed, "sources", Dict{String, Any}())
+                    @test !(spec isa AbstractDict && haskey(spec, "url"))
+                end
+                # And where the kit is a dep, it is bounded.
+                if haskey(get(parsed, "deps", Dict{String, Any}()), KIT_NAME)
+                    @test get(
+                        get(parsed, "compat", Dict{String, Any}()),
+                        KIT_NAME, nothing
+                    ) == KIT_COMPAT
+                end
+            end
+            # A freshly scaffolded package therefore draws no pin warning, and
+            # is not read as needing the floor.
+            @test _kit_git_pin_gap(dir) === nothing
+            @test !_detect_unregistered_sources(dir)
+        end
+    end
+
+    @testset "a leftover kit pin is warned about, or fixed if managed" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true)
+            # `test/jet/Project.toml` is MANAGED, `test/Project.toml` is not.
+            _git_pin!(_p(dir, "test/jet/Project.toml"), KIT_NAME)
+            _git_pin!(_p(dir, "test/Project.toml"), KIT_NAME)
+            res = update(dir)
+            # The kit fixes what it owns ...
+            @test !occursin(
+                "rev = \"main\"", read(_p(dir, "test/jet/Project.toml"), String)
+            )
+            # ... and names what it cannot, with the bound to write instead.
+            warning = only(filter(w -> occursin(KIT_NAME, w), res.warnings))
+            @test occursin("test/Project.toml", warning)
+            @test !occursin("test/jet/Project.toml", warning)
+            @test occursin("$(KIT_NAME) = \"$(KIT_COMPAT)\"", warning)
+            @test occursin("#361", warning)
+            # A pin on the kit is not itself a reason to hold the floor: the
+            # fix is to drop the pin, not to raise the package's compat.
+            @test !_detect_unregistered_sources(dir)
+        end
+    end
+
+    @testset "a package on the registry stays silent" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            res = scaffold(dir; ad = true)
+            @test !any(w -> occursin(KIT_NAME, w), res.warnings)
+            @test !any(w -> occursin("#361", w), update(dir).warnings)
+        end
+    end
+
+    @testset "a genuine unregistered pin is detected and preserved" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            @test !_detect_unregistered_sources(dir)
+            # An ecosystem sibling awaiting registration, pinned by the package
+            # itself. `[sources]` is honoured only from 1.11, so the floor is
+            # real for this package and a resync must not reset it.
+            _git_pin!(_p(dir, "Project.toml"), "Sibling")
+            @test _detect_unregistered_sources(dir)
+            write(
+                _p(dir, ".github/workflows/nightly.yaml"),
+                "jobs:\n  x:\n    with:\n      julia_version: '1.10'\n"
+            )
+            res = update(dir)
+            @test any(
+                w -> occursin("nightly.yaml", w) && occursin("1.10", w),
+                res.warnings
+            )
+            # An explicit `false` still wins over the detection.
+            @test !any(
+                w -> occursin("nightly.yaml", w),
+                update(dir; unregistered_sources = false).warnings
+            )
+        end
+    end
+
+    @testset "a path pin is not an unregistered pin" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true)
+            # Every managed env path-pins the package under test. Counting
+            # those would put the whole fleet on the floor for nothing.
+            @test occursin(
+                "{path =", read(_p(dir, "test/Project.toml"), String)
+            )
+            @test !_detect_unregistered_sources(dir)
+        end
     end
 end
 

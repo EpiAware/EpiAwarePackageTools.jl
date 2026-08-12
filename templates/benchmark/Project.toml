@@ -1,15 +1,14 @@
 # PACKAGE-OWNED — scaffold writes this once and never overwrites it.
 # The benchmark environment, so `julia --project=benchmark benchmark/run.jl`
 # resolves. Seeded with BenchmarkTools, the package, and the shared
-# EpiAwarePackageTools benchmark harness; add AD-backend deps when the suite
-# benchmarks gradients. EpiAwarePackageTools is pinned by git via
-# `[sources]` until it is registered.
+# EpiAwarePackageTools benchmark harness; add AD-backend deps when the
+# suite benchmarks gradients.
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 {{KIT_DEP_LINE}}{{PACKAGE}} = "{{UUID}}"
 
 [sources]
-{{PACKAGE}} = {path = ".."}{{KIT_SOURCE_LINE}}
+{{PACKAGE}} = {path = ".."}
 
 [compat]
-BenchmarkTools = "1"
+{{KIT_COMPAT_LINE}}BenchmarkTools = "1"

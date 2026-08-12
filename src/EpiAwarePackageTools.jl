@@ -132,7 +132,15 @@ export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
 # — a `public`-not-`export`ed name is never brought into scope by a bare
 # `using`. `scaffold_update` remains a `public` alias
 # (`const scaffold_update = update` in scaffold.jl) for existing callers.
-public update, scaffold_update
+#
+# `public` is a Julia >= 1.11 parse feature, so the declaration is built from
+# a string rather than written literally: a bare `public ...` line is a parse
+# error on lts (1.10), which the package supports. On 1.10 the names are
+# simply neither `export`ed nor `public`, which is the same visibility a
+# `using` sees either way.
+if VERSION >= v"1.11"
+    Core.eval(@__MODULE__, Meta.parse("public update, scaffold_update"))
+end
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
 export run_selected

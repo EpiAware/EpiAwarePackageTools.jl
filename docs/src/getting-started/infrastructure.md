@@ -74,7 +74,8 @@ package always starts fully managed.
 Use this sparingly. An overridden file stops tracking the standard, so kit fixes
 no longer reach it, which is the opposite of what the kit is for. Prefer the
 supported hooks (the package-owned config values, the marker-delimited regions,
-and the `ad`/`benchmarks`/`downgrade_compat` flags) where they cover the need.
+and the `ad`/`benchmarks`/`downgrade_compat`/`unregistered_sources` flags) where
+they cover the need.
 
 What the marker does **not** cover:
 
@@ -221,6 +222,49 @@ It runs two read-only checks.
   A breaking release legitimately strands a downstream bound, so this is a
   warning by default; set `fail_on_revdep_break: true` on the caller job to
   gate on it.
+
+## Unregistered `[sources]` pins and the Julia floor
+
+`[sources]` is a Pkg 1.11 feature.
+Before 1.11 it is ignored without error, so Pkg resolves whatever a registry
+carries instead of the pin.
+
+EpiAwarePackageTools is registered in General, so every managed environment
+bounds it in `[compat]` and nothing in the standard is pinned by git.
+A package's own `[compat] julia` is free to reach 1.10.
+
+A package pinning a dependency of its own by git `[sources]`, such as an
+ecosystem sibling awaiting registration, is a different case.
+The kit detects such a pin from the committed environments, or takes
+`unregistered_sources = true` on `scaffold`/`update`, and then holds the package
+to Julia 1.11.
+It warns about a `[compat]` bound or a CI leg that reaches below it.
+
+The `tests.yml` matrix is seeded with its `lts` leg for every other package.
+That leg runs `Pkg.test`, which develops the package under test itself, so the
+`[sources]` path pin in `test/Project.toml` being ignored costs it nothing.
+Only a package holding to the floor is seeded without the leg.
+
+The jobs that run a managed environment directly rather than through
+`Pkg.test` — the isolated `test/jet` and `test/ad` runners, the docs build and
+the benchmark suite — do need their path pins honoured, so they stay on the
+current release.
+They are separate jobs, not legs of the test matrix.
+
+Every `[compat]` bound in `test/Project.toml` has to resolve on every leg the
+matrix names.
+JET is the one to watch: it publishes nothing past 0.9.18 for Julia 1.10, so a
+bound starting at 0.10 makes the `lts` leg unresolvable.
+The seeded bound reaches back to 0.9 for that reason.
+`test/Project.toml` is package-owned, so a package scaffolded before this
+either widens the bound or drops `lts` from its own `julia_versions`.
+
+The kit's own bound is the same kind of gate.
+EpiAwarePackageTools declares `julia = "1.10, 1.11, 1.12"` from 0.4.0 onward;
+0.2.0 and 0.3.0 start at 1.11.
+A test environment bounded at `EpiAwarePackageTools = "0.3"` therefore has no
+resolvable version on an `lts` leg.
+Bump that bound before adding the leg.
 
 ## [Release documentation](@id release-docs)
 

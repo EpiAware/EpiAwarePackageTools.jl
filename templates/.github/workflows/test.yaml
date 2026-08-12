@@ -16,10 +16,12 @@ jobs:
   test:
     uses: {{ORG}}/.github/.github/workflows/tests.yml@155fc902a533f8dc33b9928322f5d46add789f75
     with:
-      # The managed standard needs Julia 1.11: `[sources]` (how test/Project.toml
-      # pins the kit to main) is a Pkg 1.11 feature, and on 1.10 it is silently
-      # ignored — the job then resolves the registered kit rather than the
-      # pinned rev and tests a stale kit while appearing to test this one
-      # (#246). The reusable defaults to ["1", "lts", "pre"]; drop the lts leg.
+      # The matrix this package tests on. Seeded, not managed: name your own
+      # value here and a resync keeps it (#73, #117). The lts leg runs
+      # Pkg.test, which develops the package under test, so the [sources] pin
+      # in test/Project.toml being a Pkg 1.11 feature costs it nothing; the
+      # jet/ad/docs/benchmark environments that do need the pin are separate
+      # jobs on the current release. A package pinning an unregistered
+      # dependency by git [sources] is seeded without lts instead (#410).
       julia_versions: {{JULIA_TEST_VERSIONS}}
     secrets: inherit  # pragma: allowlist secret{{DOWNGRADE_COMPAT_JOB}}
