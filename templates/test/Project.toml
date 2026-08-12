@@ -1,7 +1,7 @@
 # PACKAGE-OWNED — scaffold writes this once and never overwrites it.
 # The test environment. Seeded with the deps the shared QA helpers and AD
 # harness need; add the package's own test-only deps here. EpiAwarePackageTools
-# supplies the helpers; until it is registered, pin it via `[sources]` below.
+# supplies the helpers; it is registered, so it is bounded in `[compat]`.
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
@@ -19,8 +19,8 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 {{PACKAGE}} = "{{UUID}}"
 
-# Bounded compat for the seeded QA + AD deps. The package under test and
-# EpiAwarePackageTools are pinned by `[sources]`, so carry no compat entry.
+# Bounded compat for the seeded QA + AD deps. The package under test is
+# pinned by `[sources]`, so carries no compat entry.
 # Add a bound for each test-only dep you add.
 [compat]
 ADTypes = "1"
@@ -29,7 +29,7 @@ BenchmarkTools = "1.4"
 DifferentiationInterface = "0.6, 0.7"
 DifferentiationInterfaceTest = "0.9, 0.10"
 Documenter = "1"
-ExplicitImports = "1.6"
+{{KIT_COMPAT_LINE}}ExplicitImports = "1.6"
 ForwardDiff = "0.10, 1"
 JET = "0.10.2"
 Pkg = "1"
@@ -39,4 +39,4 @@ TestItemRunner = "1"
 TestItems = "1"
 
 [sources]
-{{PACKAGE}} = {path = ".."}{{KIT_SOURCE_LINE}}
+{{PACKAGE}} = {path = ".."}

@@ -549,29 +549,46 @@ const _RUNIC_VERSION = "1.7.0"
 # itself, so tracked separately from `_RUNIC_VERSION`.
 const _RUNIC_PRE_COMMIT_REV = "v2.2.0"
 
-# --- the Julia floor (#246) -------------------------------------------------
+# --- the Julia floor (#246, #410) -------------------------------------------
 #
-# The managed standard requires Julia 1.11 because `[sources]` — how
-# `test/Project.toml` pins the kit to `main` — is a Pkg 1.11 feature. On 1.10
-# it is silently ignored rather than an error, so Pkg resolves whatever the
-# registry carries instead of the pinned rev: an LTS job then exercises a stale
-# kit while appearing to test the current one, surfacing only once a template
-# uses a binding the registered version predates. The org reusables default to
-# a matrix including `lts`, so both callers are given the floor explicitly.
+# `[sources]` is a Pkg 1.11 feature. On 1.10 it is silently ignored rather than
+# an error, so Pkg resolves whatever a registry carries instead of the pin, and
+# a job there exercises something other than what it claims to.
+#
+# That used to bind every adopter, because the managed test environment pinned
+# the then-unregistered kit to `main` by git `[sources]`. The kit is registered
+# in General now, so a managed environment depends on it through an ordinary
+# `[compat]` bound and nothing in the standard needs 1.11 (#361). Raising a
+# package's user-facing `[compat] julia` on that basis was raising it for a
+# reason internal to the kit's own release process, so the floor is no longer
+# enforced by default.
+#
+# It still binds a package with an unregistered `[sources]` pin of its own — an
+# ecosystem sibling awaiting registration — which is what the
+# `unregistered_sources` flag on `scaffold`/`update` selects.
 const _JULIA_FLOOR = v"1.11"
 
 # Compat for a newly generated package. Only `scaffold_generate` seeds a
 # Project.toml, so this cannot rewrite an adopter's own compat;
-# `_julia_compat_below_floor` warns about that instead.
-const _JULIA_COMPAT = "1.11, 1.12"
+# `_julia_compat_below_floor` warns about that instead, and only under
+# `unregistered_sources`.
+const _JULIA_COMPAT = "1.10, 1.11, 1.12"
+
+# Compat for a newly generated package that declares `unregistered_sources`:
+# its `[sources]` pins have to be honoured, so the floor is real for it.
+const _JULIA_COMPAT_SOURCES = "1.11, 1.12"
 
 # The `julia_versions` matrix for the `tests.yml` caller, dropping the `lts`
-# entry the reusable defaults to. Managed, so an adopter's resync moves off
-# 1.10 rather than resolving the registry there forever (#183).
+# entry the reusable defaults to. This stays unconditional, and is a statement
+# about the matrix rather than about what the package supports (#410): the
+# managed test environment depends on EpiAwarePackageTools, whose own
+# `[compat] julia` starts at 1.11, so an lts leg cannot resolve that
+# environment whatever the package itself declares. Managed, so an adopter's
+# resync keeps a matrix that can actually run (#183).
 const _JULIA_TEST_VERSIONS = "'[\"1\", \"pre\"]'"
 
 # The `julia_version` for the `downgrade.yml` caller, whose own default `'1.10'`
-# is the exact version where `[sources]` is ignored (#115).
+# is below the floor the kit's own compat sets (#115).
 #
 # The current release, not the floor: the job must also be a version the test
 # environment resolves on, and 1.11 is not one. JET publishes nothing for 1.11
@@ -582,8 +599,8 @@ const _JULIA_DOWNGRADE_VERSION = "'1'"
 
 # The Julia versions a `test.yaml` caller names that sit below the floor: an
 # `lts` entry or an explicit `1.10`/older. A package may pick its own matrix
-# (#73), but such a leg silently resolves the registered kit rather than the
-# pinned rev, so it is never left unremarked (#246).
+# (#73), but under `unregistered_sources` such a leg silently ignores the pins
+# the package depends on, so it is never left unremarked (#246).
 function _julia_versions_below_floor(content::AbstractString)
     below = String[]
     for m in eachmatch(r"(?m)^[ \t]*julia_versions?:[ \t]*(\S.*?)[ \t]*$", content)
@@ -689,6 +706,22 @@ end
 # these are omitted so the env does not depend on / source itself twice.
 const KIT_NAME = "EpiAwarePackageTools"
 const KIT_UUID = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
+
+# The `[compat]` bound a managed environment carries on the kit, now that it is
+# registered in General (#361). Kept in step with the kit's own `version`: a
+# template binding introduced in this minor must not resolve against an earlier
+# release, and under 0.x semver a minor is a breaking bump. The test suite
+# asserts the two agree, so a release bump has to move this too.
+#
+# Deliberately the current minor rather than a range reaching back: the
+# templates already call bindings a previous release does not carry (e.g.
+# `test/ad/run_selected.jl` calls `run_selected`, added after v0.3.0). A wider
+# bound would let an adopter resolve a kit missing them and fail at run time,
+# which is the silent-staleness this whole area exists to avoid. The cost is
+# that this minor has to be registered before an adopter can resolve the
+# environments — a resolve error naming the missing version, not a green job
+# testing the wrong thing.
+const KIT_COMPAT = "0.4"
 
 # The SPDX licence identifiers a package may select, each backed by a bundled
 # `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.
@@ -1084,18 +1117,24 @@ function scaffold_inputs(
     # cover it and a second one would make a duplicate/invalid env.
     is_kit = pkg == KIT_NAME
     kit_dep = is_kit ? "" : string(KIT_NAME, " = \"", KIT_UUID, "\"\n")
-    kit_source = is_kit ? "" :
-        string(
-            "\n# Until EpiAwarePackageTools is registered, it is pinned by git so\n",
-            "# the env resolves out of the box. Switch to a local path to\n",
-            "# develop the kit alongside this package.\n",
-            KIT_NAME, " = {url = \"https://github.com/", org, "/",
-            KIT_NAME, ".jl\", rev = \"main\"}"
-        )
+    # The kit is registered in General, so a managed environment bounds it in
+    # `[compat]` rather than pinning it by git `[sources]` (#361).
+    kit_compat = is_kit ? "" : string(KIT_NAME, " = \"", KIT_COMPAT, "\"\n")
+    # `test/ad/Project.toml` has no `[compat]` table of its own, so there the
+    # bound brings its own section header. Written as a tail on the preceding
+    # line, carrying its own leading newlines and none at the end, so the
+    # template keeps the single trailing newline pre-commit requires whichever
+    # way this renders.
+    kit_compat_section = is_kit ? "" :
+        string("\n\n[compat]\n", KIT_NAME, " = \"", KIT_COMPAT, "\"")
     # How the scheduled template-sync loads the kit before `update(".")`: the
     # kit syncs from its own checked-out project, every other package pulls the
-    # kit's newest `main` into a throwaway env. Here rather than in the
-    # template because it shares the `is_kit` split above.
+    # kit's newest `main` into a throwaway env. Deliberately `main` rather than
+    # the released version even though the kit is registered (#361): a
+    # scheduled sync should apply the newest standard, not the last tag. This
+    # is a throwaway env in a workflow, not a declared dependency, so it is not
+    # the git pin #361 is about. Here rather than in the template because it
+    # shares the `is_kit` split above.
     sync_install = is_kit ?
         "Pkg.activate(\".\"); Pkg.instantiate()" :
         string(
@@ -1124,12 +1163,13 @@ function scaffold_inputs(
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
         ASSIGNEE_DEFAULT = assignee_default,
-        KIT_DEP_LINE = kit_dep,
-        KIT_SOURCE_LINE = kit_source, SYNC_INSTALL = sync_install,
+        KIT_DEP_LINE = kit_dep, KIT_COMPAT_LINE = kit_compat,
+        KIT_COMPAT_SECTION = kit_compat_section,
+        SYNC_INSTALL = sync_install,
         RUNIC_VERSION = _RUNIC_VERSION,
         RUNIC_PRE_COMMIT_REV = _RUNIC_PRE_COMMIT_REV,
         # The `tests.yml` caller's Julia matrix, dropping the reusable's `lts`
-        # leg: the managed standard needs 1.11 (#246).
+        # leg: the managed test env depends on a kit that needs 1.11 (#410).
         JULIA_TEST_VERSIONS = _JULIA_TEST_VERSIONS,
         LOGO_INITIAL = _logo_initial(pkg),
     )
@@ -3806,10 +3846,104 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
         "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
         _seed_ref("downgrade.yml"), "\n",
         "    with:\n",
-        # The reusable defaults to '1.10', where the `[sources]` kit pin is
-        # silently ignored (#246, #115).
+        # The reusable defaults to '1.10', which the managed test env cannot
+        # resolve on: the kit it depends on needs 1.11 (#246, #115).
         "      julia_version: ", _JULIA_DOWNGRADE_VERSION, "\n",
         "    secrets: inherit  # pragma: allowlist secret"
+    )
+end
+
+# The environment `Project.toml`s a managed package carries, scanned for
+# `[sources]` pins. A fixed list rather than a walk of the tree: a vendored or
+# nested environment (a worktree checked out under the repo, #191) is not this
+# package's declared infrastructure and must not decide its Julia floor.
+const _SOURCES_ENVS = (
+    "Project.toml", "test/Project.toml", "test/jet/Project.toml",
+    "test/ad/Project.toml", "test/ADFixtures/Project.toml",
+    "docs/Project.toml", "benchmark/Project.toml",
+)
+
+# The names `path` pins in `[sources]` by git url, sorted. Delegates to the
+# benchmark harness's `git_sources`, which the scratch-registry bootstrap
+# already reads the same section with, so the two agree on what a git pin is.
+#
+# A `{path = ...}` pin is excluded there, and deliberately so here too: every
+# managed environment path-pins the package under test, so counting those would
+# put the whole fleet on the floor for nothing. A path pin also costs nothing
+# when ignored — `Pkg.test` develops the package under test itself, and the
+# sub-environments that rely on one (`test/jet`, `test/ad`, `docs`,
+# `benchmark`) run only on the current release. A git pin is the one that
+# silently resolves a registry instead.
+function _git_source_names(path::AbstractString)
+    isfile(path) || return String[]
+    # An unparseable env (a half-edited file, an unsubstituted template) is not
+    # evidence of a pin either way, and must not fail a whole sync.
+    sources = try
+        Benchmarks.git_sources(path)
+    catch
+        return String[]
+    end
+    return String[s.name for s in sources]
+end
+
+"""
+    _detect_unregistered_sources(target_dir)
+
+Whether a repo pins an unregistered dependency by git `[sources]`, so a resync
+(`update` with no `unregistered_sources` kwarg) preserves the Julia 1.11 floor
+that pin genuinely needs (#410).
+
+`[sources]` is silently ignored before 1.11, so a package pinning an ecosystem
+sibling that is not yet registered really cannot support 1.10: an LTS job would
+resolve whatever a registry carries, or fail to resolve at all. That package
+keeps the floor. Every other package does not, because the standard itself no
+longer pins anything by git.
+
+The kit's own name is skipped: a leftover git pin on `EpiAwarePackageTools` is
+the thing `_kit_git_pin_gap` asks the package to remove (#361), not a reason to
+hold it at the floor.
+"""
+function _detect_unregistered_sources(target_dir::AbstractString)
+    for rel in _SOURCES_ENVS
+        for name in _git_source_names(_dest_path(target_dir, rel))
+            name == KIT_NAME || return true
+        end
+    end
+    return false
+end
+
+"""
+    _kit_git_pin_gap(target_dir)
+
+The warning for a package still pinning EpiAwarePackageTools by git
+`[sources]`, or `nothing` when none does (#361).
+
+The kit is registered in General, so a managed environment depends on the
+released version through `[compat]`. A leftover git pin resolves an unreleased
+`main` instead, drags the environment onto the Julia 1.11 floor `[sources]`
+needs, and blocks the package's own registration — a registrable repo cannot
+reference an unreleased GitHub package from any TOML.
+
+Run after the templates are applied, so the managed `test/jet/Project.toml` has
+already been fixed by the sync and is not reported. What remains is
+package-owned (`test/Project.toml`, `test/ad`, `docs`, `benchmark`) or carries
+an ownership marker, which `update` will not rewrite — hence a warning rather
+than a silent fix.
+"""
+function _kit_git_pin_gap(target_dir::AbstractString)
+    pinned = String[
+        rel for rel in _SOURCES_ENVS
+            if KIT_NAME in _git_source_names(_dest_path(target_dir, rel))
+    ]
+    isempty(pinned) && return nothing
+    return string(
+        KIT_NAME, " is pinned by git `[sources]` in ", join(pinned, ", "),
+        ", but it is registered in the General registry. `update` cannot ",
+        "rewrite these files — they are package-owned. Drop the `[sources]` ",
+        "entry and depend on the release instead, adding `", KIT_NAME,
+        " = \"", KIT_COMPAT, "\"` under `[compat]`. A git pin resolves an ",
+        "unreleased `main`, needs Julia 1.11 (where `[sources]` starts being ",
+        "honoured), and blocks this package's own registration (#361)."
     )
 end
 
@@ -3821,10 +3955,10 @@ a resync (`update`) preserves that state instead of re-enabling a permanently
 failing `history` run (#153).
 
 benchpkg installs the package into a temp environment where a `[sources]` pin
-does not apply, so an unregistered `[sources]`-pinned dependency — currently
-every adopter, via the unregistered kit itself — never resolves there and every
-push/tag-triggered `history` run fails. Parking drops the `push`/`tags`
-triggers, keeping only `workflow_dispatch`, until the package is registered.
+does not apply, so an unregistered `[sources]`-pinned dependency never resolves
+there and every push/tag-triggered `history` run fails. Parking drops the
+`push`/`tags` triggers, keeping only `workflow_dispatch`, until the package is
+registered.
 The committed `on:` block is the marker: parked iff it carries no `push:`. A
 target with no file defaults to the full triggers.
 """
@@ -3856,6 +3990,7 @@ end
 
 """
     _apply(target_dir; managed_only, force, ad, benchmarks,
+        downgrade_compat, unregistered_sources, inputs)
         downgrade_compat, inputs, freshen_reusable_refs, ref_source)
 
 Shared worker for `scaffold`/`update`.
@@ -3864,6 +3999,9 @@ Shared worker for `scaffold`/`update`.
 overwrites package-owned files too (only meaningful for `scaffold`). `ad`
 selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
 benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
+`downgrade-compat` CI job; `unregistered_sources` declares that the package
+pins an unregistered dependency by git `[sources]`, which holds it to the Julia
+1.11 floor.
 `downgrade-compat` CI job. `freshen_reusable_refs` opts into moving each
 managed caller's reusable-workflow ref forwards (see `_RefFreshener`), with
 `ref_source` the injection point tests stub.
@@ -3875,7 +4013,8 @@ diverged-but-unmarked `test/ad/setup.jl` about to be overwritten.
 """
 function _apply(
         target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple,
+        ad::Bool, benchmarks::Bool, downgrade_compat::Bool,
+        unregistered_sources::Bool, inputs::NamedTuple,
         freshen_reusable_refs::Bool = false, ref_source = nothing
     )
     isdir(target_dir) || error("target_dir $target_dir does not exist")
@@ -3900,6 +4039,7 @@ function _apply(
             AD = string(ad), BENCHMARKS = string(benchmarks),
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
             DOWNGRADE_COMPAT = string(downgrade_compat),
+            UNREGISTERED_SOURCES = string(unregistered_sources),
             DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
                 inputs.ORG, downgrade_compat
             ),
@@ -4054,13 +4194,13 @@ function _apply(
     # Injected into the package-owned root Project.toml when absent, on both
     # scaffold and update, and preserved thereafter.
     workspace_action = _apply_workspace(target_dir)
-    # A package's `[compat] julia` is package-owned, but the managed test
-    # infrastructure needs 1.11 (#246), so a package still claiming 1.10 is
-    # claiming support the standard cannot deliver. Better said here than
-    # discovered as an `UndefVarError` on a runner, or as a green LTS job
-    # quietly testing a stale kit resolved from the registry.
+    # A package's `[compat] julia` is package-owned, and the managed standard
+    # no longer needs 1.11 of its own accord (#410) — so this fires only for a
+    # package that declared `unregistered_sources`, where the pins it depends
+    # on really are ignored below the floor. Better said here than discovered
+    # as an LTS job quietly resolving a registry instead of the pin.
     proj_path = joinpath(target_dir, "Project.toml")
-    if isfile(proj_path)
+    if unregistered_sources && isfile(proj_path)
         m = match(r"(?m)^julia\s*=\s*\"([^\"]*)\"", read(proj_path, String))
         if m !== nothing
             below = _julia_compat_below_floor(String(something(m.captures[1])))
@@ -4070,22 +4210,23 @@ function _apply(
                     string(
                         "Project.toml claims julia = \"",
                         something(m.captures[1]), "\", which admits ", below,
-                        ", but the managed standard needs ", _JULIA_FLOOR,
-                        ": `[sources]` (how test/Project.toml pins the kit) is ",
-                        "silently ignored before 1.11, so the tests resolve ",
-                        "the registered kit instead of the pinned rev. Set ",
-                        "julia = \"", _JULIA_COMPAT, "\" (#246)."
+                        ", but this package declares unregistered_sources and ",
+                        "so needs ", _JULIA_FLOOR, ": `[sources]` is silently ",
+                        "ignored before 1.11, so those pins resolve from a ",
+                        "registry instead. Set julia = \"",
+                        _JULIA_COMPAT_SOURCES, "\" (#246)."
                     )
                 )
             end
         end
     end
     # A package may pick its own Julia matrix (#73) and the kit does not
-    # overwrite it, but a leg below the floor tests a kit resolved from the
-    # registry rather than the pinned rev. Scanned across every managed caller,
-    # not just `test.yaml`: `codecoverage.yaml` names a version of its own.
+    # overwrite it, but under `unregistered_sources` a leg below the floor
+    # ignores the pins the package depends on. Scanned across every managed
+    # caller, not just `test.yaml`: `codecoverage.yaml` names a version of its
+    # own.
     wf_dir = joinpath(target_dir, ".github", "workflows")
-    if isdir(wf_dir)
+    if unregistered_sources && isdir(wf_dir)
         for f in sort(readdir(wf_dir))
             endswith(f, ".yaml") || endswith(f, ".yml") || continue
             legs = _julia_versions_below_floor(read(joinpath(wf_dir, f), String))
@@ -4094,13 +4235,21 @@ function _apply(
                 string(
                     ".github/workflows/", f, " tests Julia ",
                     join(legs, ", "), ", below the ", _JULIA_FLOOR,
-                    " the managed standard needs: `[sources]` is ignored there, ",
-                    "so that leg resolves the registered kit rather than the ",
-                    "pinned rev and tests a stale kit while appearing to test ",
-                    "this one. Drop it (#246)."
+                    " this package's unregistered `[sources]` pins need: ",
+                    "`[sources]` is ignored there, so that leg resolves them ",
+                    "from a registry and tests something stale while ",
+                    "appearing to test this one. Drop it (#246)."
                 )
             )
         end
+    end
+    # A leftover git `[sources]` pin on the kit itself, now that the kit is
+    # registered (#361). The managed jet env is already fixed by the loop
+    # above, so anything left is package-owned and only the package can drop it.
+    kit_pin = _kit_git_pin_gap(target_dir)
+    if kit_pin !== nothing
+        push!(warnings, kit_pin)
+        @warn kit_pin
     end
     # A Julia stdlib is not implicitly available in a test environment: it
     # needs declaring as a dep, or reaching transitively. A `using <stdlib>`
@@ -4379,6 +4528,21 @@ it. It defaults to `nothing`, detecting the state from the committed
 The `julia_versions` inputs are separately preserved as a package-owned
 `with:` override (#121, see `_preserve_caller_with_inputs`).
 
+`unregistered_sources` declares that the package pins a dependency of its own
+by git `[sources]` — an ecosystem sibling awaiting registration — and so is
+held to the Julia $(_JULIA_FLOOR) floor, because `[sources]` is silently
+ignored before then. It defaults to `nothing`, detecting the state from the
+committed environments (any `[sources]` entry with a `url`, other than one on
+the kit itself), so a resync preserves an adopter's position rather than
+resetting it. On (or detected), a generated package is seeded at
+`julia = "$(_JULIA_COMPAT_SOURCES)"` and a `[compat]`/CI matrix reaching below
+the floor is warned about; off, neither happens and the package is free to
+support $(_JULIA_COMPAT). The kit itself no longer needs the floor: it is
+registered, so managed environments bound it in `[compat]` (#361, #410). The
+`tests.yml` matrix drops its `lts` leg either way — the managed test
+environment depends on the kit, whose own compat starts at $(_JULIA_FLOOR), so
+that leg cannot resolve regardless of what the package declares.
+
 The README body is package-owned, but the standard badge set is managed: a block
 between `$(BADGES_START)` / `$(BADGES_END)` markers carries the docs/CI/coverage/
 quality/license badges (plus per-backend AD CI + coverage badges when
@@ -4473,6 +4637,7 @@ function scaffold(
         target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
         downgrade_compat::Union{Nothing, Bool} = nothing,
+        unregistered_sources::Union{Nothing, Bool} = nothing,
         freshen_reusable_refs::Bool = false, ref_source = nothing,
         kwargs...
     )
@@ -4480,16 +4645,20 @@ function scaffold(
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
     dg = downgrade_compat === nothing ?
         _detect_downgrade_compat(target_dir) : downgrade_compat
+    us = unregistered_sources === nothing ?
+        _detect_unregistered_sources(target_dir) : unregistered_sources
     return _apply(
         target_dir; managed_only = false, force = force, ad = ad,
-        benchmarks = bench, downgrade_compat = dg, inputs = inputs,
+        benchmarks = bench, downgrade_compat = dg,
+        unregistered_sources = us, inputs = inputs,
         freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
 end
 
 """
     update(target_dir; ad = true, benchmarks = nothing,
-        downgrade_compat = nothing, freshen_reusable_refs = false, kwargs...)
+        downgrade_compat = nothing, unregistered_sources = nothing,
+        freshen_reusable_refs = false, kwargs...)
 
 Re-apply only the managed standard files to an already-adopted package and
 report the drift.
@@ -4512,10 +4681,19 @@ Placeholder inputs resolve exactly as in [`scaffold`](@ref); pass the same
 overrides to keep substitution stable across a sync.
 
 `ad` must match the value the package was scaffolded with (default `true`).
-`benchmarks` and `downgrade_compat` both default to `nothing`, detecting the
-package's current state from the committed workflows so a resync preserves an
-adopter's opt-in rather than stripping it, or reintroducing a job the package
-deliberately removed (#121). Pass `true`/`false` to force either.
+`benchmarks`, `downgrade_compat` and `unregistered_sources` all default to
+`nothing`, detecting the package's current state from the committed workflows
+and environments so a resync preserves an adopter's opt-in rather than
+stripping it, or reintroducing a job the package deliberately removed (#121).
+Pass `true`/`false` to force any of them. See [`scaffold`](@ref) for what
+`unregistered_sources` holds to the Julia $(_JULIA_FLOOR) floor and why the
+standard itself no longer does (#410).
+
+A package whose environments still pin EpiAwarePackageTools by git `[sources]`
+is warned: the kit is registered, so a managed environment depends on the
+release through `[compat]` instead (#361). The managed `test/jet/Project.toml`
+is fixed by the sync itself; the package-owned environments (`test`, `test/ad`,
+`docs`, `benchmark`) `update` cannot rewrite, so it names them.
 
 `freshen_reusable_refs = true` additionally moves each managed CI caller's
 `EpiAware/.github` reusable-workflow ref forwards to the newest commit that
@@ -4583,15 +4761,19 @@ function update(
         target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,
         downgrade_compat::Union{Nothing, Bool} = nothing,
+        unregistered_sources::Union{Nothing, Bool} = nothing,
         freshen_reusable_refs::Bool = false, ref_source = nothing, kwargs...
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
     dg = downgrade_compat === nothing ?
         _detect_downgrade_compat(target_dir) : downgrade_compat
+    us = unregistered_sources === nothing ?
+        _detect_unregistered_sources(target_dir) : unregistered_sources
     return _apply(
         target_dir; managed_only = true, force = false, ad = ad,
-        benchmarks = bench, downgrade_compat = dg, inputs = inputs,
+        benchmarks = bench, downgrade_compat = dg,
+        unregistered_sources = us, inputs = inputs,
         freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
 end
@@ -4612,8 +4794,10 @@ const scaffold_update = update
 # substitute placeholders from. Returns nothing.
 function _emit_package_skeleton(
         target_dir::AbstractString, package::AbstractString,
-        uuid::AbstractString, authors_array::AbstractString
+        uuid::AbstractString, authors_array::AbstractString;
+        unregistered_sources::Bool = false
     )
+    julia_compat = unregistered_sources ? _JULIA_COMPAT_SOURCES : _JULIA_COMPAT
     mkpath(joinpath(target_dir, "src"))
     proj = joinpath(target_dir, "Project.toml")
     write(
@@ -4628,7 +4812,7 @@ function _emit_package_skeleton(
 
         [compat]
         DocStringExtensions = "0.9.5"
-        julia = "$(_JULIA_COMPAT)"
+        julia = "$(julia_compat)"
         """
     )
     write(
@@ -4663,7 +4847,7 @@ end
 
 """
     scaffold_generate(target_dir, package; authors = String[], uuid = <fresh>,
-        ad = true, benchmarks = false, kwargs...)
+        ad = true, benchmarks = false, unregistered_sources = false, kwargs...)
 
 Generate a fresh package at `target_dir` and adopt the standard tooling.
 
@@ -4684,6 +4868,12 @@ source module, so it works from an empty or non-existent directory.
   - `benchmarks` — forwarded to [`scaffold`](@ref): opt into the benchmark CI +
     suite + docs page. A fresh package has no benchmark workflows to detect, so
     this defaults to `false` (opt-out); pass `benchmarks = true` to enable.
+  - `unregistered_sources` — forwarded to [`scaffold`](@ref), and also seeds
+    the new `Project.toml`'s `[compat] julia`: `julia = "$(_JULIA_COMPAT)"` by
+    default, or `julia = "$(_JULIA_COMPAT_SOURCES)"` when `true`, because
+    `[sources]` is silently ignored below $(_JULIA_FLOOR) (#410). A fresh
+    package has no environments to detect a pin from, so this defaults to
+    `false` rather than `nothing`.
 
 Remaining keyword arguments (`org`, `repo`, `reviewer`, `year`, `license`, ...)
 are forwarded to [`scaffold_inputs`](@ref); e.g. `license = "Apache-2.0"` writes
@@ -4693,10 +4883,17 @@ function scaffold_generate(
         target_dir::AbstractString, package::AbstractString;
         authors::AbstractVector{<:AbstractString} = String[],
         uuid::AbstractString = string(UUIDs.uuid4()),
-        ad::Bool = true, benchmarks::Bool = false, kwargs...
+        ad::Bool = true, benchmarks::Bool = false,
+        unregistered_sources::Bool = false, kwargs...
     )
     mkpath(target_dir)
     authors_array = "[" * join(("\"" * a * "\"" for a in authors), ", ") * "]"
-    _emit_package_skeleton(target_dir, package, uuid, authors_array)
-    return scaffold(target_dir; ad = ad, benchmarks = benchmarks, kwargs...)
+    _emit_package_skeleton(
+        target_dir, package, uuid, authors_array;
+        unregistered_sources = unregistered_sources
+    )
+    return scaffold(
+        target_dir; ad = ad, benchmarks = benchmarks,
+        unregistered_sources = unregistered_sources, kwargs...
+    )
 end
