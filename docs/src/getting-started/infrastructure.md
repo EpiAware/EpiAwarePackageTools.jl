@@ -43,9 +43,18 @@ package's own documentation.
 Neither restates a standard, because a copy drifts from the page it was copied
 from.
 
-Both carry the managed block between `<!-- epiaware-standards:start -->` and
-`<!-- epiaware-standards:end -->`, so a package's own notes go after the end
-marker and survive every sync.
+Both carry the managed block between
+`<!-- epiaware-standards:start MANAGED by EpiAwarePackageTools.scaffold -->`
+and `<!-- epiaware-standards:end -->`.
+Edit the block in the kit's `templates/AGENTS.md` and `templates/CLAUDE.md`,
+not in the adopting package.
+A package's own notes go after the end marker and survive every sync.
+
+Both files are read into an agent's context in full at the start of every
+session, so the block spends one word on saying it is managed and leaves the
+rest to this page.
+The marker is matched on its prefix, so a package carrying an older, longer
+form is rewritten to this one on the next sync.
 
 ## Overriding a managed file
 
