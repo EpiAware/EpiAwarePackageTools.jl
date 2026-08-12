@@ -619,32 +619,70 @@ function _julia_compat_below_floor(compat::AbstractString)
     return lowest < _JULIA_FLOOR ? lowest : nothing
 end
 
-# The seed reusable-workflow ref for the opt-in `downgrade-compat` caller job
-# (#121). Dependabot bumps the live pin in each adopting repo and
-# `_preserve_reusable_refs` keeps it across `update`, so this seed is only what
-# a first scaffold commits. Kept in step with the `test` job's pin.
-const _DOWNGRADE_SEED_REF = "6fcdcde033ec670ac3832b239427fd2ded591bbc"  # pragma: allowlist secret
-
-# The seed ref for the registrability caller: the squash-merge SHA of
-# EpiAware/.github#31, which is newer than `_DOWNGRADE_SEED_REF` because
-# `registrability.yml` does not exist on that shared seed. The refs converge
-# once Dependabot bumps the pins.
-const _REGISTRABILITY_SEED_REF = "26387a36be3d093723b5f85e4f93d99af98456b8"  # pragma: allowlist secret
-
-# The seed ref for the release-nudge caller, newer than `_DOWNGRADE_SEED_REF`
-# for the same reason as `_REGISTRABILITY_SEED_REF`.
+# The seed reusable-workflow refs a first scaffold commits, keyed by the
+# workflow file each managed caller wraps in `<org>/.github`. Every entry is
+# the newest commit that touched that file, not the `.github` repo head: a
+# repo-head seed pins a caller to a commit that changed some other workflow,
+# so the pin says nothing about the workflow it names (#425).
 #
-# Confirmed to contain `release-nudge.yml`. A ref that does not is worse than
-# useless: the caller scaffolds fine and then fails at run time with "workflow
-# was not found", so check a replacement resolves before changing it:
-#   gh api repos/<org>/.github/contents/.github/workflows/release-nudge.yml?ref=<sha>
-const _RELEASE_NUDGE_SEED_REF = "8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5"  # pragma: allowlist secret
+# Seeding per workflow replaces the single shared seed of #186, which drifted
+# behind on some callers and not others precisely because a workflow that
+# post-dated the shared seed had to carry its own newer ref anyway
+# (`registrability.yml`, `release-nudge.yml`, `runic-check.yml`).
+#
+# After adoption Dependabot owns the live pins and `_preserve_reusable_refs`
+# keeps them, so these are what a first scaffold commits and the floor that
+# `update(...; freshen_reusable_refs = true)` freshens from.
+#
+# A ref must contain the workflow file it pins. One that does not is worse
+# than useless: the caller scaffolds fine and then fails at run time with
+# "workflow was not found". Resolving per workflow makes that hold by
+# construction, but check any hand-edited entry:
+#   gh api repos/<org>/.github/contents/.github/workflows/<name>?ref=<sha>
+# `test/scaffold.jl` asserts every bundled template pins the ref recorded
+# here, so refresh both together.
+const _REUSABLE_SEED_REFS = Dict{String, String}(
+    "ad.yml" =>
+        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
+    "cancel-on-close.yml" =>
+        "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret
+    "coverage.yml" =>
+        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
+    "docs-preview-cleanup.yml" =>
+        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
+    "documentation.yml" =>
+        "a039a6060ed897a8dc4fc724ccb3c9fca2c49a2f",  # pragma: allowlist secret
+    "downgrade.yml" =>
+        "6b91a6c050b9c8483f522e2b246a5f6ef517cda0",  # pragma: allowlist secret
+    # `downstream.yaml` tracked `@main` from its first commit, alone among the
+    # callers and with nothing recording why (#425). Pinned here for the same
+    # reason as the rest: a floating ref means an org-side edit reaches every
+    # adopter untested, and Dependabot cannot bump a branch ref, so it was the
+    # one caller nothing kept current.
+    "downstream.yml" =>
+        "9ce4fa12fcf98d2eb2e570739185f7f3e1c31bf0",  # pragma: allowlist secret
+    "registrability.yml" =>
+        "24c8d984a679b1d46c1c04afc9ea5cdecaa1730d",  # pragma: allowlist secret
+    "release-nudge.yml" =>
+        "a4e9e60c0ace848d21b6cf931d6a66414fc3bdd5",  # pragma: allowlist secret
+    "runic-check.yml" =>
+        "0cd39d03a53c2561d36256f5cbbd4fd5ce31355b",  # pragma: allowlist secret
+    "tagbot.yml" =>
+        "9692b37b9127099d9c1a51db5034a084edaeb56e",  # pragma: allowlist secret
+    "tests.yml" =>
+        "155fc902a533f8dc33b9928322f5d46add789f75",  # pragma: allowlist secret
+)
 
-# The seed ref for the `pre-commit.yaml` caller's `runic-check.yml`, newer
-# than `_DOWNGRADE_SEED_REF` for the same reason as `_REGISTRABILITY_SEED_REF`
-# (`runic-check.yml` post-dates that shared seed, #114/Runic migration
-# phase 1). The squash-merge SHA of EpiAware/.github#53.
-const _RUNIC_CHECK_SEED_REF = "8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5"  # pragma: allowlist secret
+# The seed ref for `workflow`, erroring rather than inventing one: a caller
+# with no recorded seed would otherwise render `@nothing` into a workflow file
+# that only fails once CI runs it.
+function _seed_ref(workflow::AbstractString)
+    haskey(_REUSABLE_SEED_REFS, workflow) || error(
+        "no seed ref recorded for reusable workflow $(repr(workflow)); add " *
+            "one to `_REUSABLE_SEED_REFS`"
+    )
+    return _REUSABLE_SEED_REFS[workflow]
+end
 
 # The kit's own name + UUID, used to source it into the managed JET env for an
 # adopting package. When the adopting package is the kit (it dogfoods itself),
@@ -1120,8 +1158,184 @@ end
 # Dependabot bumps in each adopting repo. See `_preserve_reusable_refs`.
 const _REUSABLE_USES = r"(uses:\s*\S+/\.github/\.github/workflows/([^@\s]+)@)(\S+)"
 
+# --- freshening reusable-workflow refs (#425) ------------------------------
+#
+# Preserving a committed ref keeps a repo from ever going backwards, but on
+# its own it also keeps it from ever moving: a package whose Dependabot is
+# off, throttled, or lagging stays on whatever it first adopted. Freshening
+# offers each preserved ref the newest commit that touched the workflow it
+# names, and takes it only when the committed ref is strictly older.
+#
+# Two properties make this compose with Dependabot rather than fight it:
+#
+#   - The candidate is the newest commit touching *that workflow file*, not
+#     the `.github` repo head, so a change to an unrelated workflow does not
+#     churn a pin that already means what it says.
+#   - The candidate is taken only when the committed ref is an ancestor of
+#     it. This is load-bearing, not belt-and-braces: Dependabot bumps a pin to
+#     the head of the referenced branch, which is normally a *descendant* of
+#     the newest commit touching any one file. Freshening naively would
+#     rewind every Dependabot bump — the exact revert `_preserve_reusable_refs`
+#     exists to prevent.
+
+# A 40-hex commit SHA: the only ref shape freshening moves. A branch or tag
+# (`@main`, `@v1`) is a deliberate float, and no comparison against it is
+# meaningful, so it is left exactly as committed.
+const _SHA_REF = r"^[0-9a-f]{40}$"
+
+_is_sha_ref(ref::AbstractString) = occursin(_SHA_REF, ref)
+
 """
-    _preserve_reusable_refs(content, dest)
+    ReusableRefSource(latest, is_newer)
+
+Where `update` learns the current ref of a shared reusable workflow.
+
+  - `latest(org, workflow)` returns the newest commit SHA touching
+    `.github/workflows/<workflow>` in `<org>/.github`, or `nothing` when that
+    cannot be resolved.
+  - `is_newer(org, current, latest)` returns `true` when `latest` is strictly
+    ahead of `current` in that repository's history, `false` when it is not
+    (identical, behind, or diverged), and `nothing` when the question cannot
+    be answered — e.g. either SHA is unknown there, as for one copied from a
+    fork.
+
+Injected rather than called directly so the freshening policy is testable
+without network. The default, `_gh_ref_source()`, shells out to `gh`.
+"""
+struct ReusableRefSource{L, N}
+    latest::L
+    is_newer::N
+end
+
+# One run's freshening state: the injected `source`, the `org` whose `.github`
+# holds the reusables, a decision cache keyed by the (workflow, committed ref)
+# pair so each is resolved once however many callers share it, and the
+# `warnings` vector `_apply` returns, so an unresolvable ref is reported in
+# the sync PR rather than only in the run log.
+mutable struct _RefFreshener{S}
+    source::S
+    org::String
+    cache::Dict{Tuple{String, String}, String}
+    warnings::Vector{String}
+end
+
+function _RefFreshener(
+        source, org::AbstractString, warnings::Vector{String}
+    )
+    return _RefFreshener(
+        source, String(org), Dict{Tuple{String, String}, String}(), warnings
+    )
+end
+
+function _freshen_warn!(f::_RefFreshener, msg::AbstractString)
+    push!(f.warnings, msg)
+    @warn msg
+    return nothing
+end
+
+# The ref to write for `workflow`, given the one that survived preservation.
+# Freshening off (`nothing`) is the identity, so every caller can stay
+# unconditional.
+_freshened_ref(::Nothing, ::AbstractString, ref::AbstractString) = String(ref)
+
+function _freshened_ref(
+        f::_RefFreshener, workflow::AbstractString, ref::AbstractString
+    )
+    key = (String(workflow), String(ref))
+    haskey(f.cache, key) && return f.cache[key]
+    chosen = _resolve_fresh_ref(f, workflow, ref)
+    f.cache[key] = chosen
+    return chosen
+end
+
+# Every branch here that is not "take the newer SHA" returns `ref` unchanged,
+# so an unavailable, unauthenticated or rate-limited API degrades to today's
+# preserve-only behaviour rather than throwing or writing a ref that cannot be
+# justified.
+function _resolve_fresh_ref(
+        f::_RefFreshener, workflow::AbstractString, ref::AbstractString
+    )
+    _is_sha_ref(ref) || return String(ref)
+    latest = f.source.latest(f.org, workflow)
+    if latest === nothing || !_is_sha_ref(latest)
+        _freshen_warn!(
+            f, string(
+                "could not resolve the newest commit for ", f.org,
+                "/.github workflow ", workflow, "; keeping the committed ref ",
+                ref, ". Freshening needs `gh` on PATH and a token that can ",
+                "read that repository."
+            )
+        )
+        return String(ref)
+    end
+    latest == ref && return String(ref)
+    newer = f.source.is_newer(f.org, ref, latest)
+    if newer === nothing
+        _freshen_warn!(
+            f, string(
+                "could not compare the committed ref ", ref, " for ", workflow,
+                " against ", latest, " in ", f.org, "/.github; keeping the ",
+                "committed ref. A ref that repository does not know (e.g. one ",
+                "taken from a fork) cannot be shown to be older."
+            )
+        )
+        return String(ref)
+    end
+    # `false` covers identical, behind and diverged. Behind is the common one:
+    # a Dependabot bump to the repo head already contains this workflow's
+    # newest commit, so there is nothing to freshen.
+    return newer ? String(latest) : String(ref)
+end
+
+# Run `gh api <endpoint> --jq <filter>`, returning its trimmed stdout or
+# `nothing` when `gh` is absent, unauthenticated, offline, rate-limited, or
+# the endpoint 404s. Never throws: freshening is best-effort by construction.
+function _gh_api(endpoint::AbstractString, filter::AbstractString)
+    Sys.which("gh") === nothing && return nothing
+    out = IOBuffer()
+    ok = try
+        success(
+            pipeline(
+                `gh api $endpoint --jq $filter`;
+                stdout = out, stderr = devnull
+            )
+        )
+    catch
+        false
+    end
+    ok || return nothing
+    text = strip(String(take!(out)))
+    return isempty(text) ? nothing : String(text)
+end
+
+# The newest commit touching this one workflow file, which is the point: the
+# repo head would churn every adopter's pin on a change to a workflow they do
+# not call. The name comes out of a committed workflow file, so it is checked
+# to be a plain filename before it is spliced into an API path.
+function _gh_latest_workflow_ref(org::AbstractString, workflow::AbstractString)
+    occursin(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", workflow) || return nothing
+    path = ".github/workflows/" * workflow
+    return _gh_api(
+        "repos/$org/.github/commits?path=$path&per_page=1", ".[0].sha"
+    )
+end
+
+# GitHub's compare reports `head` relative to `base`, so `ahead` is exactly
+# "`latest` is a strict descendant of `current`".
+function _gh_ref_is_newer(
+        org::AbstractString, current::AbstractString, latest::AbstractString
+    )
+    status = _gh_api(
+        "repos/$org/.github/compare/$current...$latest", ".status"
+    )
+    status === nothing && return nothing
+    return status == "ahead"
+end
+
+_gh_ref_source() = ReusableRefSource(_gh_latest_workflow_ref, _gh_ref_is_newer)
+
+"""
+    _preserve_reusable_refs(content, dest; freshener = nothing)
 
 Keep the destination's existing reusable-workflow refs when
 re-emitting a managed CI caller.
@@ -1131,17 +1345,28 @@ a hard-pinned template would report drift every time Dependabot moved the live
 pin. When the destination already pins a ref for the same reusable, that ref
 wins and only the rest of the caller body is re-applied; on first adoption the
 template's seed ref is used.
+
+A `freshener` (see `_RefFreshener`) then offers each surviving ref the newest
+commit that touched the workflow it names, and takes it only when the ref
+held here is strictly older. Preserving is still the floor: freshening can
+move a ref forwards, never back.
 """
-function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
+function _preserve_reusable_refs(
+        content::AbstractString, dest::AbstractString;
+        freshener::Union{Nothing, _RefFreshener} = nothing
+    )
     occursin(_REUSABLE_USES, content) || return content
-    isfile(dest) || return content
     existing = Dict{String, String}()
-    for line in eachline(dest)
-        m = match(_REUSABLE_USES, line)
-        m === nothing && continue
-        existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
+    if isfile(dest)
+        for line in eachline(dest)
+            m = match(_REUSABLE_USES, line)
+            m === nothing && continue
+            existing[String(something(m.captures[2]))] = String(something(m.captures[3]))
+        end
     end
-    isempty(existing) && return content
+    # Nothing committed to preserve and no freshener: the template's own seeds
+    # already are the answer.
+    isempty(existing) && freshener === nothing && return content
     return replace(
         content,
         _REUSABLE_USES => function (s)
@@ -1150,7 +1375,8 @@ function _preserve_reusable_refs(content::AbstractString, dest::AbstractString)
             prefix = String(something(m.captures[1]))
             workflow = String(something(m.captures[2]))
             seed = String(something(m.captures[3]))
-            return prefix * get(existing, workflow, seed)
+            ref = get(existing, workflow, seed)
+            return prefix * _freshened_ref(freshener, workflow, ref)
         end
     )
 end
@@ -1507,7 +1733,7 @@ end
 # override is reverted.
 function _emit(
         from::AbstractString, to::AbstractString, substitute::Bool,
-        inputs::NamedTuple
+        inputs::NamedTuple; freshener::Union{Nothing, _RefFreshener} = nothing
     )
     mkpath(dirname(to))
     # A previous sync from a read-only depot may have left `to` unwritable, so
@@ -1515,7 +1741,7 @@ function _emit(
     _make_writable(to)
     if substitute
         content = _substitute(read(from, String), inputs, from)
-        content = _preserve_reusable_refs(content, to)
+        content = _preserve_reusable_refs(content, to; freshener = freshener)
         content = _preserve_action_pins(content, to)
         content = _preserve_caller_with_inputs(content, to)
         content = _preserve_downstreams(content, to)
@@ -3578,7 +3804,7 @@ function _downgrade_compat_job(org::AbstractString, keep::Bool)
     return string(
         "\n\n  downgrade-compat:\n",
         "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
-        _DOWNGRADE_SEED_REF, "\n",
+        _seed_ref("downgrade.yml"), "\n",
         "    with:\n",
         # The reusable defaults to '1.10', where the `[sources]` kit pin is
         # silently ignored (#246, #115).
@@ -3630,7 +3856,7 @@ end
 
 """
     _apply(target_dir; managed_only, force, ad, benchmarks,
-        downgrade_compat, inputs)
+        downgrade_compat, inputs, freshen_reusable_refs, ref_source)
 
 Shared worker for `scaffold`/`update`.
 
@@ -3638,7 +3864,9 @@ Shared worker for `scaffold`/`update`.
 overwrites package-owned files too (only meaningful for `scaffold`). `ad`
 selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
 benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
-`downgrade-compat` CI job.
+`downgrade-compat` CI job. `freshen_reusable_refs` opts into moving each
+managed caller's reusable-workflow ref forwards (see `_RefFreshener`), with
+`ref_source` the injection point tests stub.
 
 Returns a `(created, updated, preserved, removed, warnings)` manifest of
 destination paths. `removed` holds the retired managed paths cleaned up (see
@@ -3647,7 +3875,8 @@ diverged-but-unmarked `test/ad/setup.jl` about to be overwritten.
 """
 function _apply(
         target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple
+        ad::Bool, benchmarks::Bool, downgrade_compat::Bool, inputs::NamedTuple,
+        freshen_reusable_refs::Bool = false, ref_source = nothing
     )
     isdir(target_dir) || error("target_dir $target_dir does not exist")
     # The #242 opt-in, read once so every branding surface (README section,
@@ -3696,6 +3925,16 @@ function _apply(
     updated = String[]
     preserved = String[]
     warnings = String[]
+    # One freshener per run, so its decision cache is shared across every
+    # caller and each reusable is resolved at most once (#425).
+    freshener = if freshen_reusable_refs
+        _RefFreshener(
+            ref_source === nothing ? _gh_ref_source() : ref_source,
+            inputs.ORG, warnings
+        )
+    else
+        nothing
+    end
     for t in SCAFFOLD_TEMPLATES
         managed_only && !t.managed && continue
         _ad_selected(t, ad) || continue
@@ -3749,7 +3988,7 @@ function _apply(
         # repointed at a repo-local reusable workflow (#325).
         exists && t.managed &&
             _warn_local_caller_override!(warnings, to, t.dest)
-        _emit(from, to, t.substitute, inputs)
+        _emit(from, to, t.substitute, inputs; freshener = freshener)
         push!(exists ? updated : created, to)
     end
     # The managed docs nav base, spliced with the package's own extension
@@ -4060,7 +4299,7 @@ end
 
 """
     scaffold(target_dir; force = false, ad = true, benchmarks = nothing,
-        kwargs...)
+        freshen_reusable_refs = false, kwargs...)
 
 Adopt the standard EpiAware package tooling in `target_dir` (a package root).
 
@@ -4206,6 +4445,11 @@ which of its existing top-level nav groups the generated base would not
 reproduce, with the `PACKAGE_SECTIONS` snippet to carry them across. See
 [`update`](@ref) for the same rule on a resync.
 
+The CI callers are seeded from `_REUSABLE_SEED_REFS`, each the newest commit
+touching the shared workflow that caller wraps when the seeds were last
+refreshed. `freshen_reusable_refs = true` resolves them live instead, over the
+GitHub API; see [`update`](@ref), which is where it earns its keep.
+
 `force = true` overwrites the package-owned skeletons too, and lays every
 managed file down fresh regardless of any `$(_MANAGED_OVERRIDE_MARKER)` marker
 (see [`update`](@ref)), so a new package always starts fully managed.
@@ -4229,6 +4473,7 @@ function scaffold(
         target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
         downgrade_compat::Union{Nothing, Bool} = nothing,
+        freshen_reusable_refs::Bool = false, ref_source = nothing,
         kwargs...
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
@@ -4237,13 +4482,14 @@ function scaffold(
         _detect_downgrade_compat(target_dir) : downgrade_compat
     return _apply(
         target_dir; managed_only = false, force = force, ad = ad,
-        benchmarks = bench, downgrade_compat = dg, inputs = inputs
+        benchmarks = bench, downgrade_compat = dg, inputs = inputs,
+        freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
 end
 
 """
     update(target_dir; ad = true, benchmarks = nothing,
-        downgrade_compat = nothing, kwargs...)
+        downgrade_compat = nothing, freshen_reusable_refs = false, kwargs...)
 
 Re-apply only the managed standard files to an already-adopted package and
 report the drift.
@@ -4270,6 +4516,20 @@ overrides to keep substitution stable across a sync.
 package's current state from the committed workflows so a resync preserves an
 adopter's opt-in rather than stripping it, or reintroducing a job the package
 deliberately removed (#121). Pass `true`/`false` to force either.
+
+`freshen_reusable_refs = true` additionally moves each managed CI caller's
+`EpiAware/.github` reusable-workflow ref forwards to the newest commit that
+touched the workflow it wraps, resolved over the GitHub API (#425). It is
+opt-in because it is the one thing `update` does that needs the network: the
+default keeps `update` hermetic, so a local run offline, the kit's own
+`self-drift` check and the test suite all behave identically whatever the API
+says. The scheduled template-sync workflow, which runs with a token, passes
+it. Freshening only ever moves a ref forwards — a ref that already contains
+the workflow's newest commit (as a Dependabot bump to the `.github` head
+does), a branch or tag ref, and any ref that cannot be resolved or compared
+are all left exactly as committed, with a warning rather than an error. So it
+composes with Dependabot instead of fighting it, and needs neither network nor
+credentials to be correct.
 
 The README badge block, the managed `.gitignore` block, the
 `.git-blame-ignore-revs` header, the standard-sections block and the README
@@ -4322,7 +4582,8 @@ left absent, self-healing rather than requiring a full `scaffold` re-run.
 function update(
         target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,
-        downgrade_compat::Union{Nothing, Bool} = nothing, kwargs...
+        downgrade_compat::Union{Nothing, Bool} = nothing,
+        freshen_reusable_refs::Bool = false, ref_source = nothing, kwargs...
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
@@ -4330,7 +4591,8 @@ function update(
         _detect_downgrade_compat(target_dir) : downgrade_compat
     return _apply(
         target_dir; managed_only = true, force = false, ad = ad,
-        benchmarks = bench, downgrade_compat = dg, inputs = inputs
+        benchmarks = bench, downgrade_compat = dg, inputs = inputs,
+        freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
 end
 
