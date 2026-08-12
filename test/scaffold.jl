@@ -5752,9 +5752,10 @@ end
 @testitem "scaffolded output is Runic-clean (#344)" begin
     using Test
     using EpiAwarePackageTools
+    using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir
     using Runic
 
-    # `templates/` itself is excluded from formatting (#363): 7 of its 21
+    # `templates/` itself is excluded from formatting (#363): several of its
     # `.jl` files carry a `{{PLACEHOLDER}}` in `using`/`import` position and
     # are hard parse errors until substituted, so Runic (AST-based) cannot
     # check the raw tree. Before Runic that gap was silent churn — a managed
@@ -5768,10 +5769,49 @@ end
     # selected and what gets substituted into them, and Runic-check the
     # result. Every combination must already be `.jl`-clean.
     #
+    # Checking the emitted tree rather than `templates/` is also the stricter
+    # test, not just the only workable one. What an adopter's own formatter
+    # job sees is the substituted file, and substitution can change the tree
+    # Runic formats, so a raw template being clean neither implies nor is
+    # implied by the emitted file being clean.
+    #
     # `[extensions]` is part of the sweep because it is the one nav fragment
     # driven by the target's Project.toml rather than by a kwarg, and its
     # entries are the last thing in the Extensions group -- the position
     # Runic's trailing comma lands on (#413).
+
+    # Where each destination came from, so a failure names the file to edit
+    # rather than a path in a temp dir. `docs/pages.jl` is applied by
+    # `_apply_pages` rather than copied, so it is not a table entry (#170).
+    dest_to_src = Dict{String, String}(
+        t.dest => t.src for t in SCAFFOLD_TEMPLATES if endswith(t.src, ".jl")
+    )
+    dest_to_src["docs/pages.jl"] = "docs/pages.jl"
+
+    # Every `.jl` under `templates/` has to reach the sweep, or the guard is
+    # silently partial: a template gated on a flag combination not swept, or
+    # never wired into the scaffold at all, would go unchecked here and
+    # unchecked everywhere (#420). Hold the two sets equal instead of
+    # trusting the walk to have covered them.
+    templates_root = _templates_dir()
+    template_jl = Set{String}()
+    for (root, _, files) in walkdir(templates_root), f in files
+        endswith(f, ".jl") || continue
+        push!(
+            template_jl,
+            join(splitpath(relpath(joinpath(root, f), templates_root)), '/')
+        )
+    end
+    @test !isempty(template_jl)
+    # Reported as two differences rather than one set equality, so a failure
+    # prints the file that moved rather than both whole sets.
+    @test setdiff(template_jl, Set(values(dest_to_src))) == Set{String}()
+    @test setdiff(Set(values(dest_to_src)), template_jl) == Set{String}()
+
+    # Destinations reached by at least one combination of the sweep, as posix
+    # relative paths to compare against the template set.
+    covered = Set{String}()
+
     for ad in (true, false), benchmarks in (true, false),
             extensions in (true, false)
 
@@ -5794,8 +5834,36 @@ end
             # Guard against the sweep going vacuous: the Extensions group has
             # to actually be there for its formatting to mean anything.
             @test occursin("\"Extensions\" => [", pages) == extensions
-            code = Runic.main(["--check", dir])
+            emitted = Tuple{String, String}[]
+            for (root, _, files) in walkdir(dir), f in files
+                endswith(f, ".jl") || continue
+                path = joinpath(root, f)
+                rel = join(splitpath(relpath(path, dir)), '/')
+                push!(covered, rel)
+                push!(emitted, (rel, path))
+            end
+            code = Runic.main(["--check", "--diff", dir])
+            # The diff is against a temp dir nobody can edit, so on failure
+            # re-check per file and report the templates behind it. Only on
+            # failure: the whole-tree pass is one walk, this is one Runic run
+            # per emitted file. The exit code is still asserted below, so a
+            # non-zero run no single file reproduces (a parse error, say)
+            # cannot pass as an empty list.
+            unclean = code == 0 ? String[] :
+                sort(
+                    [
+                        "templates/" * get(dest_to_src, rel, rel)
+                        for (rel, path) in emitted
+                        if Runic.main(["--check", path]) != 0
+                    ]
+                )
+            @test isempty(unclean)
             @test code == 0
         end
     end
+
+    # No `.jl` template escaped the sweep above. Compared on destinations,
+    # since a template is free to be written somewhere other than its own
+    # path (the AD/no-AD pairs do exactly that).
+    @test setdiff(Set(keys(dest_to_src)), covered) == Set{String}()
 end
