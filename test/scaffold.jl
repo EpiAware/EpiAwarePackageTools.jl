@@ -5467,15 +5467,33 @@ end
     # across every combination of the flags that change which templates are
     # selected and what gets substituted into them, and Runic-check the
     # result. Every combination must already be `.jl`-clean.
-    for ad in (true, false), benchmarks in (true, false)
+    #
+    # `[extensions]` is part of the sweep because it is the one nav fragment
+    # driven by the target's Project.toml rather than by a kwarg, and its
+    # entries are the last thing in the Extensions group -- the position
+    # Runic's trailing comma lands on (#413).
+    for ad in (true, false), benchmarks in (true, false),
+            extensions in (true, false)
+
         mktempdir() do dir
+            ext_toml = extensions ?
+                "\n[weakdeps]\n" *
+                "Plots = \"91a5bcdd-55d7-5caf-9e0b-520d859cae80\"\n" *
+                "Zed = \"00000000-0000-0000-0000-00000000000f\"\n" *
+                "\n[extensions]\n" *
+                "FakePkgPlotsExt = \"Plots\"\n" *
+                "FakePkgZedExt = \"Zed\"\n" : ""
             write(
                 joinpath(dir, "Project.toml"),
                 "name = \"FakePkg\"\n" *
                     "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
-                    "authors = [\"Ada Lovelace\"]\n"
+                    "authors = [\"Ada Lovelace\"]\n" * ext_toml
             )
             scaffold(dir; ad = ad, benchmarks = benchmarks)
+            pages = read(joinpath(dir, "docs", "pages.jl"), String)
+            # Guard against the sweep going vacuous: the Extensions group has
+            # to actually be there for its formatting to mean anything.
+            @test occursin("\"Extensions\" => [", pages) == extensions
             code = Runic.main(["--check", dir])
             @test code == 0
         end

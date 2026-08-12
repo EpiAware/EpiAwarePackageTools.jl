@@ -1824,7 +1824,7 @@ function _extensions_nav(target_dir::AbstractString)
     ]
     return string(
         ",\n    \"Extensions\" => [\n", join(entries, ",\n"),
-        "\n    ]"
+        ",\n    ]"
     )
 end
 
