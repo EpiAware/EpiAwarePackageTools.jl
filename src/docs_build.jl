@@ -2152,7 +2152,14 @@ function _render_tutorials(
     # Scoped to execution only. Stubbing needs no source — a stub is written
     # from the `TUTORIAL_STUBS` heading — so the fast-build path below is left
     # exactly as it was.
+    #
+    # A tutorial with its own environment is exempt. Declaring one is
+    # deliberate package configuration and the kit never gives a retired page
+    # one, so a missing source there is a real mistake rather than a page the
+    # kit removed, and it keeps failing loudly.
+    declares_env = Set(first(p) for p in envs)
     present(files) = filter(files) do f
+        f in declares_env && return true
         isfile(joinpath(tutorials_dir, f)) && return true
         @warn "skipping $f: registered in docs_config.jl but not present"
         return false
