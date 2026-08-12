@@ -1042,8 +1042,11 @@
                 @test occursin("<!-- epiaware-standards:end -->", txt)
                 # Both files land in an agent's context whole on every
                 # session, so the block spends one line on saying it is
-                # managed, not a separate multi-line comment.
-                @test count(==('\n'), txt) < 15
+                # managed rather than a separate comment block. Asserted
+                # against the preamble above the package heading, not the
+                # whole file, so adding a standards link stays free.
+                preamble = first(split(txt, "\n# "))
+                @test count(==('\n'), preamble) <= 1
                 @test !occursin("<!--\nMANAGED by", txt)
                 # The block points at the standards docs rather than
                 # restating them, so a second copy cannot drift (#370).
