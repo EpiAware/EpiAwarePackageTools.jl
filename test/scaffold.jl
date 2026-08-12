@@ -5878,7 +5878,10 @@ end
 # the resolver cannot speak to are all left exactly as committed (#425).
 @testitem "reusable-workflow refs are freshened forwards only (#425)" begin
     using Test
-    using Logging: NullLogger, with_logger
+    # `Base.CoreLogging`, not the `Logging` stdlib: `Logging` is not a
+    # declared dep of the managed test environment, and declaring one
+    # here would push it to every adopter for the sake of a test.
+    using Base.CoreLogging: NullLogger, with_logger
     using EpiAwarePackageTools
     using EpiAwarePackageTools: scaffold, update, ReusableRefSource,
         _REUSABLE_SEED_REFS
