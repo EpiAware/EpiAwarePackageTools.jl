@@ -38,7 +38,7 @@ using EpiAwarePackageTools
 scaffold(pkgdir(MyPackage))   # adopt the standard tooling once
 
 # re-apply managed files later, report drift; `update` is `public`,
-# not exported (#294), so call it qualified.
+# not exported, so call it qualified.
 EpiAwarePackageTools.update(pkgdir(MyPackage))
 ```
 

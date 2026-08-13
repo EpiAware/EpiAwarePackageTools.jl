@@ -40,7 +40,7 @@ once and left for you to edit.
 ## Keeping a package in sync
 
 `update` re-applies only the managed files and reports what changed.
-It is `public`, not exported (#294) — a generic name like `update` is
+It is `public`, not exported — a generic name like `update` is
 exactly the kind a domain package might also export, and `public` keeps it
 from colliding with that when both are loaded together — so call it
 qualified:

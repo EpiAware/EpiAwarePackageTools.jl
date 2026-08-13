@@ -122,3 +122,9 @@ Not deviations: `_resolve_docs_subdomain` already dispatches on type rather than
 - Rule: a composition agrees with itself (sampling matches density, leaf protocols are complete) or fails loudly, and can report how it will be evaluated with no silent fallback.
 - Why: a composition that degrades quietly gives an answer that is trusted and wrong.
 - Not enforced; the per-package checks are being added across the ecosystem over time.
+
+### 17. Interfaces are duck-typed, not type-constrained
+
+- Rule: a component asks for the methods it calls (e.g. `rand` and `logpdf` for "a distribution"), not a concrete type or a package's type hierarchy. The required methods are documented, typically in an `interfaces.jl`, with a conformance check a new implementation can run against itself. That latitude stops at performance: call sites stay type-stable regardless of which conforming type is passed in.
+- Why: constraining to a concrete type locks out anything that satisfies the same contract another way; asking for the methods keeps the interface open without paying for it in dynamic dispatch.
+- Not enforced, reviewed by hand.

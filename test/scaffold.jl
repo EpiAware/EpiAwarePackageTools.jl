@@ -1967,6 +1967,32 @@
             end
         end
 
+        @testset "update warns when Project.toml carries a comment" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric3b")
+                scaffold(dir)
+                proj = joinpath(dir, "Project.toml")
+                write(
+                    proj,
+                    replace(
+                        read(proj, String),
+                        "[workspace]" => "# pinned for a reason\n[workspace]"
+                    )
+                )
+                res = update(dir)
+                @test any(
+                    w -> occursin("Project.toml", w) && occursin("comment", w),
+                    res.warnings
+                )
+            end
+            # A clean, never-commented Project.toml raises nothing.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Numeric3c")
+                scaffold(dir)
+                @test isempty(update(dir).warnings)
+            end
+        end
+
         @testset "update warns when docs_config.jl lacks HEAVY_BENCHMARKS (#305)" begin
             # An `ad = true` adopter who synced before the ad-comparison.jl
             # split (#299/#305) has no HEAVY_BENCHMARKS/BENCHMARK_STUBS

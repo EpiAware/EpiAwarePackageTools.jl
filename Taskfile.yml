@@ -43,6 +43,10 @@ tasks:
       - julia --project=. --quiet -e 'using Pkg; Pkg.test(test_args=["quality_only"])'
       - echo "✅ Quality checks completed"
 
+  test-parallel:
+    desc: Run test-fast and test-quality concurrently (faster local iteration)
+    deps: [test-fast, test-quality]
+
   test-jet:
     desc: Run JET static analysis directly (isolated environment)
     cmds:
