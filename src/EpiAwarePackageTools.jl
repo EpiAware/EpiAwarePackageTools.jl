@@ -29,7 +29,10 @@ Two groups are provided.
     declarations as the support table the scaffolded AD-backends docs page
     shows. [`run_selected`](@ref) runs a named subset of scenarios against a
     named subset of backends for fast diagnosis, and backs the scaffolded
-    `test/ad/run_selected.jl` driver.
+    `test/ad/run_selected.jl` driver. [`benchmark_backend`](@ref) measures the
+    same registry's scenarios from its own uninstrumented CI job and writes
+    the artefact the scaffolded AD-comparison docs page renders instead of
+    measuring live, and backs `test/ad/benchmark.jl`.
 
 A [`scaffold`](@ref) helper writes the shipped standard configuration and test
 infrastructure into a package — root dev config, CI caller workflows +
@@ -142,6 +145,7 @@ if VERSION >= v"1.11"
     Core.eval(@__MODULE__, Meta.parse("public update, scaffold_update"))
 end
 export ADRegistry, check_broken, test_working_backend, test_partial_backend
+export benchmark_backend
 export ad_backend_support_table
 export run_selected
 export build_docs

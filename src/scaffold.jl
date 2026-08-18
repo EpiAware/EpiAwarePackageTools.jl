@@ -81,6 +81,13 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/ad.yaml",
         ".github/workflows/ad.yaml", true, true, :ad_only
     ),
+    # Clears a closed PR's AD benchmark preview from the `benchmarks` branch
+    # (#443); only relevant where `ad.yaml`'s bench leg can have written one.
+    Template(
+        ".github/workflows/benchmark-preview-cleanup.yaml",
+        ".github/workflows/benchmark-preview-cleanup.yaml", true, true,
+        :ad_only
+    ),
     Template(
         ".github/workflows/document.yaml",
         ".github/workflows/document.yaml", true, true
@@ -215,6 +222,11 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(
         "test/ad/run_selected.jl", "test/ad/run_selected.jl", true, true,
         :ad_only
+    ),
+    # The benchmark-leg entry point (#443): writes the per-backend artefact
+    # the AD-comparison docs page reads, from its own uninstrumented CI job.
+    Template(
+        "test/ad/benchmark.jl", "test/ad/benchmark.jl", true, true, :ad_only
     ),
     # The benchmark suite drivers are opt-in (managed, only when
     # `benchmarks = true`).
@@ -711,6 +723,12 @@ end
 # here, so refresh both together.
 const _REUSABLE_SEED_REFS = Dict{String, String}(
     "ad.yml" =>
+        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
+    # Placeholder: `benchmark-preview-cleanup.yml` does not exist in
+    # `EpiAware/.github` yet (#443 opens it alongside this). Update this and
+    # `templates/.github/workflows/benchmark-preview-cleanup.yaml`'s `uses:`
+    # together to that workflow's actual newest-commit ref once it merges.
+    "benchmark-preview-cleanup.yml" =>
         "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "cancel-on-close.yml" =>
         "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret

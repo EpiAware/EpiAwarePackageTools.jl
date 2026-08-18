@@ -91,6 +91,29 @@ At seven backends that no longer fits in a documentation job.
 The alternative is to measure in CI, one job per backend as the gradient matrix
 already does, and have each job upload a small JSON file the page reads.
 
+### Producing the artefacts
+
+Measuring does not ride on the per-backend gradient job, in either look or timing.
+It runs in its own job, on its own matrix leg, uninstrumented.
+An earlier design measured inside the correctness job instead, on the same `test_differentiation` call, to reuse the loaded backend and compiled scenarios.
+That job runs `--code-coverage=user`.
+Every timing it could produce there would be an instrumented one, not a benchmark.
+The extra prepare-and-measure work also pushed some backends close to the job's CI timeout.
+
+The managed `ad.yaml` matrix is `backend x leg`, `leg` being `test` (unchanged: correctness, coverage, the per-backend codecov flag) or `bench` (no coverage, no codecov, its own `timeout-minutes`).
+The `bench` leg runs `test/ad/benchmark.jl`, a thin wrapper over [`benchmark_backend`](@ref).
+It benchmarks the same scenario split [`test_working_backend`](@ref) tests correctness on, excluding global, per-backend and skipped scenarios the same way.
+It writes `ad-bench-<tag>.json` from the registry's backend label, the `_AD_BACKENDS` CI tag, and DIT's measured times and allocations.
+
+The `bench` leg runs on a push to `main`, on `workflow_dispatch`, and on a PR carrying a `benchmark` label.
+A PR with none of those triggers no extra cost.
+Its artefacts publish to the `benchmarks` branch (the same branch `benchmark-history.yaml` already deploys to), under `ad/latest/` for a `main` push and `ad/previews/PR<N>/` for a labelled or dispatched PR run.
+A managed `benchmark-preview-cleanup.yaml` caller clears a PR's preview directory when it closes, mirroring `docpreviewcleanup.yaml` for `gh-pages`.
+
+`test/ad/Project.toml` is package-owned and write-once.
+A package scaffolded before this existed adds `Chairmarks` to it itself to opt in.
+See [`benchmark_backend`](@ref) for why DIT needs it loaded.
+
 ### Consuming them
 
 Point the build at a directory of those files and it renders them instead of

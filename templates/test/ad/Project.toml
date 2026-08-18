@@ -2,9 +2,15 @@
 # The isolated AD environment (Enzyme, Mooncake, etc. are not main-test deps).
 # Add/trim AD backends to match the package's `ADFixtures` registry and the
 # backends its `test/ad/scenarios.jl` exercises.
+#
+# `Chairmarks` is here for `test/ad/benchmark.jl`, the bench-leg entry point
+# that writes the per-backend AD benchmark artefact (#443): DIT resolves
+# `run_benchmark!` only once Chairmarks is loaded. It plays no part in the
+# gradient tests `runtests.jl` runs, which never benchmark.
 [deps]
 ADFixtures = "{{ADFIXTURES_UUID}}"
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+Chairmarks = "0ca39b1e-fe0b-4e98-acfc-b1656634c4de"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"

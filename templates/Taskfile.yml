@@ -78,6 +78,16 @@ tasks:
       - julia --project=test/ad test/ad/runtests.jl {{.TAG}}
       - echo "✅ AD gradient tests for {{.TAG}} completed"
 
+  bench-ad-backend:
+    desc: >-
+      Benchmark one backend locally and write its AD artefact, as the bench
+      leg does (e.g. task bench-ad-backend -- "Enzyme reverse")
+    cmds:
+      - echo "📈 Benchmarking {{.CLI_ARGS}}..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/ad test/ad/benchmark.jl "{{.CLI_ARGS}}" ad-bench-local.json
+      - echo "✅ wrote ad-bench-local.json"
+
   test-extensions:
     desc: >-
       Check package extensions load by importing the package in the docs env
