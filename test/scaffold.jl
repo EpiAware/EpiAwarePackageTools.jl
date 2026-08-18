@@ -1206,6 +1206,49 @@
             end
         end
 
+        @testset "TestItemRunner is capped consistently across managed envs (#451)" begin
+            # TestItemRunner 1.2 changed the internal `run_testitem` signature
+            # that `run_package_tests` depends on, so any env able to resolve
+            # 1.2.x fails its entire suite with a `MethodError` naming no
+            # package code. `test/Project.toml` used to leave the bound wide
+            # open (`"1"`) while `test/ad/Project.toml` carried no bound at
+            # all — capped here so every managed env agrees and 1.2.x cannot
+            # resolve anywhere.
+            #
+            # A bare `"1.1"` would not do that: Pkg's caret semantics anchor
+            # on the major version once it is nonzero, so `"1.1"` alone means
+            # `>= 1.1.0, < 2.0.0` and still admits 1.2.x. The hyphen range is
+            # the actual cap, checked directly below rather than trusted.
+            bound = "1.1 - 1.1"
+            spec = Pkg.Types.semver_spec(bound)
+            @test v"1.1.0" in spec
+            @test v"1.1.99" in spec
+            @test !(v"1.2.0" in spec)
+            @test !(v"1.2.1" in spec)
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = true)
+                for f in ("test/Project.toml", "test/ad/Project.toml")
+                    parsed = Pkg.TOML.parsefile(_dest(dir, f))
+                    @test get(parsed["compat"], "TestItemRunner", nothing) ==
+                        bound
+                end
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Tooly")
+                scaffold(dir; ad = false)
+                parsed = Pkg.TOML.parsefile(_dest(dir, "test/Project.toml"))
+                @test get(parsed["compat"], "TestItemRunner", nothing) ==
+                    bound
+            end
+            # The kit's own test env is hand-maintained, not scaffolded, so
+            # it can't silently drift back open either.
+            own = Pkg.TOML.parsefile(
+                joinpath(pkgdir(EpiAwarePackageTools), "test", "Project.toml")
+            )
+            @test get(own["compat"], "TestItemRunner", nothing) == bound
+        end
+
         @testset "license badge reflects the selected licence" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

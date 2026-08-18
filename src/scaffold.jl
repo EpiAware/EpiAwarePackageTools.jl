@@ -1180,13 +1180,14 @@ function scaffold_inputs(
     # The kit is registered in General, so a managed environment bounds it in
     # `[compat]` rather than pinning it by git `[sources]` (#361).
     kit_compat = is_kit ? "" : string(KIT_NAME, " = \"", KIT_COMPAT, "\"\n")
-    # `test/ad/Project.toml` has no `[compat]` table of its own, so there the
-    # bound brings its own section header. Written as a tail on the preceding
-    # line, carrying its own leading newlines and none at the end, so the
-    # template keeps the single trailing newline pre-commit requires whichever
-    # way this renders.
+    # `test/ad/Project.toml`'s `[compat]` table always carries the
+    # TestItemRunner bound (kit#451); this is the kit's own line appended to
+    # it as a tail on the preceding (`TestItemRunner = "1.1 - 1.1"`) line,
+    # carrying its own leading newline and none at the end, so the template
+    # keeps the single trailing newline pre-commit requires whichever way
+    # this renders.
     kit_compat_section = is_kit ? "" :
-        string("\n\n[compat]\n", KIT_NAME, " = \"", KIT_COMPAT, "\"")
+        string("\n", KIT_NAME, " = \"", KIT_COMPAT, "\"")
     # How the scheduled template-sync loads the kit before `update(".")`: the
     # kit syncs from its own checked-out project, every other package pulls the
     # kit's newest `main` into a throwaway env. Deliberately `main` rather than
