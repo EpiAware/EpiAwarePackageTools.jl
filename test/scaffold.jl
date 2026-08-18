@@ -1365,6 +1365,77 @@
             end
         end
 
+        @testset "_detect_org recovers the org from origin (#434)" begin
+            using EpiAwarePackageTools: _detect_org
+            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
+            # No git repo at all, or a git repo with no `origin` remote:
+            # nothing to recover from.
+            mktempdir() do dir
+                @test _detect_org(dir) === nothing
+                _run(dir, `git init -q -b main`)
+                @test _detect_org(dir) === nothing
+            end
+            # An HTTPS remote, with and without the `.git` suffix.
+            mktempdir() do dir
+                _run(dir, `git init -q -b main`)
+                _run(
+                    dir,
+                    `git remote add origin
+                    https://github.com/seabbs/EpiSewer.jl.git`
+                )
+                @test _detect_org(dir) == "seabbs"
+            end
+            mktempdir() do dir
+                _run(dir, `git init -q -b main`)
+                _run(
+                    dir,
+                    `git remote add origin
+                    https://github.com/seabbs/EpiSewer.jl`
+                )
+                @test _detect_org(dir) == "seabbs"
+            end
+            # An SSH remote.
+            mktempdir() do dir
+                _run(dir, `git init -q -b main`)
+                _run(
+                    dir,
+                    `git remote add origin
+                    git@github.com:seabbs/EpiSewer.jl.git`
+                )
+                @test _detect_org(dir) == "seabbs"
+            end
+            # A non-GitHub remote: not this kit's business to parse.
+            mktempdir() do dir
+                _run(dir, `git init -q -b main`)
+                _run(
+                    dir,
+                    `git remote add origin
+                    https://gitlab.com/seabbs/EpiSewer.jl.git`
+                )
+                @test _detect_org(dir) === nothing
+            end
+        end
+
+        @testset "scaffold_inputs derives org from the origin remote (#434)" begin
+            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
+            mktempdir() do dir
+                _fake_pkg(dir; name = "EpiSewer")
+                _run(dir, `git init -q -b main`)
+                _run(
+                    dir,
+                    `git remote add origin
+                    https://github.com/seabbs/EpiSewer.jl.git`
+                )
+                # No `org` kwarg: recovered from the remote, not EpiAware.
+                inp = scaffold_inputs(dir)
+                @test inp.ORG == "seabbs"
+                @test inp.REPO == "seabbs/EpiSewer.jl"
+                # An explicit `org` still wins over the detected remote.
+                inp2 = scaffold_inputs(dir; org = "SomeOtherOrg")
+                @test inp2.ORG == "SomeOtherOrg"
+            end
+        end
+
         @testset "no managed template hardcodes a person or owner" begin
             # The templates are the source of truth; none may carry a literal
             # person/owner name. (The kit's own name `EpiAwarePackageTools` and the
