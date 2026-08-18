@@ -3624,6 +3624,70 @@
             end
         end
 
+        @testset "_detect_license recovers any SPDX id for the badge (#450)" begin
+            using EpiAwarePackageTools: _detect_license, _license_badge
+            # SUPPORTED_LICENSES gates what the kit can *write*, not what it
+            # can *recover*: a GPL adopter (e.g. a port of GPL'd code, whose
+            # licence is inherited, not the kit's to change) keeps a correct
+            # badge instead of having it silently reset to MIT.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                readme = "# Wombat\n\n" *
+                    _license_badge("GPL-2.0-or-later") * "\n"
+                write(joinpath(dir, "README.md"), readme)
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-2.0-or-later\"\n")
+                end
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+        end
+
+        @testset "scaffold_inputs accepts an existing LICENSE's SPDX id (#450)" begin
+            using EpiAwarePackageTools: scaffold_inputs
+            # No LICENSE file yet: the kit has no GPL text to write, so an
+            # explicit unsupported licence is still rejected — unchanged from
+            # before #450, and what "scaffold_inputs rejects an unsupported
+            # license" above already covers for a bare licence keyword.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                @test_throws ErrorException scaffold_inputs(
+                    dir; license = "GPL-2.0-or-later"
+                )
+            end
+            # A LICENSE already committed (the adopter brought its own text):
+            # the kit only needs the SPDX id for the badge and never writes
+            # the file, so any id is accepted.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "LICENSE"), "GPL licence text...\n")
+                inputs = scaffold_inputs(dir; license = "GPL-2.0-or-later")
+                @test inputs.LICENSE == "GPL-2.0-or-later"
+            end
+        end
+
+        @testset "update keeps a GPL badge across a sync (#450)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "LICENSE"), "GPL licence text...\n")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-2.0-or-later\"\n")
+                end
+                scaffold(dir; ad = false)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme)
+                # A bare resync (as the scheduled template-sync runs, with no
+                # `license` kwarg) must not flip the badge to MIT.
+                update(dir; ad = false)
+                readme2 = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme2)
+                @test !occursin("License: MIT", readme2)
+            end
+        end
+
         @testset "update preserves a non-MIT licence badge (#235)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
