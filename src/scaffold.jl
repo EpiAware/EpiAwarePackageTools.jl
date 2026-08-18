@@ -1038,7 +1038,8 @@ end
 
 """
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
-        holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
+        holder = nothing, org = $(repr(DEFAULT_ORG)),
+        workflows_org = $(repr(DEFAULT_ORG)), repo = nothing,
         reviewer = nothing, year = <current year>,
         license = nothing) -> NamedTuple
 
@@ -1053,7 +1054,17 @@ into a template:
     `name`. The package UUID (`{{UUID}}`) is read from `Project.toml` `uuid`.
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
-  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`.
+  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Names the
+    package's *own* repo — badges, docs links, the Code of Conduct link is
+    not this (see `workflows_org`).
+  - `workflows_org` — the org whose shared `.github` repo hosts the
+    reusable-workflow callers this kit's CI templates `uses:` and the
+    community-file links they point at (the Code of Conduct); default
+    `$(repr(DEFAULT_ORG))`. Independent of `org`: those reusables and
+    community files live at `EpiAware/.github` regardless of which org the
+    *adopting* package itself is hosted under, so substituting a
+    non-EpiAware `org` there would point every caller at a repo that does
+    not exist (`#447`). Only relevant to a fork of the whole ecosystem.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1089,6 +1100,7 @@ function scaffold_inputs(
         authors::Union{Nothing, AbstractString} = nothing,
         holder::Union{Nothing, AbstractString} = nothing,
         org::AbstractString = DEFAULT_ORG,
+        workflows_org::AbstractString = DEFAULT_ORG,
         repo::Union{Nothing, AbstractString} = nothing,
         reviewer::Union{Nothing, AbstractString} = nothing,
         year::Union{Nothing, Integer} = nothing,
@@ -1194,12 +1206,14 @@ function scaffold_inputs(
     # scheduled sync should apply the newest standard, not the last tag. This
     # is a throwaway env in a workflow, not a declared dependency, so it is not
     # the git pin #361 is about. Here rather than in the template because it
-    # shares the `is_kit` split above.
+    # shares the `is_kit` split above. The kit's own repo is always
+    # `workflows_org`/`EpiAwarePackageTools.jl` (#447) — never `org`, which
+    # names the *adopting* package's repo, not the kit's.
     sync_install = is_kit ?
         "Pkg.activate(\".\"); Pkg.instantiate()" :
         string(
             "Pkg.activate(; temp = true); Pkg.add(url = ",
-            "\"https://github.com/", org, "/", KIT_NAME,
+            "\"https://github.com/", workflows_org, "/", KIT_NAME,
             ".jl\", rev = \"main\")"
         )
     # The managed `.gitignore` tracks the package's tutorial subdir, and the
@@ -1209,7 +1223,8 @@ function scaffold_inputs(
     ad_build_count = string(length(_AD_BACKENDS) + 1)
     return (
         PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
-        AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
+        AUTHORS = auth, HOLDER = hold, ORG = org,
+        WORKFLOWS_ORG = workflows_org, REPO = rp,
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
         DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
@@ -3395,17 +3410,22 @@ const _STANDARD_SECTIONS_HEADER = string(
     "     edit the package-owned sections outside them, or CITATION.cff. -->"
 )
 
-# The org Code of Conduct URL, served from the org's shared `.github` repo.
-function _coc_url(org::AbstractString)
-    return "https://github.com/" * org * "/.github/blob/main/CODE_OF_CONDUCT.md"
+# The Code of Conduct URL, served from the shared `.github` repo — always
+# `workflows_org` (default EpiAware), not the adopting package's own `org`:
+# the file lives at `workflows_org/.github`, which a non-EpiAware adopter
+# does not have (#447).
+function _coc_url(workflows_org::AbstractString)
+    return "https://github.com/" * workflows_org *
+        "/.github/blob/main/CODE_OF_CONDUCT.md"
 end
 
 # Render the managed standard sections (Contributing / How to cite / Code of
-# conduct) without the markers, parameterised by package/org/repo. `doi` adds a
-# version-DOI line to the citation pointer when known (the value persisted in
-# the README DOI badge); otherwise the section points only at `CITATION.cff`.
+# conduct) without the markers, parameterised by package/workflows_org/repo.
+# `doi` adds a version-DOI line to the citation pointer when known (the value
+# persisted in the README DOI badge); otherwise the section points only at
+# `CITATION.cff`.
 function _render_standard_sections(
-        pkg::AbstractString, org::AbstractString,
+        pkg::AbstractString, workflows_org::AbstractString,
         repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing,
         org_branding::Bool = false
     )
@@ -3433,7 +3453,8 @@ function _render_standard_sections(
         "\n",
         "## Code of conduct\n\n",
         "Please note that the ", pkg, " project is released with a ",
-        "[Contributor Code of Conduct](", _coc_url(org), "). By contributing, ",
+        "[Contributor Code of Conduct](", _coc_url(workflows_org),
+        "). By contributing, ",
         "you agree to abide by its terms.\n"
     )
 end
@@ -3467,12 +3488,12 @@ function _apply_standard_sections(
     readme = joinpath(target_dir, "README.md")
     isfile(readme) || return (:skipped, false)
     pkg = inputs.PACKAGE
-    org = inputs.ORG
+    workflows_org = inputs.WORKFLOWS_ORG
     repo = inputs.REPO
-    (pkg === nothing || org === nothing || repo === nothing) &&
+    (pkg === nothing || workflows_org === nothing || repo === nothing) &&
         return (:skipped, false)
     body = _render_standard_sections(
-        String(pkg), String(org), String(repo);
+        String(pkg), String(workflows_org), String(repo);
         doi = inputs.DOI, org_branding = org_branding
     )
     block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *
@@ -3898,14 +3919,16 @@ end
 # The opt-in `downgrade-compat` caller job spliced into `test.yaml` after the
 # `test` job's `secrets:` line (#121), empty when a package opts out. Carries
 # no trailing newline of its own — the template file keeps the single one the
-# pre-commit end-of-file-fixer requires. Built with the org interpolated and
-# the seed ref, which `_preserve_reusable_refs` overwrites with the
+# pre-commit end-of-file-fixer requires. Built with the workflows org
+# interpolated (the reusable lives at `workflows_org/.github`, not `org`,
+# #447) and the seed ref, which `_preserve_reusable_refs` overwrites with the
 # destination's Dependabot-bumped ref on every `update`.
-function _downgrade_compat_job(org::AbstractString, keep::Bool)
+function _downgrade_compat_job(workflows_org::AbstractString, keep::Bool)
     keep || return ""
     return string(
         "\n\n  downgrade-compat:\n",
-        "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
+        "    uses: ", workflows_org,
+        "/.github/.github/workflows/downgrade.yml@",
         _seed_ref("downgrade.yml"), "\n",
         "    with:\n",
         # The reusable defaults to '1.10'; see `_JULIA_DOWNGRADE_VERSION` for
@@ -4106,7 +4129,7 @@ function _apply(
             # whether this package's `[sources]` pins hold it above lts (#410).
             JULIA_TEST_VERSIONS = _julia_test_versions(unregistered_sources),
             DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
-                inputs.ORG, downgrade_compat
+                inputs.WORKFLOWS_ORG, downgrade_compat
             ),
             BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
                 _detect_benchmark_history_parked(target_dir)
@@ -4135,7 +4158,7 @@ function _apply(
     freshener = if freshen_reusable_refs
         _RefFreshener(
             ref_source === nothing ? _gh_ref_source() : ref_source,
-            inputs.ORG, warnings
+            inputs.WORKFLOWS_ORG, warnings
         )
     else
         nothing
