@@ -4483,13 +4483,54 @@ function _manifest_packages(path::AbstractString)
     return names
 end
 
+# The `projects = [...]` array from a root Project.toml's `[workspace]`
+# table, or an empty vector when there is no such table (or no file). A line
+# scan over the captured array body, like `_project_authors`.
+function _workspace_projects(proj::AbstractString)
+    isfile(proj) || return String[]
+    text = read(proj, String)
+    m = match(r"(?ms)^\[workspace\].*?^projects\s*=\s*\[(.*?)\]", text)
+    m === nothing && return String[]
+    inner = m.captures[1]
+    inner === nothing && return String[]
+    return [
+        String(something(x.captures[1], ""))
+            for x in eachmatch(r"\"([^\"]*)\"", inner)
+    ]
+end
+
+"""
+    _workspace_manifest_path(target_dir, subdir)
+
+The Manifest.toml Pkg actually resolves for the `<subdir>/Project.toml` env,
+following the same rule Pkg itself does: `<subdir>`'s own `Manifest.toml` when
+present, otherwise the root `Manifest.toml` when the root `Project.toml`
+declares `<subdir>` in `[workspace] projects` (the managed shape
+`_apply_workspace` writes, sharing one resolve across `test` and `docs`).
+`nothing` when neither applies, so the caller can tell "not instantiated" from
+"instantiated at the root".
+"""
+function _workspace_manifest_path(
+        target_dir::AbstractString, subdir::AbstractString
+    )
+    own = joinpath(target_dir, subdir, "Manifest.toml")
+    isfile(own) && return own
+    proj = joinpath(target_dir, "Project.toml")
+    subdir in _workspace_projects(proj) || return nothing
+    root = joinpath(target_dir, "Manifest.toml")
+    return isfile(root) ? root : nothing
+end
+
 # Standard libraries `using`d in a package's committed test sources but not
 # available in the resolved test environment. Sorted; empty when test/ is
 # absent. Drives the #263 scaffold/sync warning.
 #
-# Availability is judged against the resolved test/Manifest.toml, not the
-# `[deps]` lines alone: a stdlib pulled in transitively (e.g. LinearAlgebra via
-# Aqua/JET) is genuinely loadable and must not be flagged. A Manifest is
+# Availability is judged against the resolved manifest, not the `[deps]` lines
+# alone: a stdlib pulled in transitively (e.g. LinearAlgebra via Aqua/JET) is
+# genuinely loadable and must not be flagged. The managed `[workspace]` shape
+# puts `test` in the root's `projects`, so the resolved manifest usually lives
+# at the repo root rather than `test/Manifest.toml`; `_workspace_manifest_path`
+# finds whichever one Pkg actually resolved into (#430). A Manifest is
 # gitignored, so it exists only in an instantiated env, which is where the
 # warning is actionable anyway. Without one, no warning: a missed hint in a
 # bare CI checkout buys zero false positives.
@@ -4498,7 +4539,9 @@ function _undeclared_test_stdlibs(target_dir::AbstractString)
     isdir(test_dir) || return String[]
     stdlibs = _julia_stdlibs()
     isempty(stdlibs) && return String[]
-    available = _manifest_packages(joinpath(test_dir, "Manifest.toml"))
+    manifest = _workspace_manifest_path(target_dir, "test")
+    available = manifest === nothing ?
+        Set{String}() : _manifest_packages(manifest)
     isempty(available) && return String[]
     # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
     available = union(
