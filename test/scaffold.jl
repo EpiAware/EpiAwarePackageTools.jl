@@ -5295,6 +5295,51 @@ end
         end
     end
 
+    @testset "workspace layout: root Manifest.toml is read (#430)" begin
+        # The managed shape puts `test` in the root `[workspace] projects`,
+        # so Pkg resolves it into the root Manifest.toml and
+        # `test/Manifest.toml` never exists. Judging availability off the
+        # (absent) `test/Manifest.toml` alone silently no-ops here, which is
+        # the bug: the warning never fires for any workspace-layout package.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\nprojects = [\"test\", \"docs\"]\n"
+            )
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) == ["LinearAlgebra"]
+        end
+        # A stdlib genuinely resolved via the root manifest is not flagged.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\nprojects = [\"test\", \"docs\"]\n"
+            )
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["LinearAlgebra"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) == String[]
+        end
+        # `test` not listed in `[workspace] projects`: the root manifest is
+        # not this env's resolve, so it must not be consulted — stays silent,
+        # same as the genuine bare-checkout case.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\nprojects = [\"docs\"]\n"
+            )
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) == String[]
+        end
+    end
+
     @testset "update warns on an adopter's undeclared stdlib" begin
         mktempdir() do dir
             write(
