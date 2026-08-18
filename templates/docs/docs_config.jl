@@ -90,6 +90,23 @@ const HEAVY_BENCHMARKS = String[{{AD_HEAVY_BENCHMARKS}}]
 # `TUTORIAL_STUBS`.
 const BENCHMARK_STUBS = Pair{String, String}[{{AD_BENCHMARK_STUBS}}]
 
+# Where the AD-comparison page finds pre-computed per-backend benchmark
+# artefacts, relative to `docs/` unless absolute. `nothing` (the default) means
+# the page measures every (backend, scenario) pair itself while the docs build
+# runs, which is fine for a small registry and stops fitting in a CI job for a
+# large one: the cost is the whole AD matrix run serially in one process.
+#
+# Set this to a directory (e.g. `"ad-benchmarks"`) once this package's CI runs
+# the per-backend benchmark jobs and downloads their JSON artefacts there. The
+# `AD_BENCHMARK_ARTIFACTS_DIR` environment variable overrides it, so CI can name
+# the download location without this file changing.
+#
+# Once opted in, the page never measures live: a build with no artefacts (a docs
+# preview raised before the benchmark jobs finished) renders the page with a
+# note saying the numbers are not available, and a build with some of them
+# renders those and names the backends it is missing.
+const AD_BENCHMARK_ARTIFACTS_DIR = nothing
+
 # Whether this package advertises itself as part of the EpiAware ecosystem: a
 # "Part of the EpiAware ecosystem" README section, and the EpiAware logo + org
 # links in the docs footer. Opt-in, off by default (the kit also scaffolds

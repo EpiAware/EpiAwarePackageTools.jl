@@ -77,6 +77,85 @@ A sync deletes the retired source, and warns when a package's own
 `docs/docs_config.jl` still registers it, because that file is package-owned and
 the sync cannot edit it.
 
+### [Where the page's numbers come from](@id ad-benchmark-artifacts)
+
+By default the page measures every (backend, scenario) pair itself while the
+docs build runs.
+That is fine for a small registry and stops being fine for a large one.
+The page pays each backend's full preparation cost, recording a ReverseDiff
+tape or compiling an Enzyme or Mooncake rule, with no parallelism between
+backends, so the total is the package's whole AD matrix run one job after
+another in a single process.
+At seven backends that no longer fits in a documentation job.
+
+The alternative is to measure in CI, one job per backend as the gradient matrix
+already does, and have each job upload a small JSON file the page reads.
+
+### Consuming them
+
+Point the build at a directory of those files and it renders them instead of
+measuring anything:
+
+```julia
+# docs/docs_config.jl
+const AD_BENCHMARK_ARTIFACTS_DIR = "ad-benchmarks"
+```
+
+A relative path is `docs/`-relative.
+The `AD_BENCHMARK_ARTIFACTS_DIR` environment variable overrides the const, so
+CI can name a download location without touching the package-owned config, and
+so a local build can read published numbers rather than measuring:
+
+```
+AD_BENCHMARK_ARTIFACTS_DIR=docs/ad-benchmarks julia --project=docs docs/make.jl
+```
+
+One file per backend, holding the same per-scenario figures the page computes
+itself:
+
+```json
+{
+  "backend": "Enzyme forward",
+  "tag": "enzyme_forward",
+  "scenarios": [
+    {"name": "AR", "time_us": 3.35, "bytes_kb": 12.4}
+  ]
+}
+```
+
+`backend` must be the registry's own label, since that is what the page joins
+on to decide which backends it is missing.
+Files are read recursively, so `actions/download-artifact` landing each
+artefact in its own subdirectory needs no flattening.
+
+Setting either the const or the variable is a one-way switch: the page then
+never measures live, because falling back would reinstate exactly the cost the
+split exists to avoid.
+What it does instead is say what it has.
+
+- Neither set: the page measures live, which is what every package that has not
+  opted in keeps doing.
+- Set, with no artefacts found: the page renders and states that no
+  measurements are available. This is the normal state of a documentation
+  preview raised before the benchmark jobs have finished, not a failure.
+- Set, with some backends missing: the page renders the backends it has and
+  names the ones it does not, as backends nothing was published for. A gap can
+  mean a failed or unfinished job, or a CI matrix naming a backend the registry
+  does not declare, so the note says that rather than making a coverage claim
+  about the backend.
+- A corrupt or unparseable file: skipped and named, with the rest of the page
+  intact.
+
+The baseline every cost is divided by is ForwardDiff wherever it has numbers,
+and otherwise the first backend that does, so a run whose ForwardDiff job
+failed still reports the backends that succeeded.
+
+The matrix and the registry are both package-owned and nothing checks that they
+agree, so a label present in one and not the other is a real way for a backend
+to go missing.
+The benchmark job logs the registry labels it did find, so the diagnosis is in
+that job's log.
+
 ### One single source of truth
 
 The backend list is defined once in the kit, in `_AD_BACKENDS`, and everything
