@@ -976,6 +976,33 @@ function _gh_pages_cname(target_dir::AbstractString)
 end
 
 """
+    _detect_org(target_dir)
+
+Recover the package's GitHub org from the target's `origin` git remote, so
+`scaffold`/`update` default to the repo's actual owner instead of hardcoding
+`$(repr(DEFAULT_ORG))` for a package hosted outside the EpiAware org (#434).
+
+Reads `git remote get-url origin` in `target_dir` and extracts the owner
+segment from a `github.com` HTTPS or SSH remote URL (with or without a
+trailing `.git`). Returns `nothing` when there is no git repository, no
+`origin` remote, or the remote is not a `github.com` URL — offline-tolerant
+like [`_gh_pages_cname`](@ref), so a checkout with none of these just falls
+back to `$(repr(DEFAULT_ORG))`, unchanged from before #434. An explicit `org`
+keyword still wins over whatever is recovered.
+"""
+function _detect_org(target_dir::AbstractString)
+    url = try
+        strip(readchomp(Cmd(`git remote get-url origin`; dir = target_dir)))
+    catch
+        return nothing
+    end
+    m = match(r"github\.com[:/]([^/]+)/", url)
+    m === nothing && return nothing
+    org = String(something(m.captures[1]))
+    return isempty(org) ? nothing : org
+end
+
+"""
     _detect_doi(target_dir)
 
 Recover a persisted Zenodo DOI and badge id from an already-scaffolded
@@ -1038,7 +1065,7 @@ end
 
 """
     scaffold_inputs(target_dir; package = nothing, authors = nothing,
-        holder = nothing, org = $(repr(DEFAULT_ORG)), repo = nothing,
+        holder = nothing, org = nothing, repo = nothing,
         reviewer = nothing, year = <current year>,
         license = nothing) -> NamedTuple
 
@@ -1053,7 +1080,10 @@ into a template:
     `name`. The package UUID (`{{UUID}}`) is read from `Project.toml` `uuid`.
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
-  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`.
+  - `org` — GitHub org (`{{ORG}}`). Default `nothing`, in which case it is
+    recovered from the target's `origin` git remote (`#434`), falling back
+    to `$(repr(DEFAULT_ORG))` when there is no such remote (e.g. a
+    never-`git init`'d target, or one with no `github.com` `origin`).
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1088,7 +1118,7 @@ function scaffold_inputs(
         package::Union{Nothing, AbstractString} = nothing,
         authors::Union{Nothing, AbstractString} = nothing,
         holder::Union{Nothing, AbstractString} = nothing,
-        org::AbstractString = DEFAULT_ORG,
+        org::Union{Nothing, AbstractString} = nothing,
         repo::Union{Nothing, AbstractString} = nothing,
         reviewer::Union{Nothing, AbstractString} = nothing,
         year::Union{Nothing, Integer} = nothing,
@@ -1098,6 +1128,11 @@ function scaffold_inputs(
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
         docs_timeout::Union{Nothing, Integer} = nothing
     )
+    # Recover the org from the `origin` git remote so a package hosted
+    # outside EpiAware does not get `EpiAware` baked into its repo/badge
+    # links on a bare sync (#434).
+    org = org === nothing ? something(_detect_org(target_dir), DEFAULT_ORG) :
+        org
     # Recover the committed licence so a bare sync keeps a non-MIT adopter's
     # badge instead of resetting it to the default (#235).
     license = license === nothing ?
