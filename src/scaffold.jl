@@ -1055,8 +1055,8 @@ into a template:
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
   - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Names the
-    package's *own* repo — badges, docs links, the Code of Conduct link is
-    not this (see `workflows_org`).
+    package's *own* repo: badges, docs links and the repo slug. The Code
+    of Conduct link is not one of these (see `workflows_org`).
   - `workflows_org` — the org whose shared `.github` repo hosts the
     reusable-workflow callers this kit's CI templates `uses:` and the
     community-file links they point at (the Code of Conduct); default
@@ -1064,7 +1064,7 @@ into a template:
     community files live at `EpiAware/.github` regardless of which org the
     *adopting* package itself is hosted under, so substituting a
     non-EpiAware `org` there would point every caller at a repo that does
-    not exist (`#447`). Only relevant to a fork of the whole ecosystem.
+    not exist. Only relevant to a fork of the whole ecosystem.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1207,7 +1207,7 @@ function scaffold_inputs(
     # is a throwaway env in a workflow, not a declared dependency, so it is not
     # the git pin #361 is about. Here rather than in the template because it
     # shares the `is_kit` split above. The kit's own repo is always
-    # `workflows_org`/`EpiAwarePackageTools.jl` (#447) — never `org`, which
+    # `workflows_org`/`EpiAwarePackageTools.jl` — never `org`, which
     # names the *adopting* package's repo, not the kit's.
     sync_install = is_kit ?
         "Pkg.activate(\".\"); Pkg.instantiate()" :
@@ -3413,7 +3413,7 @@ const _STANDARD_SECTIONS_HEADER = string(
 # The Code of Conduct URL, served from the shared `.github` repo — always
 # `workflows_org` (default EpiAware), not the adopting package's own `org`:
 # the file lives at `workflows_org/.github`, which a non-EpiAware adopter
-# does not have (#447).
+# does not have.
 function _coc_url(workflows_org::AbstractString)
     return "https://github.com/" * workflows_org *
         "/.github/blob/main/CODE_OF_CONDUCT.md"
@@ -3920,8 +3920,8 @@ end
 # `test` job's `secrets:` line (#121), empty when a package opts out. Carries
 # no trailing newline of its own — the template file keeps the single one the
 # pre-commit end-of-file-fixer requires. Built with the workflows org
-# interpolated (the reusable lives at `workflows_org/.github`, not `org`,
-# #447) and the seed ref, which `_preserve_reusable_refs` overwrites with the
+# interpolated (the reusable lives at `workflows_org/.github`, not `org`)
+# and the seed ref, which `_preserve_reusable_refs` overwrites with the
 # destination's Dependabot-bumped ref on every `update`.
 function _downgrade_compat_job(workflows_org::AbstractString, keep::Bool)
     keep || return ""
