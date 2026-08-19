@@ -1365,11 +1365,12 @@
             end
         end
 
-        @testset "_detect_org recovers the org from origin (#434)" begin
+        @testset "_detect_org reads origin for an unscaffolded target" begin
             using EpiAwarePackageTools: _detect_org
             _run(dir, cmd) = run(Cmd(cmd; dir = dir))
-            # No git repo at all, or a git repo with no `origin` remote:
-            # nothing to recover from.
+            # Nothing scaffolded, so the remote is the only source. No git
+            # repo at all, or a git repo with no `origin` remote: nothing to
+            # recover from.
             mktempdir() do dir
                 @test _detect_org(dir) === nothing
                 _run(dir, `git init -q -b main`)
@@ -1416,7 +1417,7 @@
             end
         end
 
-        @testset "scaffold_inputs derives org from the origin remote (#434)" begin
+        @testset "scaffold_inputs derives org for an unscaffolded target" begin
             _run(dir, cmd) = run(Cmd(cmd; dir = dir))
             mktempdir() do dir
                 _fake_pkg(dir; name = "EpiSewer")
@@ -1433,6 +1434,49 @@
                 # An explicit `org` still wins over the detected remote.
                 inp2 = scaffold_inputs(dir; org = "SomeOtherOrg")
                 @test inp2.ORG == "SomeOtherOrg"
+            end
+        end
+
+        @testset "committed org beats the origin remote in a fork clone" begin
+            using EpiAwarePackageTools: _detect_org, BADGES_START, BADGES_END
+            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
+            # The fork workflow: `origin` is the contributor's own fork, the
+            # canonical repo is `upstream`. Running `update` there must keep
+            # the org the package already commits, not adopt the fork owner.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "EpiSewer")
+                scaffold(dir; org = "EpiAware")
+                _run(dir, `git init -q -b main`)
+                _run(
+                    dir,
+                    `git remote add origin
+                    https://github.com/contributor/EpiSewer.jl.git`
+                )
+                _run(
+                    dir,
+                    `git remote add upstream
+                    https://github.com/EpiAware/EpiSewer.jl.git`
+                )
+                @test _detect_org(dir) == "EpiAware"
+                inp = scaffold_inputs(dir)
+                @test inp.ORG == "EpiAware"
+                @test inp.REPO == "EpiAware/EpiSewer.jl"
+                # The managed README badge block is the first source read;
+                # with it gone the managed `docs/make.jl` still carries the
+                # org, so the fork remote is still not consulted.
+                readme = joinpath(dir, "README.md")
+                text = read(readme, String)
+                si = findfirst(BADGES_START, text)
+                ei = findfirst(BADGES_END, text)
+                write(
+                    readme,
+                    text[1:(first(si) - 1)] * text[(last(ei) + 1):end]
+                )
+                @test _detect_org(dir) == "EpiAware"
+                # With both gone there is nothing committed left to read, so
+                # the remote is the only remaining source.
+                rm(joinpath(dir, "docs", "make.jl"))
+                @test _detect_org(dir) == "contributor"
             end
         end
 

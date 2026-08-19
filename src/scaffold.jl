@@ -978,21 +978,67 @@ end
 """
     _detect_org(target_dir)
 
-Recover the package's GitHub org from the target's `origin` git remote, so
-`scaffold`/`update` default to the repo's actual owner instead of hardcoding
-`$(repr(DEFAULT_ORG))` for a package hosted outside the EpiAware org (#434).
+Recover the package's GitHub org so `scaffold`/`update` default to the repo's
+actual owner instead of hardcoding `$(repr(DEFAULT_ORG))` for a package hosted
+outside the EpiAware org.
 
-Reads `git remote get-url origin` in `target_dir` and extracts the owner
-segment from a `github.com` HTTPS or SSH remote URL (with or without a
-trailing `.git`). Returns `nothing` when there is no git repository, no
-`origin` remote, or the remote is not a `github.com` URL — offline-tolerant
-like [`_gh_pages_cname`](@ref), so a checkout with none of these just falls
-back to `$(repr(DEFAULT_ORG))`, unchanged from before #434. An explicit `org`
-keyword still wins over whatever is recovered.
+Read back from what the target itself commits, as `_detect_reviewer`,
+`_detect_license` and `_detect_doi` do: first the owner segment of the Actions
+URLs in the managed README badge block, then the `repo` slug in the managed
+`docs/make.jl`. Only when neither carries one — a target with nothing
+scaffolded yet — is the `origin` git remote consulted, via `_origin_org`.
+
+Committed state comes first because `origin` names the personal fork under
+GitHub's fork workflow, where the canonical repo is `upstream`. Reading the
+remote alone would resolve an EpiAware package's org to the fork owner
+whenever a contributor ran `update` in a fork clone, rewriting the repo slug,
+badge links, and the CODEOWNERS placeholder to their own account.
+
+Returns `nothing` when no source carries an org, leaving the caller on
+`$(repr(DEFAULT_ORG))`. An explicit `org` keyword still wins.
 """
 function _detect_org(target_dir::AbstractString)
+    readme = joinpath(target_dir, "README.md")
+    if isfile(readme)
+        text = read(readme, String)
+        si = findfirst(BADGES_START, text)
+        ei = findfirst(BADGES_END, text)
+        if si !== nothing && ei !== nothing && first(ei) > last(si)
+            # Only the managed block: package-owned prose elsewhere in the
+            # README may link at any number of unrelated repos.
+            m = match(
+                r"https://github\.com/([^/\s)]+)/[^/\s)]+/actions/workflows/",
+                text[(last(si) + 1):(first(ei) - 1)]
+            )
+            m === nothing || return String(something(m.captures[1]))
+        end
+    end
+    mk = joinpath(target_dir, "docs", "make.jl")
+    if isfile(mk)
+        m = match(r"\brepo\s*=\s*\"([^/\"]+)/[^\"]*\"", read(mk, String))
+        m === nothing || return String(something(m.captures[1]))
+    end
+    return _origin_org(target_dir)
+end
+
+# The owner segment of the target's `origin` git remote, or `nothing` when
+# there is no git repository, no `origin` remote, or the remote is not a
+# `github.com` HTTPS or SSH URL. Read-only and offline-tolerant like
+# `_gh_pages_cname`. This is `_detect_org`'s last resort: it reflects local
+# checkout state rather than anything the repo commits, so it is only
+# trustworthy before the first scaffold has written an org anywhere.
+function _origin_org(target_dir::AbstractString)
     url = try
-        strip(readchomp(Cmd(`git remote get-url origin`; dir = target_dir)))
+        # `stderr` is discarded because a target with no repository or no
+        # `origin` is an ordinary outcome here, not something to report.
+        strip(
+            readchomp(
+                pipeline(
+                    Cmd(`git remote get-url origin`; dir = target_dir);
+                    stderr = devnull
+                )
+            )
+        )
     catch
         return nothing
     end
@@ -1081,9 +1127,9 @@ into a template:
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
   - `org` — GitHub org (`{{ORG}}`). Default `nothing`, in which case it is
-    recovered from the target's `origin` git remote (`#434`), falling back
-    to `$(repr(DEFAULT_ORG))` when there is no such remote (e.g. a
-    never-`git init`'d target, or one with no `github.com` `origin`).
+    recovered from what the target commits — the managed README badges, then
+    `docs/make.jl` — and only then from its `origin` git remote, falling back
+    to `$(repr(DEFAULT_ORG))` when none of those carries an org.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1128,9 +1174,9 @@ function scaffold_inputs(
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
         docs_timeout::Union{Nothing, Integer} = nothing
     )
-    # Recover the org from the `origin` git remote so a package hosted
-    # outside EpiAware does not get `EpiAware` baked into its repo/badge
-    # links on a bare sync (#434).
+    # Recover the org from what the target already commits so a package
+    # hosted outside EpiAware does not get `EpiAware` baked into its
+    # repo/badge links on a bare sync.
     org = org === nothing ? something(_detect_org(target_dir), DEFAULT_ORG) :
         org
     # Recover the committed licence so a bare sync keeps a non-MIT adopter's
