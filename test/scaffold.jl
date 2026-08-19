@@ -1365,121 +1365,6 @@
             end
         end
 
-        @testset "_detect_org reads origin for an unscaffolded target" begin
-            using EpiAwarePackageTools: _detect_org
-            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
-            # Nothing scaffolded, so the remote is the only source. No git
-            # repo at all, or a git repo with no `origin` remote: nothing to
-            # recover from.
-            mktempdir() do dir
-                @test _detect_org(dir) === nothing
-                _run(dir, `git init -q -b main`)
-                @test _detect_org(dir) === nothing
-            end
-            # An HTTPS remote, with and without the `.git` suffix.
-            mktempdir() do dir
-                _run(dir, `git init -q -b main`)
-                _run(
-                    dir,
-                    `git remote add origin
-                    https://github.com/seabbs/EpiSewer.jl.git`
-                )
-                @test _detect_org(dir) == "seabbs"
-            end
-            mktempdir() do dir
-                _run(dir, `git init -q -b main`)
-                _run(
-                    dir,
-                    `git remote add origin
-                    https://github.com/seabbs/EpiSewer.jl`
-                )
-                @test _detect_org(dir) == "seabbs"
-            end
-            # An SSH remote.
-            mktempdir() do dir
-                _run(dir, `git init -q -b main`)
-                _run(
-                    dir,
-                    `git remote add origin
-                    git@github.com:seabbs/EpiSewer.jl.git`
-                )
-                @test _detect_org(dir) == "seabbs"
-            end
-            # A non-GitHub remote: not this kit's business to parse.
-            mktempdir() do dir
-                _run(dir, `git init -q -b main`)
-                _run(
-                    dir,
-                    `git remote add origin
-                    https://gitlab.com/seabbs/EpiSewer.jl.git`
-                )
-                @test _detect_org(dir) === nothing
-            end
-        end
-
-        @testset "scaffold_inputs derives org for an unscaffolded target" begin
-            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
-            mktempdir() do dir
-                _fake_pkg(dir; name = "EpiSewer")
-                _run(dir, `git init -q -b main`)
-                _run(
-                    dir,
-                    `git remote add origin
-                    https://github.com/seabbs/EpiSewer.jl.git`
-                )
-                # No `org` kwarg: recovered from the remote, not EpiAware.
-                inp = scaffold_inputs(dir)
-                @test inp.ORG == "seabbs"
-                @test inp.REPO == "seabbs/EpiSewer.jl"
-                # An explicit `org` still wins over the detected remote.
-                inp2 = scaffold_inputs(dir; org = "SomeOtherOrg")
-                @test inp2.ORG == "SomeOtherOrg"
-            end
-        end
-
-        @testset "committed org beats the origin remote in a fork clone" begin
-            using EpiAwarePackageTools: _detect_org, BADGES_START, BADGES_END
-            _run(dir, cmd) = run(Cmd(cmd; dir = dir))
-            # The fork workflow: `origin` is the contributor's own fork, the
-            # canonical repo is `upstream`. Running `update` there must keep
-            # the org the package already commits, not adopt the fork owner.
-            mktempdir() do dir
-                _fake_pkg(dir; name = "EpiSewer")
-                scaffold(dir; org = "EpiAware")
-                _run(dir, `git init -q -b main`)
-                _run(
-                    dir,
-                    `git remote add origin
-                    https://github.com/contributor/EpiSewer.jl.git`
-                )
-                _run(
-                    dir,
-                    `git remote add upstream
-                    https://github.com/EpiAware/EpiSewer.jl.git`
-                )
-                @test _detect_org(dir) == "EpiAware"
-                inp = scaffold_inputs(dir)
-                @test inp.ORG == "EpiAware"
-                @test inp.REPO == "EpiAware/EpiSewer.jl"
-                # The managed README badge block is the first source read;
-                # with it gone the managed `docs/make.jl` still carries the
-                # org, so the fork remote is still not consulted.
-                readme = joinpath(dir, "README.md")
-                text = read(readme, String)
-                si = findfirst(BADGES_START, text)
-                ei = findfirst(BADGES_END, text)
-                write(
-                    readme,
-                    text[1:(first(si) - 1)] * text[(last(ei) + 1):end]
-                )
-                @test _detect_org(dir) == "EpiAware"
-                # With both gone there is nothing committed left to read, so
-                # the remote is the only remaining source.
-                rm(joinpath(dir, "docs", "make.jl"))
-                @test _detect_org(dir) == "contributor"
-            end
-        end
-
         @testset "no managed template hardcodes a person or owner" begin
             # The templates are the source of truth; none may carry a literal
             # person/owner name. (The kit's own name `EpiAwarePackageTools` and the
@@ -4178,20 +4063,23 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `ad` + `benchmarks` + `downgrade_compat` values and is
-                # fully substituted (fresh package keeps downgrade-compat).
+                # own `org` + `ad` + `benchmarks` + `downgrade_compat` values
+                # and is fully substituted (fresh package keeps
+                # downgrade-compat).
                 sync = read(
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String
                 )
                 @test occursin(
-                    "update(\".\"; ad = false, benchmarks = false, " *
+                    "update(\".\"; org = \"EpiAware\", ad = false, " *
+                        "benchmarks = false, " *
                         "downgrade_compat = true, " *
                         "unregistered_sources = false, " *
                         "freshen_reusable_refs = true)", sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
+                @test !occursin("{{ORG}}", sync)
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{BENCHMARKS}}", sync)
                 @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
@@ -4200,6 +4088,32 @@
                 res = update(dir; ad = false)
                 @test _dest(dir, ".github/workflows/template-sync.yaml") in
                     res.updated
+            end
+        end
+
+        @testset "a package outside EpiAware keeps its org on a sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, org = "epiforecasts")
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("epiforecasts/Wombat.jl", readme)
+                @test !occursin("EpiAware/Wombat.jl", readme)
+                # A bare `update(".")` would leave `org` on the kit default
+                # and rewrite every repo URL back to EpiAware on each weekly
+                # run, so the sync states the owner it was scaffolded with.
+                sync = read(
+                    _dest(dir, ".github/workflows/template-sync.yaml"),
+                    String
+                )
+                @test occursin(
+                    "update(\".\"; org = \"epiforecasts\", ad = false,", sync
+                )
+                # The local re-apply the drift issue prints names it too, so
+                # following those steps does not revert the owner either.
+                @test occursin("update(\".\"; org = \"epiforecasts\",\n", sync)
+                # Running what the sync runs leaves the owner untouched.
+                update(dir; org = "epiforecasts", ad = false)
+                @test read(joinpath(dir, "README.md"), String) == readme
             end
         end
 
@@ -4288,7 +4202,8 @@
                 # bare `update(".")` defaults `ad` to true, so on an
                 # `ad = false` package the documented fix would seed AD infra
                 # the package does not want and leave it still drifted.
-                @test occursin("update(\".\"; ad = false,", sync)
+                @test occursin("update(\".\"; org = \"EpiAware\",", sync)
+                @test occursin("ad = false, benchmarks = false,", sync)
                 @test !occursin("update(\".\")'", sync)
                 # A clean run closes the issue again, so a stale tracker never
                 # outlives the drift it reported.

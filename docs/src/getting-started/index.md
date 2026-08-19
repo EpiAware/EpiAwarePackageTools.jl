@@ -28,6 +28,9 @@ scaffold(pkgdir(MyPackage))
 
 # A tooling / non-numerical package opts out of the AD infrastructure.
 scaffold(pkgdir(MyTooling); ad = false)
+
+# A package hosted outside the EpiAware org names its owner.
+scaffold(pkgdir(MyPackage); org = "epiforecasts")
 ```
 
 `scaffold` writes the managed standard files (CI callers, the docs build,
@@ -36,6 +39,9 @@ package-owned skeletons (the package's own unit tests, QA config values, AD
 scenarios, `LICENSE`, and the docs source pages you are reading now).
 Managed files are overwritten on every sync; package-owned files are written
 once and left for you to edit.
+
+`org` sets the owner in every generated repo URL, so a package hosted elsewhere gets its own badge, docs and workflow links.
+`scaffold` writes the value into the generated `template-sync.yaml`, which passes it back to `update` on each scheduled sync, so the owner is stated once and holds.
 
 ## Keeping a package in sync
 
