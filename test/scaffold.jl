@@ -4063,20 +4063,23 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `ad` + `benchmarks` + `downgrade_compat` values and is
-                # fully substituted (fresh package keeps downgrade-compat).
+                # own `org` + `ad` + `benchmarks` + `downgrade_compat` values
+                # and is fully substituted (fresh package keeps
+                # downgrade-compat).
                 sync = read(
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String
                 )
                 @test occursin(
-                    "update(\".\"; ad = false, benchmarks = false, " *
+                    "update(\".\"; org = \"EpiAware\", ad = false, " *
+                        "benchmarks = false, " *
                         "downgrade_compat = true, " *
                         "unregistered_sources = false, " *
                         "freshen_reusable_refs = true)", sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
+                @test !occursin("{{ORG}}", sync)
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{BENCHMARKS}}", sync)
                 @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
@@ -4085,6 +4088,32 @@
                 res = update(dir; ad = false)
                 @test _dest(dir, ".github/workflows/template-sync.yaml") in
                     res.updated
+            end
+        end
+
+        @testset "a package outside EpiAware keeps its org on a sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, org = "epiforecasts")
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("epiforecasts/Wombat.jl", readme)
+                @test !occursin("EpiAware/Wombat.jl", readme)
+                # A bare `update(".")` would leave `org` on the kit default
+                # and rewrite every repo URL back to EpiAware on each weekly
+                # run, so the sync states the owner it was scaffolded with.
+                sync = read(
+                    _dest(dir, ".github/workflows/template-sync.yaml"),
+                    String
+                )
+                @test occursin(
+                    "update(\".\"; org = \"epiforecasts\", ad = false,", sync
+                )
+                # The local re-apply the drift issue prints names it too, so
+                # following those steps does not revert the owner either.
+                @test occursin("update(\".\"; org = \"epiforecasts\",\n", sync)
+                # Running what the sync runs leaves the owner untouched.
+                update(dir; org = "epiforecasts", ad = false)
+                @test read(joinpath(dir, "README.md"), String) == readme
             end
         end
 
@@ -4173,7 +4202,8 @@
                 # bare `update(".")` defaults `ad` to true, so on an
                 # `ad = false` package the documented fix would seed AD infra
                 # the package does not want and leave it still drifted.
-                @test occursin("update(\".\"; ad = false,", sync)
+                @test occursin("update(\".\"; org = \"EpiAware\",", sync)
+                @test occursin("ad = false, benchmarks = false,", sync)
                 @test !occursin("update(\".\")'", sync)
                 # A clean run closes the issue again, so a stale tracker never
                 # outlives the drift it reported.

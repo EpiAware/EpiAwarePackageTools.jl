@@ -1053,7 +1053,9 @@ into a template:
     `name`. The package UUID (`{{UUID}}`) is read from `Project.toml` `uuid`.
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
-  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`.
+  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Pass the
+    owning org for a package hosted elsewhere; the managed `template-sync.yaml`
+    carries it into the scheduled [`update`](@ref) so it survives a resync.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -4750,7 +4752,11 @@ the one exception: it is seeded when absent, because the managed "How to cite"
 section links to it on every sync and an adopter predating citation seeding
 would otherwise carry a link `update` could never make resolve (#322).
 Placeholder inputs resolve exactly as in [`scaffold`](@ref); pass the same
-overrides to keep substitution stable across a sync.
+overrides to keep substitution stable across a sync. `org` is the one that
+cannot be left to its default by a package hosted elsewhere, so the managed
+`template-sync.yaml` writes the scaffolded value into its own `update` call
+and the scheduled sync re-passes it. Scaffold a package outside the EpiAware
+org with `org = "<owner>"` and every later sync keeps that owner.
 
 `ad` must match the value the package was scaffolded with (default `true`).
 `benchmarks`, `downgrade_compat` and `unregistered_sources` all default to
