@@ -9,6 +9,10 @@ name: AD
 # single source of truth) rather than left to the reusable's own default,
 # so the CI matrix can never drift from the badges/codecov flags this
 # package generates.
+#
+# `timeout_minutes` is passed only when the package sets `ad_timeout`, so a
+# package whose slowest backend runs close to the reusable's own cap can
+# raise it while every other package keeps the default.
 
 on:
   push:
@@ -37,4 +41,4 @@ jobs:
     uses: {{ORG}}/.github/.github/workflows/ad.yml@42a0501ccacefbfc2f2eeca640714a19c50bfe58
     with:
       backends: '{{AD_BACKENDS_JSON}}'
-    secrets: inherit  # pragma: allowlist secret
+{{AD_TIMEOUT_LINE}}    secrets: inherit  # pragma: allowlist secret

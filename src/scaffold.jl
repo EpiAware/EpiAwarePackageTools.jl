@@ -1079,6 +1079,13 @@ into a template:
     block so the reusable's own default (45 min) applies. A package-owned
     `with:` block hand-added to `document.yaml` survives a resync (see
     `_preserve_caller_with_inputs`).
+  - `ad_timeout` — an optional per-backend job timeout in minutes for the
+    managed `ad.yaml` caller. Default `nothing`, which passes no
+    `timeout_minutes` so the reusable's own cap applies. Set it when a
+    package's slowest AD backend runs close to that cap. The value written
+    into the caller's `with:` block survives a later resync that does not
+    re-pass it (see `_preserve_caller_with_inputs`). The reusable ref the
+    caller is pinned to must declare a `timeout_minutes` input.
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -1096,7 +1103,8 @@ function scaffold_inputs(
         docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
-        docs_timeout::Union{Nothing, Integer} = nothing
+        docs_timeout::Union{Nothing, Integer} = nothing,
+        ad_timeout::Union{Nothing, Integer} = nothing
     )
     # Recover the committed licence so a bare sync keeps a non-MIT adopter's
     # badge instead of resetting it to the default (#235).
@@ -1213,6 +1221,7 @@ function scaffold_inputs(
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
         DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
+        AD_TIMEOUT_LINE = _ad_timeout_line(ad_timeout),
         DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir),
@@ -3029,6 +3038,20 @@ function _docs_timeout_with(docs_timeout::Union{Nothing, Integer})
             repr(docs_timeout)
     )
     return string("    with:\n      timeout_minutes: ", docs_timeout, "\n")
+end
+
+# The optional `timeout_minutes:` input on the managed `ad.yaml` caller. Empty
+# by default, so the reusable applies its own cap. Unlike `document.yaml` the
+# AD caller always renders a `with:` block for `backends`, so this is the key
+# line alone rather than the block. A package can equally hand-add the key,
+# which `_preserve_caller_with_inputs` keeps across `update()`.
+function _ad_timeout_line(ad_timeout::Union{Nothing, Integer})
+    ad_timeout === nothing && return ""
+    ad_timeout > 0 || error(
+        "ad_timeout must be a positive integer (minutes), got " *
+            repr(ad_timeout)
+    )
+    return string("      timeout_minutes: ", ad_timeout, "\n")
 end
 
 # A license-badge cell for an SPDX identifier (label, shields colour, and the

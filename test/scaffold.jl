@@ -3841,6 +3841,32 @@
             end
         end
 
+        @testset "ad_timeout sets the per-backend AD job timeout" begin
+            using EpiAwarePackageTools: _ad_timeout_line
+            # No timeout -> no key, so the reusable's own cap applies.
+            @test _ad_timeout_line(nothing) == ""
+            @test occursin("timeout_minutes: 90", _ad_timeout_line(90))
+            @test_throws ErrorException _ad_timeout_line(0)
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = true)  # default: no explicit timeout
+                ad = _dest(dir, ".github/workflows/ad.yaml")
+                # The caller's header names the input; what must be absent
+                # is the key itself.
+                @test !occursin(r"^\s*timeout_minutes:"m, read(ad, String))
+                # Setting ad_timeout adds the key to the caller's existing
+                # `with:` block, alongside the managed `backends`.
+                scaffold(dir; force = true, ad = true, ad_timeout = 120)
+                txt = read(ad, String)
+                @test occursin("backends:", txt)
+                @test occursin("timeout_minutes: 120", txt)
+                # A bare resync (never re-passes ad_timeout) keeps it, by
+                # the package-owned with:-block mechanism.
+                update(dir)
+                @test occursin("timeout_minutes: 120", read(ad, String))
+            end
+        end
+
         @testset "update preserves a with: block documented by comments (#117)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
