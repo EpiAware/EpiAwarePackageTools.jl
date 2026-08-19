@@ -1,0 +1,129 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+name: Version PR Reaper
+
+# Closes an auto-increment PR, and deletes its branch, once the package
+# version on main has reached or passed the version the PR proposes. An
+# auto-increment PR goes stale when a release lands by another route, or
+# a later bump overtakes a pending one: the PR proposing the older
+# version has nothing left to do.
+#
+# Runs on every push to main, so a landed release reaps what it
+# supersedes straight away, and weekly on a schedule to catch a version
+# that moved by a route that does not push to main. `workflow_dispatch`
+# allows an on-demand run, with `dry_run` to preview without closing or
+# deleting anything.
+#
+# A separate workflow rather than a job bolted onto
+# `auto-version-increment.yaml`: the two share no state (this reads
+# `Project.toml` and open PRs, that one only pushes a branch), the
+# trigger sets differ (this one also runs on a schedule), and keeping
+# them apart means a failure reaping old PRs can never block the
+# workflow that proposes new ones, or the other way round.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 05:00 UTC -- between template-sync's Monday 04:00
+    # and release-nudge's Monday 06:00 UTC runs so the three scheduled
+    # jobs don't contend for runners.
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print what would be closed without changing anything'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  reap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Reap stale auto-increment PRs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # A pre-release/build suffix should never reach main, but strip
+          # one defensively rather than let it break the numeric compare
+          # below.
+          CURRENT_VERSION=$(grep '^version = ' Project.toml \
+            | sed 's/version = "\(.*\)"/\1/')
+          CURRENT_VERSION="${CURRENT_VERSION%%[-+]*}"
+          echo "Current version: $CURRENT_VERSION"
+
+          # A single sortable integer so 0.10.0 compares above 0.9.0,
+          # which plain string or float comparison gets wrong.
+          semver_key() {
+            local major minor patch
+            IFS='.' read -r major minor patch <<< "$1"
+            printf '%d%06d%06d' "$major" "$minor" "$patch"
+          }
+          CURRENT_KEY=$(semver_key "$CURRENT_VERSION")
+
+          # Only the exact prefix the increment-version action writes.
+          PRS=$(gh pr list --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName
+              | startswith("auto/version-increment-"))')
+
+          if [ -z "$PRS" ]; then
+            echo "No open auto-increment PRs."
+            exit 0
+          fi
+
+          echo "$PRS" | jq -c '.' | while read -r pr; do
+            NUMBER=$(echo "$pr" | jq -r '.number')
+            BRANCH=$(echo "$pr" | jq -r '.headRefName')
+            PROPOSED="${BRANCH#auto/version-increment-}"
+
+            if ! [[ "$PROPOSED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "PR #$NUMBER's branch $BRANCH doesn't carry a plain" \
+                "semver suffix. Leaving it alone."
+              continue
+            fi
+
+            PROPOSED_KEY=$(semver_key "$PROPOSED")
+            if [ "$PROPOSED_KEY" -gt "$CURRENT_KEY" ]; then
+              echo "PR #$NUMBER proposes $PROPOSED, ahead of current" \
+                "$CURRENT_VERSION. Leaving it open."
+              continue
+            fi
+
+            # Only a throwaway version bump is safe to close: if someone
+            # has built on the branch, closing it would discard real
+            # work.
+            FILES=$(gh pr view "$NUMBER" --json files --jq '.files[].path')
+            if [ "$FILES" != "Project.toml" ]; then
+              echo "PR #$NUMBER proposes $PROPOSED (<= $CURRENT_VERSION)" \
+                "but its diff touches more than Project.toml. Someone" \
+                "has built on $BRANCH: skipping."
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[dry run] would close PR #$NUMBER ($PROPOSED <=" \
+                "$CURRENT_VERSION, Project.toml only) and delete $BRANCH."
+              continue
+            fi
+
+            echo "Closing PR #$NUMBER ($PROPOSED <= $CURRENT_VERSION," \
+              "Project.toml only) and deleting $BRANCH."
+            gh pr close "$NUMBER" --comment \
+              "Superseded: the package is already at $CURRENT_VERSION."
+            git push origin --delete "$BRANCH"
+          done

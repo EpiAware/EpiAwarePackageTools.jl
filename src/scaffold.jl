@@ -183,6 +183,12 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/actions/increment-version/action.yaml",
         ".github/actions/increment-version/action.yaml", true, true
     ),
+    # Closes an auto-increment PR, and deletes its branch, once the
+    # package version on main reaches or passes what the PR proposes.
+    Template(
+        ".github/workflows/version-pr-reaper.yaml",
+        ".github/workflows/version-pr-reaper.yaml", true, false
+    ),
 
     # NOTE: the org-level community health files are not scaffolded. GitHub
     # serves them org-wide from EpiAware/.github to any repo lacking its own

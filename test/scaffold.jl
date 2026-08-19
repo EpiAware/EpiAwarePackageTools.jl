@@ -4264,6 +4264,7 @@
                         ".github/workflows/auto-version-increment.yaml",
                         ".github/workflows/version-on-demand.yaml",
                         ".github/actions/increment-version/action.yaml",
+                        ".github/workflows/version-pr-reaper.yaml",
                     )
                     @test isfile(joinpath(dir, f))
                 end
@@ -4324,6 +4325,56 @@
                 # A `gh pr create` output that cannot be parsed for a PR
                 # number fails loudly rather than silently.
                 @test occursin("Could not parse a PR number", act)
+            end
+        end
+
+        @testset "version PR reaper workflow" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                wf = read(
+                    _dest(dir, ".github/workflows/version-pr-reaper.yaml"),
+                    String
+                )
+
+                # Triggered by a landed release (push to main), a schedule
+                # for versions that moved by another route, and an on-demand
+                # dry run.
+                @test occursin("branches: [main]", wf)
+                @test occursin("cron: '0 5 * * 1'", wf)
+                @test occursin("workflow_dispatch:", wf)
+                @test occursin("dry_run:", wf)
+
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                @test occursin("contents: write", wf)
+                @test occursin("pull-requests: write", wf)
+
+                # Only the exact prefix the increment-version action writes.
+                @test occursin(
+                    "startswith(\"auto/version-increment-\")", wf
+                )
+
+                # Compares as semver, not as a string or a float, so 0.10.0
+                # sorts above 0.9.0.
+                @test occursin("semver_key", wf)
+                @test occursin("PROPOSED_KEY\" -gt \"\$CURRENT_KEY", wf)
+
+                # Only a diff touching Project.toml alone is a throwaway
+                # version bump safe to close.
+                @test occursin("\$FILES\" != \"Project.toml", wf)
+
+                # A dry run prints the decision without closing or deleting
+                # anything.
+                @test occursin("DRY_RUN", wf)
+                @test occursin("[dry run] would close", wf)
+                @test occursin("gh pr close", wf)
+                @test occursin("git push origin --delete", wf)
+
+                # No kit placeholder remains (GitHub `${{ }}` expressions
+                # stay).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", wf)
             end
         end
 
