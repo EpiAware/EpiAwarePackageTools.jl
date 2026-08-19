@@ -4280,6 +4280,60 @@
             end
         end
 
+        @testset "auto-version-increment robustness (#457)" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                wf = read(
+                    _dest(dir, ".github/workflows/auto-version-increment.yaml"),
+                    String
+                )
+                # Batched merges to main used to race: each run read the same
+                # Project.toml and pushed the same branch, so the first run
+                # won and the rest failed non-fast-forward (#1). Queued
+                # rather than cancelled, unlike most managed workflows, so a
+                # queued run still observes the version the previous one
+                # landed.
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                @test occursin("cancel-in-progress: false", wf)
+
+                act = read(
+                    _dest(
+                        dir,
+                        ".github/actions/increment-version/action.yaml"
+                    ), String
+                )
+                # A stale branch for a version no longer blocks the push
+                # permanently (#2): the push is leased against the SHA
+                # observed by `git ls-remote`, not inferred from a PR-title
+                # search that misses a branch whose PR was closed or never
+                # created (#4).
+                @test occursin("git ls-remote origin", act)
+                @test occursin("force-with-lease=", act)
+                @test !occursin("in:title", act)
+                @test occursin("gh pr list --state open --head", act)
+                # The direct-commit fallback used to be gated on
+                # `create-pr == 'false'` alone, a configuration choice, not a
+                # fallback: `gh pr create` failing (e.g. the org disallows
+                # Actions opening PRs, #449) skipped the direct-commit path
+                # that exists specifically for that case (#3). Now it is also
+                # reachable when the create step's outcome was failure, while
+                # still serving the deliberate create-pr=false configuration
+                # `version-on-demand.yaml` uses.
+                @test occursin("continue-on-error: true", act)
+                @test occursin(
+                    "inputs.create-pr == 'false' || " *
+                        "steps.create-pr.outcome == 'failure'",
+                    act
+                )
+                # A masked grep failure used to hide the real `gh pr create`
+                # error behind an opaque exit code ("Also" in #457).
+                @test occursin("Could not parse a PR number", act)
+            end
+        end
+
         @testset "docs build reproduces CD (Literate + citations + helpers)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

@@ -5,6 +5,16 @@ on:
   push:
     branches: [main]
 
+# Batched merges to main fire this workflow several times within minutes;
+# without a group, each run reads the same Project.toml, computes the same
+# next version, and races to push the same branch (#457). Not
+# cancel-in-progress: true like most managed workflows (see
+# `benchmark-history.yaml`): cancelling a queued run here would make it skip
+# observing the version the previous run just landed, so runs queue instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   check-version:
     runs-on: ubuntu-latest
