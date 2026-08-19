@@ -6480,3 +6480,33 @@ end
         end
     end
 end
+
+# `update` reports a retired name found in a package's own prose, but it only
+# reads the package's files. A retired name in one of the kit's templates is
+# written into every adopter on each sync, and the adopter cannot correct it
+# because the next sync reverts the edit, so the templates are held to the
+# same standard here.
+@testitem "templates name no retired tool or path" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: RETIRED_PATHS, RETIRED_PROSE,
+        _PROSE_OK_MARKER, _templates_dir
+
+    terms = vcat(RETIRED_PATHS, [e.term for e in RETIRED_PROSE])
+    root = _templates_dir()
+    hits = String[]
+    for (dir, _, names) in walkdir(root), name in names
+        path = joinpath(dir, name)
+        text = read(path, String)
+        # A template that names a retired tool to explain the retirement
+        # opts out the same way package-owned prose does.
+        (isvalid(text) && !occursin(_PROSE_OK_MARKER, text)) || continue
+        for term in terms
+            occursin(term, text) &&
+                push!(hits, string(relpath(path, root), ": ", term))
+        end
+    end
+    # Compared against the empty vector rather than asserted empty, so a
+    # failure names the file and the term.
+    @test sort(hits) == String[]
+end
