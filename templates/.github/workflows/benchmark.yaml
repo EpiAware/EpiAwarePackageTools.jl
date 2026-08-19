@@ -89,7 +89,7 @@ jobs:
             Pkg.add([
                 Pkg.PackageSpec(name = "LocalRegistry"),
                 Pkg.PackageSpec(
-                    url = "https://github.com/{{WORKFLOWS_ORG}}/EpiAwarePackageTools.jl",
+                    url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
                     rev = "main")])
             using EpiAwarePackageTools.Benchmarks: bootstrap_sources_registry
             done = bootstrap_sources_registry(pwd())
@@ -139,7 +139,7 @@ jobs:
             Pkg.activate(; temp = true)
             Pkg.add([
                 Pkg.PackageSpec(
-                    url = "https://github.com/{{WORKFLOWS_ORG}}/EpiAwarePackageTools.jl",
+                    url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
                     rev = "main"),
                 Pkg.PackageSpec(name = "BenchmarkTools")])
             include("benchmark/compare.jl")' \

@@ -1344,11 +1344,9 @@
                     _dest(dir, ".github/workflows/test.yaml"),
                     String
                 )
-                # The package's own org names the repo (badges, docs, links)
-                # but never the reusable-workflow caller: the reusables live
-                # at EpiAware/.github regardless of the adopter's org,
-                # and `workflows_org` (default EpiAware, unaffected by
-                # `org`) is the input that would change it.
+                # `org` names the package's own repo, never the
+                # reusable-workflow caller: the reusables always come from
+                # EpiAware/.github.
                 @test !occursin("MyOrg/.github", test_yaml)
                 @test occursin(
                     "EpiAware/.github/.github/workflows/tests.yml",
@@ -1357,46 +1355,29 @@
             end
         end
 
-        @testset "workflows_org, not org, drives the reusable caller" begin
+        @testset "reusable callers stay at EpiAware for any org" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                # A package hosted outside EpiAware: its own org must name
-                # the repo/badges, but the reusable-workflow caller and the
-                # Code of Conduct link must still point at EpiAware/.github,
-                # which is where those actually live — substituting the
-                # adopter's org there would 404.
+                # A package hosted outside EpiAware: `org` names its repo,
+                # badges and community links, while every reusable-workflow
+                # caller resolves to EpiAware/.github, which is where the
+                # reusables are.
                 scaffold(dir; org = "seabbs", ad = false)
-                test_yaml = read(
-                    _dest(dir, ".github/workflows/test.yaml"),
-                    String
-                )
-                @test occursin(
-                    "EpiAware/.github/.github/workflows/tests.yml", test_yaml
-                )
-                @test !occursin("seabbs/.github", test_yaml)
+                for f in (
+                        ".github/workflows/test.yaml",
+                        ".github/workflows/document.yaml",
+                        ".github/workflows/codecoverage.yaml",
+                    )
+                    txt = read(_dest(dir, f), String)
+                    @test occursin("EpiAware/.github/.github/workflows/", txt)
+                    @test !occursin("seabbs/.github/.github/", txt)
+                end
                 readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("github.com/seabbs/Wombat.jl", readme)
                 @test occursin(
-                    "https://github.com/EpiAware/.github/blob/main/" *
+                    "https://github.com/seabbs/.github/blob/main/" *
                         "CODE_OF_CONDUCT.md",
                     readme
-                )
-                # `workflows_org` overrides the reusable-workflow org
-                # independently of `org`.
-                inp = scaffold_inputs(
-                    dir; org = "seabbs", workflows_org = "MyFork"
-                )
-                @test inp.ORG == "seabbs"
-                @test inp.WORKFLOWS_ORG == "MyFork"
-                scaffold(
-                    dir; org = "seabbs", workflows_org = "MyFork",
-                    ad = false
-                )
-                test_yaml2 = read(
-                    _dest(dir, ".github/workflows/test.yaml"),
-                    String
-                )
-                @test occursin(
-                    "MyFork/.github/.github/workflows/tests.yml", test_yaml2
                 )
             end
         end
@@ -3860,7 +3841,7 @@
             # is seeded from the same table.
             @test occursin(
                 "downgrade.yml@" * _seed_ref("downgrade.yml"),
-                _downgrade_compat_job("FakeOrg", true)
+                _downgrade_compat_job(true)
             )
             # No stale entry: every seed recorded is one a caller wraps.
             @test issetequal(
@@ -4307,12 +4288,9 @@
         end
 
         @testset "kit self-install stays at EpiAware for any org" begin
-            # benchmark.yaml and benchmark-history.yaml `Pkg.add` the kit
-            # itself to run its bundled helpers, and template-sync.yaml does
-            # the same through the rendered `SYNC_INSTALL`. The kit's own repo
-            # is always EpiAware/EpiAwarePackageTools.jl, regardless of which
-            # org the *adopting* package lives in, so these must not follow a
-            # custom `org`.
+            # The benchmark workflows and the rendered `SYNC_INSTALL` install
+            # the kit itself, which lives at EpiAware/EpiAwarePackageTools.jl
+            # whatever org the adopting package lives in.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; org = "seabbs", benchmarks = true)
@@ -6247,13 +6225,12 @@ end
     # record their calls, so a test can assert none were made.
     function _stub_source(refs::Dict, ahead::Dict = Dict())
         calls = String[]
-        latest = function (_org, workflow)
+        latest = function (workflow)
             push!(calls, "latest:" * workflow)
-            push!(calls, "org:" * _org)
             return haskey(refs, workflow) ? refs[workflow] :
                 get(_REUSABLE_SEED_REFS, workflow, nothing)
         end
-        is_newer = function (_org, current, candidate)
+        is_newer = function (current, candidate)
             push!(calls, "is_newer:" * current * ":" * candidate)
             return get(ahead, (current, candidate), nothing)
         end
@@ -6303,15 +6280,14 @@ end
         end
     end
 
-    @testset "freshening queries the workflows org, not a custom org" begin
-        # The reusable workflows live at EpiAware/.github regardless of which
-        # org the package itself is hosted under, so freshening must resolve
-        # against "EpiAware" even when `org` is something else entirely.
+    @testset "freshening ignores the package's own org" begin
+        # The reusables live at EpiAware/.github whatever org the package
+        # itself sits in, so a custom `org` leaves the caller freshened.
         mktempdir() do dir
             _fake_pkg(dir)
             scaffold(dir; org = "SomeOtherOrg")
-            _pin_tests_caller(dir, committed)
-            source, calls = _stub_source(
+            caller = _pin_tests_caller(dir, committed)
+            source, _ = _stub_source(
                 Dict("tests.yml" => newest), Dict((committed, newest) => true)
             )
             with_logger(NullLogger()) do
@@ -6320,8 +6296,10 @@ end
                     ref_source = source
                 )
             end
-            @test "org:EpiAware" in calls
-            @test !("org:SomeOtherOrg" in calls)
+            txt = read(caller, String)
+            @test occursin(
+                "EpiAware/.github/.github/workflows/tests.yml@" * newest, txt
+            )
         end
     end
 
