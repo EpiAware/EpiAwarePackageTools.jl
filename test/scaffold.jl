@@ -5295,17 +5295,17 @@ end
         end
     end
 
-    @testset "workspace layout: root Manifest.toml is read (#430)" begin
+    @testset "workspace layout: root Manifest.toml is read" begin
         # The managed shape puts `test` in the root `[workspace] projects`,
         # so Pkg resolves it into the root Manifest.toml and
-        # `test/Manifest.toml` never exists. Judging availability off the
-        # (absent) `test/Manifest.toml` alone silently no-ops here, which is
-        # the bug: the warning never fires for any workspace-layout package.
+        # `test/Manifest.toml` never exists. The root manifest is therefore
+        # the availability oracle for a workspace-layout package.
         mktempdir() do dir
             mkpath(joinpath(dir, "test"))
             write(
                 joinpath(dir, "Project.toml"),
-                "name = \"Foo\"\n\n[workspace]\nprojects = [\"test\", \"docs\"]\n"
+                "name = \"Foo\"\n\n[workspace]\n" *
+                    "projects = [\"test\", \"docs\"]\n"
             )
             write(_p(dir, "test/Project.toml"), "[deps]\n")
             write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
@@ -5317,7 +5317,8 @@ end
             mkpath(joinpath(dir, "test"))
             write(
                 joinpath(dir, "Project.toml"),
-                "name = \"Foo\"\n\n[workspace]\nprojects = [\"test\", \"docs\"]\n"
+                "name = \"Foo\"\n\n[workspace]\n" *
+                    "projects = [\"test\", \"docs\"]\n"
             )
             write(_p(dir, "test/Project.toml"), "[deps]\n")
             write(joinpath(dir, "Manifest.toml"), _manifest(["LinearAlgebra"]))
@@ -5337,6 +5338,22 @@ end
             write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
             write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
             @test _undeclared_test_stdlibs(dir) == String[]
+        end
+        # Both manifests present and the workspace declares `test`: Pkg uses
+        # the subdir's own resolve, so `test/Manifest.toml` wins. The root
+        # manifest here would suppress the warning if it were read instead.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\n" *
+                    "projects = [\"test\", \"docs\"]\n"
+            )
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["LinearAlgebra"]))
+            write(_p(dir, "test/Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) == ["LinearAlgebra"]
         end
     end
 

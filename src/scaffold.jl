@@ -4530,7 +4530,7 @@ end
 # genuinely loadable and must not be flagged. The managed `[workspace]` shape
 # puts `test` in the root's `projects`, so the resolved manifest usually lives
 # at the repo root rather than `test/Manifest.toml`; `_workspace_manifest_path`
-# finds whichever one Pkg actually resolved into (#430). A Manifest is
+# finds whichever one Pkg actually resolved into. A Manifest is
 # gitignored, so it exists only in an instantiated env, which is where the
 # warning is actionable anyway. Without one, no warning: a missed hint in a
 # bare CI checkout buys zero false positives.
