@@ -1181,9 +1181,8 @@ function scaffold_inputs(
     # `[compat]` rather than pinning it by git `[sources]` (#361).
     kit_compat = is_kit ? "" : string(KIT_NAME, " = \"", KIT_COMPAT, "\"\n")
     # `test/ad/Project.toml`'s `[compat]` table always carries the
-    # TestItemRunner bound (kit#451); this is the kit's own line appended to
-    # it as a tail on the preceding (`TestItemRunner = "1.1 - 1.1"`) line,
-    # carrying its own leading newline and none at the end, so the template
+    # TestItemRunner bound, so the kit's own line is appended as a tail on
+    # that line, carrying its own leading newline and none at the end. That
     # keeps the single trailing newline pre-commit requires whichever way
     # this renders.
     kit_compat_section = is_kit ? "" :

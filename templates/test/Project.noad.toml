@@ -20,12 +20,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 # by `[sources]`, so carries no compat entry.
 # Add a bound for each test-only dep you add. No-AD variant: no AD-harness
 # deps appear.
-# TestItemRunner capped to the 1.1.x line: 1.2 changed the internal
-# `run_testitem` signature that `run_package_tests` depends on, so 1.2.x
-# fails every test item with a `MethodError` naming no package code
-# (kit#451). A bare `"1.1"` does not exclude 1.2.x here: Pkg's caret
-# semantics anchor on the major version once it is nonzero, so `"1.1"`
-# alone means `>= 1.1.0, < 2.0.0`. The hyphen range is the actual cap.
+# TestItemRunner is capped to 1.1.x: 1.2 breaks `run_package_tests`.
 [compat]
 Aqua = "0.8"
 BenchmarkTools = "1"

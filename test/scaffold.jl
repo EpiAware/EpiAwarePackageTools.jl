@@ -1206,19 +1206,9 @@
             end
         end
 
-        @testset "TestItemRunner is capped consistently across managed envs (#451)" begin
-            # TestItemRunner 1.2 changed the internal `run_testitem` signature
-            # that `run_package_tests` depends on, so any env able to resolve
-            # 1.2.x fails its entire suite with a `MethodError` naming no
-            # package code. `test/Project.toml` used to leave the bound wide
-            # open (`"1"`) while `test/ad/Project.toml` carried no bound at
-            # all — capped here so every managed env agrees and 1.2.x cannot
-            # resolve anywhere.
-            #
-            # A bare `"1.1"` would not do that: Pkg's caret semantics anchor
-            # on the major version once it is nonzero, so `"1.1"` alone means
-            # `>= 1.1.0, < 2.0.0` and still admits 1.2.x. The hyphen range is
-            # the actual cap, checked directly below rather than trusted.
+        @testset "TestItemRunner is capped across managed envs" begin
+            # TestItemRunner 1.2 breaks `run_package_tests`; the hyphen range
+            # excludes it where a bare `"1.1"` would not.
             bound = "1.1 - 1.1"
             spec = Pkg.Types.semver_spec(bound)
             @test v"1.1.0" in spec
@@ -1242,7 +1232,7 @@
                     bound
             end
             # The kit's own test env is hand-maintained, not scaffolded, so
-            # it can't silently drift back open either.
+            # it needs the same bound.
             own = Pkg.TOML.parsefile(
                 joinpath(pkgdir(EpiAwarePackageTools), "test", "Project.toml")
             )
