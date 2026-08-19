@@ -93,6 +93,11 @@ build_docs(
     # consts still builds -- just without that page rendered.
     heavy_benchmarks = _cfg(:HEAVY_BENCHMARKS, String[]),
     benchmark_stubs = _cfg(:BENCHMARK_STUBS, Pair{String, String}[]),
+    # Where the AD-comparison page's pre-computed per-backend benchmark
+    # artefacts are, when this package's CI produces them. `nothing` for a
+    # `docs_config.jl` without the const, and for every package that has not
+    # opted in, which leaves the page measuring live.
+    ad_benchmark_artifacts_dir = _cfg(:AD_BENCHMARK_ARTIFACTS_DIR, nothing),
     linkcheck_ignore = _cfg(:LINKCHECK_IGNORE, Regex[]),
     index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
     readme_execute = _cfg(:README_EXECUTE, true),

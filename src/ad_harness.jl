@@ -76,17 +76,16 @@ end
 
 _entry(reg, name) = only(filter(e -> e.name == name, _backends(reg)))
 
-# --- per-backend benchmark artefact (#443) ---------------------------------
+# --- per-backend benchmark artefact -----------------------------------------
 #
-# The scaffolded AD-comparison docs page can render pre-computed per-backend
-# benchmark results instead of measuring every (backend, scenario) pair during
+# The scaffolded AD-comparison docs page renders pre-computed per-backend
+# benchmark results rather than measuring every (backend, scenario) pair during
 # the docs build, which for a large registry costs the whole AD matrix run
-# serially in one process. The measurements are produced by
-# [`benchmark_backend`](@ref), from its own CI job — a separate matrix leg
-# from the one [`test_working_backend`](@ref) runs correctness in, and
-# deliberately so: that job runs `--code-coverage=user`, and a timing taken
-# under coverage instrumentation is not a benchmark. Splitting the leg also
-# means benchmarking adds no time to the job the coverage gate waits on.
+# serially in one process. [`benchmark_backend`](@ref) produces them from its
+# own CI leg, separate from the one [`test_working_backend`](@ref) runs
+# correctness in: that job runs `--code-coverage=user`, and a timing taken
+# under coverage instrumentation is not a benchmark. A separate leg also keeps
+# benchmarking off the job the coverage gate waits on.
 
 # JSON string escaping. The artefact schema is fixed and two levels deep, so it
 # is written directly rather than through a JSON package: the AD test
@@ -263,8 +262,7 @@ registry's `scenarios` call, e.g. a package's own scenario-group selector
 
 This never benchmarks: it runs in the coverage-instrumented per-backend CI job,
 where a timing would not be a benchmark. See [`benchmark_backend`](@ref) for
-the separate, uninstrumented producer of the AD-comparison page's numbers
-(#443).
+the separate, uninstrumented producer of the AD-comparison page's numbers.
 
 `DifferentiationInterface` and `DifferentiationInterfaceTest` must be loaded.
 """
@@ -298,7 +296,7 @@ end
         benchmark_seconds = 0.5, tag = nothing)
 
 Benchmark a working backend and write the per-backend JSON artefact the
-scaffolded AD-comparison docs page renders instead of measuring live (#443).
+scaffolded AD-comparison docs page renders.
 
 Runs `DifferentiationInterfaceTest.benchmark_differentiation` over the same
 scenario split [`test_working_backend`](@ref) tests correctness on (excluding

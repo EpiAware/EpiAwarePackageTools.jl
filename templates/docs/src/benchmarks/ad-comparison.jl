@@ -14,13 +14,13 @@
 #src `@ref ad-backends` anchor, so that anchor now lives on the "Choosing a
 #src backend" section below and must stay there.
 #src
-#src Where the numbers come from is set by `AD_BENCHMARK_ARTIFACTS_DIR` (kit
-#src #443): unset, the page measures every (backend, scenario) pair itself, as
-#src it always did; set, it reads per-backend JSON artefacts measured by CI and
-#src never measures live, because falling back would reinstate the cost the
-#src split exists to avoid. The docs build exports it from the package-owned
-#src `AD_BENCHMARK_ARTIFACTS_DIR` in `docs/docs_config.jl`, and CI may set it
-#src directly. Reading, aggregating and reporting gaps in that data is
+#src Where the numbers come from is set by `AD_BENCHMARK_ARTIFACTS_DIR`:
+#src unset, the page measures every (backend, scenario) pair itself; set, it
+#src reads per-backend JSON artefacts measured by CI and never measures live,
+#src because falling back would reinstate the cost the split exists to avoid.
+#src The docs build exports it from the package-owned const of that name in
+#src `docs/docs_config.jl`, and CI may set it directly. Reading, aggregating
+#src and reporting gaps in that data is
 #src `EpiAwarePackageTools.load_ad_benchmarks`/`ad_benchmark_note`, so it is
 #src unit tested in the kit rather than only exercised by a docs build.
 #src
@@ -155,10 +155,9 @@ md"""
 ## Where the numbers come from. The docs build sets
 ## `AD_BENCHMARK_ARTIFACTS_DIR` from the package-owned const of that name in
 ## `docs/docs_config.jl`, and CI may set it directly. Unset, the page measures
-## live below, as it always did. Set, the page reads the per-backend JSON
-## artefacts and never measures live: falling back to measuring would reinstate
-## the cost of running the whole AD matrix serially in this one process, which
-## is what moving the measurements into CI exists to avoid.
+## live below. Set, the page reads the per-backend JSON artefacts and never
+## measures live: falling back to measuring would mean running the whole AD
+## matrix serially in this one process, the cost the CI split avoids.
 artifact_dir = get(ENV, "AD_BENCHMARK_ARTIFACTS_DIR", "")
 artifacts = if isempty(artifact_dir)
     nothing
@@ -203,8 +202,8 @@ function measure_backends()
     end
 end
 
-## Both paths land on the same four columns, so everything below is unchanged
-## by which one ran. The artefact rows are already filtered to gradients and
+## Both paths land on the same four columns, so everything below is the same
+## whichever one ran. The artefact rows are already filtered to gradients and
 ## converted to microseconds and kibibytes by the job that measured them.
 bench_long = artifacts === nothing ? measure_backends() :
     DataFrame(artifacts.rows)

@@ -79,62 +79,16 @@ the sync cannot edit it.
 
 ### [Where the page's numbers come from](@id ad-benchmark-artifacts)
 
-By default the page measures every (backend, scenario) pair itself while the
-docs build runs.
-That is fine for a small registry and stops being fine for a large one.
-The page pays each backend's full preparation cost, recording a ReverseDiff
-tape or compiling an Enzyme or Mooncake rule, with no parallelism between
-backends, so the total is the package's whole AD matrix run one job after
-another in a single process.
-At seven backends that no longer fits in a documentation job.
+Each backend is benchmarked in its own CI run, on its own leg of the AD matrix,
+with no coverage instrumentation.
+Each run writes one JSON file, and the docs build renders those files rather
+than measuring anything.
 
-The alternative is to measure in CI, one job per backend as the gradient matrix
-already does, and have each job upload a small JSON file the page reads.
-
-### Producing the artefacts
-
-Measuring does not ride on the per-backend gradient job, in either look or timing.
-It runs in its own job, on its own matrix leg, uninstrumented.
-An earlier design measured inside the correctness job instead, on the same `test_differentiation` call, to reuse the loaded backend and compiled scenarios.
-That job runs `--code-coverage=user`.
-Every timing it could produce there would be an instrumented one, not a benchmark.
-The extra prepare-and-measure work also pushed some backends close to the job's CI timeout.
-
-The managed `ad.yaml` matrix is `backend x leg`, `leg` being `test` (unchanged: correctness, coverage, the per-backend codecov flag) or `bench` (no coverage, no codecov, its own `timeout-minutes`).
-The `bench` leg runs `test/ad/benchmark.jl`, a thin wrapper over [`benchmark_backend`](@ref).
-It benchmarks the same scenario split [`test_working_backend`](@ref) tests correctness on, excluding global, per-backend and skipped scenarios the same way.
-It writes `ad-bench-<tag>.json` from the registry's backend label, the `_AD_BACKENDS` CI tag, and DIT's measured times and allocations.
-
-The `bench` leg runs on a push to `main`, on `workflow_dispatch`, and on a PR carrying a `benchmark` label.
-A PR with none of those triggers no extra cost.
-Its artefacts publish to the `benchmarks` branch (the same branch `benchmark-history.yaml` already deploys to), under `ad/latest/` for a `main` push and `ad/previews/PR<N>/` for a labelled or dispatched PR run.
-A managed `benchmark-preview-cleanup.yaml` caller clears a PR's preview directory when it closes, mirroring `docpreviewcleanup.yaml` for `gh-pages`.
-
-`test/ad/Project.toml` is package-owned and write-once.
-A package scaffolded before this existed adds `Chairmarks` to it itself to opt in.
-See [`benchmark_backend`](@ref) for why DIT needs it loaded.
-
-### Consuming them
-
-Point the build at a directory of those files and it renders them instead of
-measuring anything:
-
-```julia
-# docs/docs_config.jl
-const AD_BENCHMARK_ARTIFACTS_DIR = "ad-benchmarks"
-```
-
-A relative path is `docs/`-relative.
-The `AD_BENCHMARK_ARTIFACTS_DIR` environment variable overrides the const, so
-CI can name a download location without touching the package-owned config, and
-so a local build can read published numbers rather than measuring:
-
-```
-AD_BENCHMARK_ARTIFACTS_DIR=docs/ad-benchmarks julia --project=docs docs/make.jl
-```
-
-One file per backend, holding the same per-scenario figures the page computes
-itself:
+The bench leg runs `test/ad/benchmark.jl`, a thin wrapper over
+[`benchmark_backend`](@ref).
+It measures the same scenarios [`test_working_backend`](@ref) checks for
+correctness, so a broken or skipped scenario is left out of both.
+It writes `ad-bench-<tag>.json`:
 
 ```json
 {
@@ -146,38 +100,50 @@ itself:
 }
 ```
 
-`backend` must be the registry's own label, since that is what the page joins
-on to decide which backends it is missing.
-Files are read recursively, so `actions/download-artifact` landing each
-artefact in its own subdirectory needs no flattening.
+`backend` is the registry's own label, which is what the page joins on.
 
-Setting either the const or the variable is a one-way switch: the page then
-never measures live, because falling back would reinstate exactly the cost the
-split exists to avoid.
-What it does instead is say what it has.
+The leg runs on a push to `main`, on `workflow_dispatch`, and on a pull request
+labelled `benchmark`, so an ordinary pull request costs nothing extra.
+Artefacts publish to the `benchmarks` branch, under `ad/latest/` for a `main`
+push and `ad/previews/PR<N>/` for a pull request.
+A managed `benchmark-preview-cleanup.yaml` caller clears a pull request's
+preview directory when it closes.
+The leg needs `Chairmarks` in `test/ad/Project.toml`, which is package-owned,
+so a package whose AD environment lacks it adds it by hand.
 
-- Neither set: the page measures live, which is what every package that has not
-  opted in keeps doing.
-- Set, with no artefacts found: the page renders and states that no
-  measurements are available. This is the normal state of a documentation
-  preview raised before the benchmark jobs have finished, not a failure.
-- Set, with some backends missing: the page renders the backends it has and
-  names the ones it does not, as backends nothing was published for. A gap can
-  mean a failed or unfinished job, or a CI matrix naming a backend the registry
-  does not declare, so the note says that rather than making a coverage claim
-  about the backend.
-- A corrupt or unparseable file: skipped and named, with the rest of the page
+Point the docs build at a directory of artefacts:
+
+```julia
+# docs/docs_config.jl
+const AD_BENCHMARK_ARTIFACTS_DIR = "ad-benchmarks"
+```
+
+A relative path resolves against `docs/`.
+The `AD_BENCHMARK_ARTIFACTS_DIR` environment variable overrides the const, so
+CI can name a download location without touching the package-owned config:
+
+```
+AD_BENCHMARK_ARTIFACTS_DIR=docs/ad-benchmarks julia --project=docs docs/make.jl
+```
+
+Files are read recursively, so each artefact may sit in its own subdirectory.
+With either the const or the variable set the page renders what it finds and
+never measures:
+
+- Nothing found: the page states that no measurements are available. A docs
+  preview raised before the benchmark jobs finish is in that state.
+- Some backends missing: the page renders those it has and names the rest as
+  backends nothing was published for. The CI matrix and the registry are both
+  package-owned and nothing checks that they agree, so a gap can also be a
+  label in one and not the other. The benchmark job logs the labels it found.
+- A file that cannot be parsed: skipped and named, with the rest of the page
   intact.
 
-The baseline every cost is divided by is ForwardDiff wherever it has numbers,
-and otherwise the first backend that does, so a run whose ForwardDiff job
-failed still reports the backends that succeeded.
+Costs are relative to ForwardDiff where it has numbers, and otherwise to the
+first backend that does.
 
-The matrix and the registry are both package-owned and nothing checks that they
-agree, so a label present in one and not the other is a real way for a backend
-to go missing.
-The benchmark job logs the registry labels it did find, so the diagnosis is in
-that job's log.
+With both unset, the default, the page measures every (backend, scenario) pair
+itself while the docs build runs.
 
 ### One single source of truth
 

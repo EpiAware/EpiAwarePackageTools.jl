@@ -237,7 +237,7 @@
     end
 end
 
-# The producer side of the AD benchmark artefact (#443): `benchmark_backend`
+# The producer side of the AD benchmark artefact: `benchmark_backend`
 # runs in its own CI leg, separate from and uninstrumented relative to the
 # per-backend correctness job `test_working_backend` runs in, and writes the
 # artefact the docs page reads. These tests pin the contract the page joins

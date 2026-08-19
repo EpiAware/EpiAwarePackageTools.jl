@@ -63,8 +63,8 @@ function _json()
     return _require_pkg("682c06a0-de6a-54ab-a142-c8b1cf79cde6", "JSON")
 end
 
-# The AD benchmark page's artefact reader (#443): directory in, measurements
-# out, no Documenter coupling.
+# The AD benchmark page's artefact reader: directory in, measurements out, no
+# Documenter coupling.
 include("ad_benchmark_artifacts.jl")
 
 # ---- empty-anchor inventory guard (#232) ----------------------------------
@@ -2531,13 +2531,13 @@ same pipeline again over `src/benchmarks/`, so a benchmark report renders
 under its own top-level "Benchmarks" nav group rather than under Tutorials.
 
 `ad_benchmark_artifacts_dir` opts the scaffolded AD-comparison page into
-rendering pre-computed per-backend benchmark artefacts instead of measuring
-every (backend, scenario) pair during the build (#443). A relative path
-resolves against `docs/`, and the `AD_BENCHMARK_ARTIFACTS_DIR` environment
-variable overrides it so CI can name a download location without the package
-editing its config; see [`ad_benchmark_artifact_dir`](@ref) and
+rendering pre-computed per-backend benchmark artefacts rather than measuring
+every (backend, scenario) pair during the build. A relative path resolves
+against `docs/`, and the `AD_BENCHMARK_ARTIFACTS_DIR` environment variable
+overrides it so CI can name a download location without the package editing its
+config; see [`ad_benchmark_artifact_dir`](@ref) and
 [`load_ad_benchmarks`](@ref). It defaults to `nothing`, which leaves the page
-measuring live exactly as before.
+measuring live.
 
 `deploy=false` builds without deploying and `build_vitepress=false` runs
 Documenter without the final npm pass; both are used by tests and fast local
@@ -2612,10 +2612,10 @@ function build_docs(
     #
     # The AD-comparison page reads its numbers from pre-computed per-backend
     # artefacts when this build has them, rather than measuring every (backend,
-    # scenario) pair itself (#443). Resolved and exported here because the page
+    # scenario) pair itself. Resolved and exported here because the page
     # executes in a subprocess that inherits this environment; with nothing
     # configured and nothing in the environment the variable is left alone and
-    # the page measures live, as before.
+    # the page measures live.
     _export_ad_benchmark_dir(docs_dir, ad_benchmark_artifacts_dir)
     _render_tutorials(
         docs_dir, benchmarks_dir, skip_notebooks, String[],

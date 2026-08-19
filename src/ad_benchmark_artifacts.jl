@@ -1,11 +1,10 @@
 # Reading the per-backend AD benchmark artefacts the scaffolded
-# `docs/src/benchmarks/ad-comparison.jl` page renders from (#443).
+# `docs/src/benchmarks/ad-comparison.jl` page renders from.
 #
-# The page used to measure every (backend, scenario) pair itself, serially, in
-# one subprocess, on every docs build. That cost is the whole `ad.yaml` matrix
-# run end to end rather than in parallel, and it stopped fitting in a docs job
-# once a registry reached seven backends. The measuring now happens in CI, one
-# job per backend, each writing a small JSON file; the page reads those files.
+# Each backend is benchmarked in its own CI run, and each run writes a small
+# JSON file; the page reads those files rather than measuring every (backend,
+# scenario) pair itself, which for a large registry is the whole `ad.yaml`
+# matrix run serially in one docs job.
 #
 # Included into `DocsBuild` so it sits with the rest of the docs machinery, but
 # it is deliberately free of any Documenter/Literate coupling: it takes a
@@ -260,7 +259,7 @@ not rendering from artefacts at all.
 overrides it when set and non-empty, so CI can point the build at a download
 location without the package editing its (write-once) config. Either one being
 set is what opts the page into artefact rendering; with neither, the page
-measures live exactly as it did before.
+measures live.
 
 A relative path resolves against `docs_dir`, matching `TUTORIAL_ENVIRONMENTS`.
 The result is absolute because the page runs in a subprocess whose working

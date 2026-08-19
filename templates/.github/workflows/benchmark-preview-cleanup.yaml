@@ -2,9 +2,9 @@
 name: Benchmark Preview Cleanup
 
 # Clears a closed PR's `ad/previews/PR<N>/` directory from the `benchmarks`
-# branch (#443), mirroring `docpreviewcleanup.yaml` for `gh-pages`. Only a PR
-# that ran the AD bench leg (a `benchmark` label, or a manual dispatch) ever
-# has a preview directory to remove; the reusable is a no-op otherwise.
+# branch, mirroring `docpreviewcleanup.yaml` for `gh-pages`. Only a PR that
+# ran the AD bench leg (a `benchmark` label, or a manual dispatch) ever has a
+# preview directory to remove; the reusable is a no-op otherwise.
 
 on:
   pull_request:

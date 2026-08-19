@@ -1,6 +1,6 @@
-# Unit tests for the AD benchmark artefact reader (kit #443): the data path the
-# scaffolded `docs/src/benchmarks/ad-comparison.jl` page uses in place of
-# measuring every (backend, scenario) pair during the docs build.
+# Unit tests for the AD benchmark artefact reader: the data path the scaffolded
+# `docs/src/benchmarks/ad-comparison.jl` page uses in place of measuring every
+# (backend, scenario) pair during the docs build.
 #
 # The page itself only renders; everything that can go wrong with the input --
 # no directory, an empty one, a backend's job that never uploaded, a corrupt
@@ -269,8 +269,8 @@ end
     saved = get(ENV, "AD_BENCHMARK_ARTIFACTS_DIR", nothing)
     delete!(ENV, "AD_BENCHMARK_ARTIFACTS_DIR")
     try
-        # Not opted in: neither config nor environment, so the page measures
-        # live exactly as it did before this existed.
+        # Not opted in: neither config nor environment, so the page
+        # measures live.
         @test DB.ad_benchmark_artifact_dir(docs, nothing) === nothing
         @test DB.ad_benchmark_artifact_dir(docs, "") === nothing
 

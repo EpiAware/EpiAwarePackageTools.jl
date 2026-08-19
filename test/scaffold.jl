@@ -1590,7 +1590,7 @@
                 @test occursin("ad-forwarddiff", cov)
                 # The bench-leg entry point resolves EpiAwarePackageTools'
                 # benchmark_backend and needs Chairmarks in the isolated AD
-                # test environment (#443).
+                # test environment.
                 bench = read(_dest(dir, "test/ad/benchmark.jl"), String)
                 @test occursin("EpiAwarePackageTools.benchmark_backend", bench)
                 @test !occursin("{{", bench)
@@ -1598,7 +1598,7 @@
                 @test occursin("Chairmarks = ", adproj)
                 # The AD CI caller triggers a bench run without a `main` push:
                 # `workflow_dispatch`, and `labeled` so an already-open PR's
-                # `benchmark` label re-triggers the workflow (#443).
+                # `benchmark` label re-triggers the workflow.
                 adyaml = read(_dest(dir, ".github/workflows/ad.yaml"), String)
                 @test occursin("workflow_dispatch:", adyaml)
                 @test occursin("labeled", adyaml)
@@ -1744,7 +1744,7 @@
                 )
 
                 # The summary table is emitted through the wrapper, never as
-                # a bare DataFrame (#305). Neither of the frames behind it is
+                # a bare DataFrame. Neither of the frames behind it is
                 # ever the emitted value of a cell either.
                 @test occursin("markdown_table(summarise(", txt)
                 @test !occursin(r"(?m)^rel$", txt)
