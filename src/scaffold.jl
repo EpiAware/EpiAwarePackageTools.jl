@@ -785,41 +785,46 @@ const KIT_COMPAT = "0.3, 0.4"
 
 # The SPDX licence identifiers a package may select, each backed by a bundled
 # `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.
-const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
+# An explicit set, not any SPDX identifier: adding one is a decision about what
+# the ecosystem carries, and comes with the text to write.
+const SUPPORTED_LICENSES = ("MIT", "Apache-2.0", "GPL-2.0-or-later")
 const DEFAULT_LICENSE = "MIT"
 
-# The shape of an SPDX identifier: an alphanumeric start, then alphanumerics
-# separated by `.`, `-` or `+`, as in `MIT`, `Apache-2.0`, `GPL-2.0-or-later`.
-# A shape check only — it says nothing about whether the id is on the SPDX
-# list, just that it can be rendered as a badge label and a `spdx.org` link
-# without producing nonsense.
-_is_spdx_id(s::AbstractString) = occursin(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$", s)
+# The names a committed licence file conventionally takes, `COPYING` being the
+# GNU convention. A repo carrying any of them already has its licence text.
+const LICENSE_FILENAMES = (
+    "LICENSE", "LICENSE.md", "LICENSE.txt",
+    "LICENCE", "LICENCE.md", "LICENCE.txt",
+    "COPYING", "COPYING.md", "COPYING.txt",
+)
+
+# The committed licence file, or `nothing` when the repo carries none.
+function _license_file(target_dir::AbstractString)
+    for name in LICENSE_FILENAMES
+        path = joinpath(target_dir, name)
+        isfile(path) && return path
+    end
+    return nothing
+end
+
+# The `SUPPORTED_LICENSES` entry `id` names, in its canonical spelling, or
+# `nothing` when it names none. SPDX identifiers are case-insensitive, so a
+# badge or `Project.toml` field spelling one differently still resolves.
+function _supported_license(id::AbstractString)
+    wanted = lowercase(strip(id))
+    idx = findfirst(l -> lowercase(l) == wanted, SUPPORTED_LICENSES)
+    return idx === nothing ? nothing : SUPPORTED_LICENSES[idx]
+end
 
 # Reject an unsupported `license` eagerly, naming the value and the valid set,
 # rather than letting it propagate into a substitution that fails later with no
 # reference back to the bad input (#310). The reference implementation
 # `test_option_validation` fuzzes against; extend a new option-accepting entry
 # point the same way.
-#
-# `SUPPORTED_LICENSES` gates what the kit can *write* a `LICENSE` file for,
-# not what a package may be badged with: an adopter whose `LICENSE` is
-# already committed (an inherited licence, e.g. a port of GPL'd code) is
-# never asked to write bundled text, so an id the kit ships no text for is
-# fine there — only a target with no `LICENSE` file yet needs one the kit
-# actually ships. That id still has to look like an SPDX identifier, since
-# it goes straight into the README badge and its `https://spdx.org/licenses/`
-# link. `license_file_exists` defaults to `false` so the single-argument form
-# `test_option_validation` calls keeps fuzzing the write-a-new-LICENSE case.
-function _validate_license(
-        license::AbstractString; license_file_exists::Bool = false
-    )
-    ok = license in SUPPORTED_LICENSES ||
-        (license_file_exists && _is_spdx_id(license))
-    ok || error(
+function _validate_license(license::AbstractString)
+    license in SUPPORTED_LICENSES || error(
         "unsupported license $(repr(license)); choose one of " *
-            join(repr.(SUPPORTED_LICENSES), ", ") *
-            ", or commit a LICENSE file and pass the SPDX identifier it " *
-            "covers"
+            join(repr.(SUPPORTED_LICENSES), ", ")
     )
     return nothing
 end
@@ -1041,13 +1046,11 @@ back from the destination: first the managed License badge, then the
 `Project.toml` `license` field. Returns the SPDX id, or `nothing` when neither
 carries one.
 
-Any SPDX-shaped id is recovered, not only a `SUPPORTED_LICENSES` one: that
-constant gates what the kit can *write* a bundled `LICENSE` for, not what an
-adopter may already have committed and be badged with, e.g. a port of GPL'd
-code whose licence is inherited rather than the kit's to change. Anything
-that is not shaped like an SPDX identifier is ignored, so a hand-edited badge
-cannot carry a malformed id back into the sync. An explicit `license` keyword
-still wins over whatever is recovered.
+Only a `SUPPORTED_LICENSES` entry is recovered, matched case-insensitively
+and returned in its canonical spelling, so a differently-spelled declaration
+still resolves and a hand-edited badge cannot introduce a licence the kit does
+not support. Anything else yields `nothing` and the default applies. An
+explicit `license` keyword wins over whatever is recovered.
 """
 function _detect_license(target_dir::AbstractString)
     readme = joinpath(target_dir, "README.md")
@@ -1057,13 +1060,13 @@ function _detect_license(target_dir::AbstractString)
             read(readme, String)
         )
         if m !== nothing
-            spdx = String(something(m.captures[1]))
-            _is_spdx_id(spdx) && return spdx
+            spdx = _supported_license(String(something(m.captures[1])))
+            spdx === nothing || return spdx
         end
     end
     proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
-    proj !== nothing && _is_spdx_id(proj) && return proj
-    return nothing
+    proj === nothing && return nothing
+    return _supported_license(proj)
 end
 
 """
@@ -1094,14 +1097,11 @@ into a template:
     so a bare org is never hardcoded.
   - `year` — copyright year (`{{YEAR}}`); default the current year.
   - `license` — the SPDX licence identifier selecting which README badge is
-    rendered. Default `nothing`, in which case the licence already committed
-    to the repo is recovered and kept (`#235`), falling back to
-    `$(repr(DEFAULT_LICENSE))`. Any SPDX-shaped id is accepted when a
-    `LICENSE` file already exists in `target_dir` — the badge only needs the
-    id. Without one, only `$(join(SUPPORTED_LICENSES, ", "))` are accepted:
-    the only licences [`scaffold`](@ref) has bundled text to write. The
-    `LICENSE` text itself is written once and never overwritten by
-    [`update`](@ref).
+    rendered and which bundled text a new `LICENSE` gets. One of
+    `$(join(SUPPORTED_LICENSES, ", "))`. Default `nothing`, in which case the
+    licence already committed to the repo is recovered and kept, falling back
+    to `$(repr(DEFAULT_LICENSE))`. The `LICENSE` text itself is written once
+    and never overwritten by [`update`](@ref).
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
     given a DOI badge is added to the README "License & DOI" cell. Both default
     to `nothing`, in which case any DOI badge already committed to the README is
@@ -1134,10 +1134,7 @@ function scaffold_inputs(
     # badge instead of resetting it to the default (#235).
     license = license === nothing ?
         something(_detect_license(target_dir), DEFAULT_LICENSE) : license
-    _validate_license(
-        license;
-        license_file_exists = isfile(joinpath(target_dir, "LICENSE"))
-    )
+    _validate_license(license)
     proj = joinpath(target_dir, "Project.toml")
     pkg = package === nothing ? _project_string(proj, "name") : package
     auth_vec = _project_authors(proj)
@@ -1896,12 +1893,15 @@ end
 # once with `{{YEAR}}`/`{{HOLDER}}` filled. `update` never touches it, so a
 # package that deliberately switches licence is not reverted on a sync.
 
-# Write the selected LICENSE to `target_dir` if absent (write-once). `inputs`
-# supplies `LICENSE` (the SPDX id) plus the `{{YEAR}}`/`{{HOLDER}}` values.
+# Write the selected LICENSE to `target_dir` if the repo carries no licence
+# file yet (write-once). Any of `LICENSE_FILENAMES` counts, so a repo
+# following the GNU `COPYING` convention keeps the one it has rather than
+# gaining a second. `inputs` supplies `LICENSE` (the SPDX id) plus the
+# `{{YEAR}}`/`{{HOLDER}}` values.
 # Returns `:created`, `:preserved` (already present), or `:skipped`.
 function _apply_license(target_dir::AbstractString, inputs::NamedTuple)
+    _license_file(target_dir) === nothing || return :preserved
     dest = joinpath(target_dir, "LICENSE")
-    isfile(dest) && return :preserved
     spdx::String = String(inputs.LICENSE)::String
     from = joinpath(_templates_dir(), string("LICENSE.", spdx))
     isfile(from) || error("missing bundled LICENSE template for $spdx at $from")
@@ -4592,14 +4592,13 @@ defaults from the target `Project.toml` or a sensible org default and is
 overridable by keyword (e.g. `scaffold(dir; org = "MyOrg")`). No person, org, or
 repo name is hardcoded in any template.
 
-`LICENSE` is package-owned and write-once: the `license` keyword (an SPDX id,
-default `$(repr(DEFAULT_LICENSE))`) selects the bundled licence text, written
-with `{{YEAR}}`/`{{HOLDER}}` filled only when no `LICENSE` exists yet, in
-which case it must be one of `$(join(SUPPORTED_LICENSES, ", "))` — the only
-licences with bundled text. When a `LICENSE` already exists any SPDX-shaped
-id is accepted, since only the README badge needs it. [`update`](@ref) never
-rewrites `LICENSE`, so a package that deliberately changes its licence is not
-reverted on a sync.
+`LICENSE` is package-owned and write-once: the `license` keyword (one of
+`$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
+selects the bundled licence text, written with `{{YEAR}}`/`{{HOLDER}}` filled
+only when the repo carries no licence file yet under any of its conventional
+names (`LICENSE`, `LICENCE`, `COPYING`, with or without a `.md`/`.txt`
+suffix). [`update`](@ref) never rewrites it, so a package that deliberately
+changes its licence is not reverted on a sync.
 
 The managed `.github/workflows/Register.yml` triggers General Registry
 registration from a `/register` comment or a `workflow_dispatch` run, gated on
