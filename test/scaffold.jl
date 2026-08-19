@@ -4280,7 +4280,7 @@
             end
         end
 
-        @testset "auto-version-increment robustness (#457)" begin
+        @testset "auto-version-increment stays safe under races and blocked PRs" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; reviewer = "octocat")
@@ -4288,12 +4288,9 @@
                     _dest(dir, ".github/workflows/auto-version-increment.yaml"),
                     String
                 )
-                # Batched merges to main used to race: each run read the same
-                # Project.toml and pushed the same branch, so the first run
-                # won and the rest failed non-fast-forward (#1). Queued
-                # rather than cancelled, unlike most managed workflows, so a
-                # queued run still observes the version the previous one
-                # landed.
+                # Concurrent runs queue rather than cancel: a cancelled
+                # queued run would skip observing the version the previous
+                # run just landed.
                 @test occursin(
                     "group: \${{ github.workflow }}-\${{ github.ref }}", wf
                 )
@@ -4305,31 +4302,27 @@
                         ".github/actions/increment-version/action.yaml"
                     ), String
                 )
-                # A stale branch for a version no longer blocks the push
-                # permanently (#2): the push is leased against the SHA
-                # observed by `git ls-remote`, not inferred from a PR-title
-                # search that misses a branch whose PR was closed or never
-                # created (#4).
+                # The push is leased against the SHA `git ls-remote` reports
+                # for the branch, rather than blindly forced or gated on a
+                # PR-title search that cannot see a branch whose PR was
+                # closed or never created.
                 @test occursin("git ls-remote origin", act)
                 @test occursin("force-with-lease=", act)
                 @test !occursin("in:title", act)
                 @test occursin("gh pr list --state open --head", act)
-                # The direct-commit fallback used to be gated on
-                # `create-pr == 'false'` alone, a configuration choice, not a
-                # fallback: `gh pr create` failing (e.g. the org disallows
-                # Actions opening PRs, #449) skipped the direct-commit path
-                # that exists specifically for that case (#3). Now it is also
-                # reachable when the create step's outcome was failure, while
-                # still serving the deliberate create-pr=false configuration
-                # `version-on-demand.yaml` uses.
+                # The direct-commit fallback is reachable both by the
+                # deliberate create-pr=false configuration and by the
+                # create-pr step's own outcome, so a `gh pr create` failure
+                # (e.g. the org disallows Actions opening PRs) still lands
+                # the version bump.
                 @test occursin("continue-on-error: true", act)
                 @test occursin(
                     "inputs.create-pr == 'false' || " *
                         "steps.create-pr.outcome == 'failure'",
                     act
                 )
-                # A masked grep failure used to hide the real `gh pr create`
-                # error behind an opaque exit code ("Also" in #457).
+                # A `gh pr create` output that cannot be parsed for a PR
+                # number fails loudly rather than silently.
                 @test occursin("Could not parse a PR number", act)
             end
         end
