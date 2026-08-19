@@ -83,7 +83,7 @@ jobs:
             Pkg.add([
                 Pkg.PackageSpec(name = "LocalRegistry"),
                 Pkg.PackageSpec(
-                    url = "https://github.com/{{ORG}}/EpiAwarePackageTools.jl",
+                    url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
                     rev = "main")])
             using EpiAwarePackageTools.Benchmarks: bootstrap_sources_registry
             done = bootstrap_sources_registry(pwd())
