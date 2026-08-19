@@ -219,7 +219,12 @@ jobs:
                   "on it: skipping."
                 continue
               fi
-              REASON="unmerged, Project.toml only since it diverged"
+              # "Unmerged" is not asserted here: a squash-merge lands
+              # as a brand new commit on main, so the ancestor check
+              # above never fires for it even though its content did
+              # land. This diff can't tell squashed-in from genuinely
+              # rejected apart, so the log only claims what it knows.
+              REASON="Project.toml only since it diverged from main"
             fi
 
             if [ "$DRY_RUN" = "true" ]; then

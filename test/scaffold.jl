@@ -4380,7 +4380,21 @@
                 @test occursin(
                     "REF_GLOB='auto/version-increment-*'", wf
                 )
-                @test occursin("handled_branches.txt", wf)
+
+                # The PR step hands the orphan step a list of branches it
+                # already disposed of. The handoff file is created before
+                # anything that could fail, and the orphan step tolerates
+                # it being absent too, so a run with no open PRs to close
+                # (an ordinary state, not a failure) never breaks the
+                # orphan sweep.
+                @test occursin(": > handled_branches.txt", wf)
+                @test occursin(
+                    "[ -f handled_branches.txt ] || : > handled_branches.txt",
+                    wf
+                )
+                @test occursin(
+                    "grep -qxF \"\$BRANCH\" handled_branches.txt", wf
+                )
 
                 # A branch already merged into main is always safe;
                 # otherwise safety is judged from the branch's own
@@ -4401,6 +4415,17 @@
                     wf
                 )
                 @test occursin("[dry run] would delete orphaned branch", wf)
+
+                # The reason logged for a non-ancestor branch does not
+                # claim it is unmerged: a squash-merge lands as a new
+                # commit on main, so the ancestor check cannot see it,
+                # even though its content did land.
+                @test occursin(
+                    "REASON=\"Project.toml only since it diverged from " *
+                        "main\"",
+                    wf
+                )
+                @test !occursin("REASON=\"unmerged", wf)
 
                 # No kit placeholder remains (GitHub `${{ }}` expressions
                 # stay).
