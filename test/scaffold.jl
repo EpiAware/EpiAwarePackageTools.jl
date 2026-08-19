@@ -3624,7 +3624,7 @@
             end
         end
 
-        @testset "_detect_license recovers any SPDX id for the badge (#450)" begin
+        @testset "_detect_license recovers any SPDX id for the badge" begin
             using EpiAwarePackageTools: _detect_license, _license_badge
             # SUPPORTED_LICENSES gates what the kit can *write*, not what it
             # can *recover*: a GPL adopter (e.g. a port of GPL'd code, whose
@@ -3646,12 +3646,28 @@
             end
         end
 
-        @testset "scaffold_inputs accepts an existing LICENSE's SPDX id (#450)" begin
+        @testset "_detect_license ignores a badge with no SPDX-shaped id" begin
+            using EpiAwarePackageTools: _detect_license
+            # A hand-edited badge label that is not an SPDX id must not be
+            # carried back into the sync as one.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(
+                    joinpath(dir, "README.md"),
+                    "# Wombat\n\n[![License: not a licence]" *
+                        "(https://img.shields.io/badge/License-x-green.svg)]" *
+                        "(https://example.com)\n"
+                )
+                @test _detect_license(dir) === nothing
+            end
+        end
+
+        @testset "scaffold_inputs accepts an existing LICENSE's SPDX id" begin
             using EpiAwarePackageTools: scaffold_inputs
             # No LICENSE file yet: the kit has no GPL text to write, so an
-            # explicit unsupported licence is still rejected — unchanged from
-            # before #450, and what "scaffold_inputs rejects an unsupported
-            # license" above already covers for a bare licence keyword.
+            # explicit unsupported licence is still rejected, as
+            # "scaffold_inputs rejects an unsupported license" above already
+            # covers for a bare licence keyword.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 @test_throws ErrorException scaffold_inputs(
@@ -3660,7 +3676,7 @@
             end
             # A LICENSE already committed (the adopter brought its own text):
             # the kit only needs the SPDX id for the badge and never writes
-            # the file, so any id is accepted.
+            # the file, so any SPDX-shaped id is accepted.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 write(joinpath(dir, "LICENSE"), "GPL licence text...\n")
@@ -3669,7 +3685,24 @@
             end
         end
 
-        @testset "update keeps a GPL badge across a sync (#450)" begin
+        @testset "scaffold_inputs rejects a non-SPDX-shaped licence" begin
+            using EpiAwarePackageTools: scaffold_inputs
+            # A committed LICENSE lifts the SUPPORTED_LICENSES restriction but
+            # not the shape check: an empty or malformed id would render a
+            # badge linking to a `spdx.org` page that does not exist, so it
+            # fails at the validation boundary instead.
+            for bad in ("", "   ", "not a licence", "MIT/../etc")
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    write(joinpath(dir, "LICENSE"), "licence text...\n")
+                    @test_throws ErrorException scaffold_inputs(
+                        dir; license = bad
+                    )
+                end
+            end
+        end
+
+        @testset "update keeps a GPL badge across a sync" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 write(joinpath(dir, "LICENSE"), "GPL licence text...\n")
