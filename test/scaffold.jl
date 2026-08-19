@@ -4372,6 +4372,36 @@
                 @test occursin("gh pr close", wf)
                 @test occursin("git push origin --delete", wf)
 
+                # Branches with no open PR (closed by hand, or never
+                # created) are swept too, fetched under the same exact
+                # prefix rather than the whole repository.
+                @test occursin("Reap orphaned auto-increment branches", wf)
+                @test occursin("fetch-depth: 0", wf)
+                @test occursin(
+                    "REF_GLOB='auto/version-increment-*'", wf
+                )
+                @test occursin("handled_branches.txt", wf)
+
+                # A branch already merged into main is always safe;
+                # otherwise safety is judged from the branch's own
+                # merge-base with main, not main's current tip, so an
+                # old branch never looks larger just because main moved
+                # on.
+                @test occursin(
+                    "git merge-base --is-ancestor \"origin/\$BRANCH\" HEAD",
+                    wf
+                )
+                @test occursin(
+                    "MERGE_BASE=\$(git merge-base HEAD \"origin/\$BRANCH\")",
+                    wf
+                )
+                @test occursin(
+                    "git diff --name-only \"\$MERGE_BASE\" " *
+                        "\"origin/\$BRANCH\"",
+                    wf
+                )
+                @test occursin("[dry run] would delete orphaned branch", wf)
+
                 # No kit placeholder remains (GitHub `${{ }}` expressions
                 # stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", wf)

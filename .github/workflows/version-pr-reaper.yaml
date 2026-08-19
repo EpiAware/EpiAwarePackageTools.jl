@@ -7,11 +7,23 @@ name: Version PR Reaper
 # a later bump overtakes a pending one: the PR proposing the older
 # version has nothing left to do.
 #
+# It also sweeps orphaned auto-increment branches that carry no open PR
+# (the PR was closed by hand, or never got created), since those are
+# never reachable through the PR-list step above and would otherwise
+# pile up forever. A branch already merged into main is always safe to
+# delete outright. Otherwise safety is judged against the branch's own
+# merge-base with main, not against main's current tip: main moves on
+# and touches files the branch never did, so a direct diff against the
+# current tip makes an old, harmless branch look larger and larger over
+# time. Diffing from the merge-base isolates exactly what the branch
+# itself added, the same thing a PR's file list would have shown had
+# one still been open.
+#
 # Runs on every push to main, so a landed release reaps what it
 # supersedes straight away, and weekly on a schedule to catch a version
 # that moved by a route that does not push to main. `workflow_dispatch`
-# allows an on-demand run, with `dry_run` to preview without closing or
-# deleting anything.
+# allows an on-demand run, with `dry_run` to preview without closing,
+# deleting or discarding anything.
 #
 # A separate workflow rather than a job bolted onto
 # `auto-version-increment.yaml`: the two share no state (this reads
@@ -49,13 +61,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # Full history, so a merge-base against a branch many commits
+          # behind main can be computed below.
+          fetch-depth: 0
 
-      - name: Reap stale auto-increment PRs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DRY_RUN: >-
-            ${{ github.event_name == 'workflow_dispatch' &&
-              inputs.dry_run || 'false' }}
+      - name: Read current version
+        id: current
         run: |
           set -euo pipefail
 
@@ -65,7 +77,18 @@ jobs:
           CURRENT_VERSION=$(grep '^version = ' Project.toml \
             | sed 's/version = "\(.*\)"/\1/')
           CURRENT_VERSION="${CURRENT_VERSION%%[-+]*}"
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           echo "Current version: $CURRENT_VERSION"
+
+      - name: Reap stale auto-increment PRs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_VERSION: ${{ steps.current.outputs.version }}
+          DRY_RUN: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
 
           # A single sortable integer so 0.10.0 compares above 0.9.0,
           # which plain string or float comparison gets wrong.
@@ -75,6 +98,10 @@ jobs:
             printf '%d%06d%06d' "$major" "$minor" "$patch"
           }
           CURRENT_KEY=$(semver_key "$CURRENT_VERSION")
+
+          # Branches this step disposes of are recorded here, so the
+          # orphan sweep below does not also try to act on them.
+          : > handled_branches.txt
 
           # Only the exact prefix the increment-version action writes.
           PRS=$(gh pr list --state open --json number,headRefName \
@@ -89,6 +116,7 @@ jobs:
           echo "$PRS" | jq -c '.' | while read -r pr; do
             NUMBER=$(echo "$pr" | jq -r '.number')
             BRANCH=$(echo "$pr" | jq -r '.headRefName')
+            echo "$BRANCH" >> handled_branches.txt
             PROPOSED="${BRANCH#auto/version-increment-}"
 
             if ! [[ "$PROPOSED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -125,5 +153,82 @@ jobs:
               "Project.toml only) and deleting $BRANCH."
             gh pr close "$NUMBER" --comment \
               "Superseded: the package is already at $CURRENT_VERSION."
+            git push origin --delete "$BRANCH"
+          done
+
+      - name: Reap orphaned auto-increment branches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_VERSION: ${{ steps.current.outputs.version }}
+          DRY_RUN: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          semver_key() {
+            local major minor patch
+            IFS='.' read -r major minor patch <<< "$1"
+            printf '%d%06d%06d' "$major" "$minor" "$patch"
+          }
+          CURRENT_KEY=$(semver_key "$CURRENT_VERSION")
+
+          [ -f handled_branches.txt ] || : > handled_branches.txt
+
+          # Scoped to the exact prefix, same as the PR-list step above,
+          # rather than fetching every branch in the repository.
+          REF_GLOB='auto/version-increment-*'
+          git fetch origin "+refs/heads/$REF_GLOB:refs/remotes/origin/$REF_GLOB"
+
+          git branch -r --list 'origin/auto/version-increment-*' \
+            | sed 's/^[[:space:]]*origin\///' \
+            | while read -r BRANCH; do
+            if grep -qxF "$BRANCH" handled_branches.txt; then
+              # Already disposed of, or left alone, by the PR-driven
+              # step above.
+              continue
+            fi
+
+            PROPOSED="${BRANCH#auto/version-increment-}"
+            if ! [[ "$PROPOSED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Branch $BRANCH doesn't carry a plain semver suffix." \
+                "Leaving it alone."
+              continue
+            fi
+
+            PROPOSED_KEY=$(semver_key "$PROPOSED")
+            if [ "$PROPOSED_KEY" -gt "$CURRENT_KEY" ]; then
+              echo "Branch $BRANCH proposes $PROPOSED, ahead of current" \
+                "$CURRENT_VERSION. Leaving it alone."
+              continue
+            fi
+
+            if git merge-base --is-ancestor "origin/$BRANCH" HEAD; then
+              REASON="already merged into main"
+            else
+              # What this branch itself added, not what main has since
+              # gone on to touch: diffing straight against main's
+              # current tip would make an old, harmless branch look
+              # larger every time main moves, never smaller.
+              MERGE_BASE=$(git merge-base HEAD "origin/$BRANCH")
+              FILES=$(git diff --name-only "$MERGE_BASE" "origin/$BRANCH")
+              if [ "$FILES" != "Project.toml" ]; then
+                echo "Branch $BRANCH proposes $PROPOSED (<=" \
+                  "$CURRENT_VERSION) but has commits beyond a version" \
+                  "bump since it diverged from main. Someone has built" \
+                  "on it: skipping."
+                continue
+              fi
+              REASON="unmerged, Project.toml only since it diverged"
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[dry run] would delete orphaned branch $BRANCH" \
+                "($PROPOSED <= $CURRENT_VERSION, $REASON)."
+              continue
+            fi
+
+            echo "Deleting orphaned branch $BRANCH ($PROPOSED <=" \
+              "$CURRENT_VERSION, $REASON)."
             git push origin --delete "$BRANCH"
           done
