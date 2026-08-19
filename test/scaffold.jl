@@ -1504,9 +1504,8 @@
                 # None of the AD-only infra is written.
                 for f in (
                         ".github/workflows/ad.yaml",
-                        ".github/workflows/benchmark-preview-cleanup.yaml",
                         "test/ad/setup.jl", "test/ad/runtests.jl",
-                        "test/ad/run_selected.jl", "test/ad/benchmark.jl",
+                        "test/ad/run_selected.jl",
                         "test/ad/scenarios.jl", "test/ad/Project.toml",
                         "test/ADFixtures/Project.toml",
                         "test/ADFixtures/src/ADFixtures.jl",
@@ -1578,36 +1577,14 @@
                 _fake_pkg(dir; name = "Numeric")
                 scaffold(dir)   # default ad = true
                 for f in (
-                        ".github/workflows/ad.yaml",
-                        ".github/workflows/benchmark-preview-cleanup.yaml",
-                        "test/ad/setup.jl",
-                        "test/ad/run_selected.jl", "test/ad/benchmark.jl",
+                        ".github/workflows/ad.yaml", "test/ad/setup.jl",
+                        "test/ad/run_selected.jl",
                         "test/ad/scenarios.jl", "test/ADFixtures/src/ADFixtures.jl",
                     )
                     @test isfile(joinpath(dir, f))
                 end
                 cov = read(joinpath(dir, "codecov.yml"), String)
                 @test occursin("ad-forwarddiff", cov)
-                # The bench-leg entry point resolves EpiAwarePackageTools'
-                # benchmark_backend and needs Chairmarks in the isolated AD
-                # test environment.
-                bench = read(_dest(dir, "test/ad/benchmark.jl"), String)
-                @test occursin("EpiAwarePackageTools.benchmark_backend", bench)
-                @test !occursin("{{", bench)
-                adproj = read(_dest(dir, "test/ad/Project.toml"), String)
-                @test occursin("Chairmarks = ", adproj)
-                # The AD CI caller triggers a bench run without a `main` push:
-                # `workflow_dispatch`, and `labeled` so an already-open PR's
-                # `benchmark` label re-triggers the workflow.
-                adyaml = read(_dest(dir, ".github/workflows/ad.yaml"), String)
-                @test occursin("workflow_dispatch:", adyaml)
-                @test occursin("labeled", adyaml)
-                cleanup_dest = _dest(
-                    dir, ".github/workflows/benchmark-preview-cleanup.yaml"
-                )
-                cleanup = read(cleanup_dest, String)
-                @test occursin("types: [closed]", cleanup)
-                @test !occursin("{{", cleanup)
             end
         end
 

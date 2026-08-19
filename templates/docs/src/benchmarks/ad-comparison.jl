@@ -14,13 +14,13 @@
 #src `@ref ad-backends` anchor, so that anchor now lives on the "Choosing a
 #src backend" section below and must stay there.
 #src
-#src Where the numbers come from is set by `AD_BENCHMARK_ARTIFACTS_DIR`:
-#src unset, the page measures every (backend, scenario) pair itself; set, it
-#src reads per-backend JSON artefacts measured by CI and never measures live,
-#src because falling back would reinstate the cost the split exists to avoid.
-#src The docs build exports it from the package-owned const of that name in
-#src `docs/docs_config.jl`, and CI may set it directly. Reading, aggregating
-#src and reporting gaps in that data is
+#src Where the numbers come from is set by `AD_BENCHMARK_RESULTS`: unset, the
+#src page measures every (backend, scenario) pair itself; set, it reads the
+#src `"AD gradients"` group of the benchmark run's published results and never
+#src measures live, because falling back would reinstate the cost pointing at
+#src published numbers exists to avoid. The docs build exports it from the
+#src package-owned const of that name in `docs/docs_config.jl`, and CI may set
+#src it directly. Reading, aggregating and reporting gaps in that data is
 #src `EpiAwarePackageTools.load_ad_benchmarks`/`ad_benchmark_note`, so it is
 #src unit tested in the kit rather than only exercised by a docs build.
 #src
@@ -61,7 +61,7 @@ using Chairmarks
 using DataFramesMeta
 using Statistics
 using CairoMakie
-## Reads the per-backend benchmark artefacts when this build has them.
+## Reads the published benchmark results when this build has them.
 ## Imported qualified rather than `using`: the kit exports a large
 ## test/scaffold surface this page has no use for.
 import EpiAwarePackageTools
@@ -125,9 +125,9 @@ md"""
 
 `DifferentiationInterfaceTest.benchmark_differentiation` measures every
 (backend, scenario) pair the registry supports.
-Where the package's CI runs those measurements as one job per backend, this
-page renders their results; otherwise it measures them itself while the docs
-build runs.
+Where the package's benchmark suite already measures those pairs, this page
+renders that run's published results; otherwise it measures them itself while
+the docs build runs.
 Combinations declared broken or skipped in the registry are excluded from
 their backend's rows, so they show up as reduced scenario coverage in the
 `Scenarios` column below, rather than as timings of gradients that are
@@ -152,18 +152,18 @@ md"""
 ```
 """
 
-## Where the numbers come from. The docs build sets
-## `AD_BENCHMARK_ARTIFACTS_DIR` from the package-owned const of that name in
-## `docs/docs_config.jl`, and CI may set it directly. Unset, the page measures
-## live below. Set, the page reads the per-backend JSON artefacts and never
-## measures live: falling back to measuring would mean running the whole AD
-## matrix serially in this one process, the cost the CI split avoids.
-artifact_dir = get(ENV, "AD_BENCHMARK_ARTIFACTS_DIR", "")
-artifacts = if isempty(artifact_dir)
+## Where the numbers come from. The docs build sets `AD_BENCHMARK_RESULTS`
+## from the package-owned const of that name in `docs/docs_config.jl`, and CI
+## may set it directly. Unset, the page measures live below. Set, the page
+## reads the benchmark run's published results and never measures live:
+## falling back would mean running the whole AD grid in this one process, the
+## cost reusing those numbers avoids.
+results_path = get(ENV, "AD_BENCHMARK_RESULTS", "")
+published = if isempty(results_path)
     nothing
 else
     EpiAwarePackageTools.load_ad_benchmarks(
-        artifact_dir, [e.name for e in backend_entries]
+        results_path, [e.name for e in backend_entries]
     )
 end
 
@@ -203,16 +203,16 @@ function measure_backends()
 end
 
 ## Both paths land on the same four columns, so everything below is the same
-## whichever one ran. The artefact rows are already filtered to gradients and
-## converted to microseconds and kibibytes by the job that measured them.
-bench_long = artifacts === nothing ? measure_backends() :
-    DataFrame(artifacts.rows)
+## whichever one ran. The published rows are already keyed by scenario and
+## backend and converted to microseconds and kibibytes by the reader.
+bench_long = published === nothing ? measure_backends() :
+    DataFrame(published.rows)
 have_data = nrow(bench_long) > 0
 
 ## The baseline every cost is divided by: ForwardDiff (the org standard) when
 ## it is among the backends with numbers, otherwise the first that has them.
 ## Chosen from the data rather than the registry so a run missing the
-## ForwardDiff artefact still reports the backends it does have, relative to
+## ForwardDiff numbers still reports the backends it does have, relative to
 ## one of them, rather than dividing everything by nothing.
 function pick_baseline(measured)
     "ForwardDiff" in measured && return "ForwardDiff"
@@ -276,8 +276,8 @@ end
 
 ## What this build is missing, as prose: empty when it has every backend the
 ## registry declares, or when it measured them here rather than reading them.
-status_note = artifacts === nothing ? "" :
-    EpiAwarePackageTools.ad_benchmark_note(artifacts)
+status_note = published === nothing ? "" :
+    EpiAwarePackageTools.ad_benchmark_note(published)
 ## Trailing `;` because this is the last statement of the chunk: without it
 ## Literate emits the string itself into the page as a stray output block.
 no_data_text = "No measurements are available for this build.";
@@ -525,17 +525,18 @@ julia --project=docs docs/make.jl
 
 A local build measures every backend in the docs process, which for a large
 registry takes as long as the whole AD test matrix run one job after another.
-To read published measurements instead, download the per-backend benchmark
-artefacts into a directory and point the build at it:
+To read the benchmark run's published numbers instead, point the build at its
+results, which `benchmark-history.yaml` deploys to the `benchmarks` branch
+under `history/results/`:
 
 ```
-AD_BENCHMARK_ARTIFACTS_DIR=docs/ad-benchmarks julia --project=docs docs/make.jl
+AD_BENCHMARK_RESULTS=bench-results julia --project=docs docs/make.jl
 ```
 
-`docs/docs_config.jl`'s `AD_BENCHMARK_ARTIFACTS_DIR` sets the same directory
-for every build. With either set, the page reads the artefacts and never
-measures anything itself, so a build whose artefacts are missing or
-incomplete says so above rather than quietly measuring them again.
+`docs/docs_config.jl`'s `AD_BENCHMARK_RESULTS` sets the same location for
+every build. With either set, the page reads those numbers and never measures
+anything itself, so a build whose results are missing or incomplete says so
+above rather than quietly measuring them again.
 
 ## See also
 

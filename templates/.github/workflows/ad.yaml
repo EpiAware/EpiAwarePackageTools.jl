@@ -9,12 +9,6 @@ name: AD
 # single source of truth) rather than left to the reusable's own default,
 # so the CI matrix can never drift from the badges/codecov flags this
 # package generates.
-#
-# The reusable's matrix is `backend x leg`: `test` (correctness, coverage)
-# and `bench` (uninstrumented, writes the AD-comparison page's artefacts).
-# The reusable decides per event whether a `bench` job runs;
-# `workflow_dispatch` and the `labeled` PR type below exist so a `bench` run
-# can be requested without a `main` push.
 
 on:
   push:
@@ -28,16 +22,11 @@ on:
       - '**/*.md'
       - 'LICENSE'
   pull_request:
-    # `labeled` on top of the default set so adding `benchmark` to an
-    # already-open PR re-triggers this workflow; the reusable's `bench` jobs
-    # then run because the label is present, not because anything changed.
-    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
       - 'LICENSE'
   merge_group:
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

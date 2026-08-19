@@ -77,67 +77,45 @@ A sync deletes the retired source, and warns when a package's own
 `docs/docs_config.jl` still registers it, because that file is package-owned and
 the sync cannot edit it.
 
-### [Where the page's numbers come from](@id ad-benchmark-artifacts)
+### [Where the page's numbers come from](@id ad-benchmark-numbers)
 
-Each backend is benchmarked in its own CI run, on its own leg of the AD matrix,
-with no coverage instrumentation.
-Each run writes one JSON file, and the docs build renders those files rather
-than measuring anything.
+The page renders the gradient numbers the package's benchmark suite already
+measures, or measures them itself when there are none to read.
 
-The bench leg runs `test/ad/benchmark.jl`, a thin wrapper over
-[`benchmark_backend`](@ref).
-It measures the same scenarios [`test_working_backend`](@ref) checks for
-correctness, so a broken or skipped scenario is left out of both.
-It writes `ad-bench-<tag>.json`:
+`benchmark/benchmarks.jl` builds its `"AD gradients"` group from the same
+`test/ADFixtures` registry the gradient tests use, keyed
+`["AD gradients"][scenario][backend]`.
+That is the convention the pull request benchmark comment folds into its AD
+matrix, so one suite definition feeds both it and this page.
+`benchmark-history.yaml` runs the suite on each push to `main` and deploys the
+run to the `benchmarks` branch, with the raw per-revision results under
+`history/results/` beside the plots.
 
-```json
-{
-  "backend": "Enzyme forward",
-  "tag": "enzyme_forward",
-  "scenarios": [
-    {"name": "AR", "time_us": 3.35, "bytes_kb": 12.4}
-  ]
-}
-```
-
-`backend` is the registry's own label, which is what the page joins on.
-
-The leg runs on a push to `main`, on `workflow_dispatch`, and on a pull request
-labelled `benchmark`, so an ordinary pull request costs nothing extra.
-Artefacts publish to the `benchmarks` branch, under `ad/latest/` for a `main`
-push and `ad/previews/PR<N>/` for a pull request.
-A managed `benchmark-preview-cleanup.yaml` caller clears a pull request's
-preview directory when it closes.
-The leg needs `Chairmarks` in `test/ad/Project.toml`, which is package-owned,
-so a package whose AD environment lacks it adds it by hand.
-
-Point the docs build at a directory of artefacts:
+Point the docs build at those results:
 
 ```julia
 # docs/docs_config.jl
-const AD_BENCHMARK_ARTIFACTS_DIR = "ad-benchmarks"
+const AD_BENCHMARK_RESULTS = "bench-results"
 ```
 
+The value is a results file, or a directory of them, in which case the most
+recently written is used.
 A relative path resolves against `docs/`.
-The `AD_BENCHMARK_ARTIFACTS_DIR` environment variable overrides the const, so
-CI can name a download location without touching the package-owned config:
+The `AD_BENCHMARK_RESULTS` environment variable overrides the const, so CI can
+name a checkout without touching the package-owned config:
 
 ```
-AD_BENCHMARK_ARTIFACTS_DIR=docs/ad-benchmarks julia --project=docs docs/make.jl
+AD_BENCHMARK_RESULTS=bench-results julia --project=docs docs/make.jl
 ```
 
-Files are read recursively, so each artefact may sit in its own subdirectory.
 With either the const or the variable set the page renders what it finds and
 never measures:
 
-- Nothing found: the page states that no measurements are available. A docs
-  preview raised before the benchmark jobs finish is in that state.
-- Some backends missing: the page renders those it has and names the rest as
-  backends nothing was published for. The CI matrix and the registry are both
-  package-owned and nothing checks that they agree, so a gap can also be a
-  label in one and not the other. The benchmark job logs the labels it found.
-- A file that cannot be parsed: skipped and named, with the rest of the page
-  intact.
+- Nothing found: the page states that no measurements are available.
+- Some backends missing: the page renders those it has and names the rest.
+  A gap means the suite does not cover that backend, or names it differently
+  from the registry, since both are package-owned and nothing checks that they
+  agree.
 
 Costs are relative to ForwardDiff where it has numbers, and otherwise to the
 first backend that does.

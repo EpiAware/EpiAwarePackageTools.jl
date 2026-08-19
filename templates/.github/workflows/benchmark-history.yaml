@@ -136,6 +136,13 @@ jobs:
             --input-dir=results --ratio --mode time,memory \
             > public/table.md
 
+      # Publish the raw per-revision result files alongside the plots. The
+      # AD-comparison docs page reads its per-(scenario, backend) gradient
+      # numbers out of these, so it renders measurements this run already took
+      # rather than repeating the whole grid in the docs process.
+      - name: Publish raw results
+        run: cp -r results public/results
+
       # Minimal index so the published folder lists the generated plots.
       - name: Write index page
         run: |
@@ -146,6 +153,8 @@ jobs:
             echo
             echo "See \`table.md\` for the ratio summary and the PNG"
             echo "files in this folder for per-benchmark timelines."
+            echo
+            echo "\`results/\` holds the raw per-revision benchmark data."
           } > public/README.md
 
       # Deploy to a dedicated `benchmarks` branch, deliberately not
