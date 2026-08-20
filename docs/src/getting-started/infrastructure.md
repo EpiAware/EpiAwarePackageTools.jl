@@ -134,7 +134,12 @@ needed, and none of these values has to be re-passed to `update`.
 - The Zenodo DOI badge and the licence badge in the README. A non-MIT package
   keeps its licence badge across a sync; pass `license` explicitly only to
   change it.
-  A licence outside the supported set fails the sync instead of being relabelled to the default.
+  The `license` field in `Project.toml` is the declaration the badge is
+  rendered from.
+  A value outside the supported set stops the sync, so no package is badged
+  with a licence it did not choose.
+  The badge itself is kit output, so a label naming an unsupported licence is
+  warned about and rewritten rather than blocking the run.
 - The `downstreams` list in `.github/workflows/downstream.yaml`. Which packages
   depend on yours is a fact about your package, so the list you commit wins over
   the template's empty seed, while the rest of the workflow stays managed.

@@ -817,8 +817,8 @@ function _supported_license(id::AbstractString)
 end
 
 # Whether `id` is shaped like an SPDX identifier: an alphanumeric start, then
-# alphanumerics separated by `.`, `-` or `+`. A shape check only, telling a
-# licence the kit will not write apart from a string naming no licence at all.
+# alphanumerics separated by `.`, `-` or `+`. A shape check only, separating a
+# licence the kit does not carry from a string naming no licence at all.
 function _is_spdx_id(id::AbstractString)
     return occursin(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$", strip(id))
 end
@@ -843,11 +843,14 @@ function _templates_dir()
     return joinpath(dir, "templates")
 end
 
-# Read a scalar `key = "..."` from a Project.toml line; `nothing` if absent.
+# Read a top-level scalar `key = "..."` from a Project.toml; `nothing` if
+# absent. Scanning stops at the first table header, so a key of the same name
+# under `[extras]` or `[compat]` is not read as the package's own.
 function _project_string(proj::AbstractString, key::AbstractString)
     isfile(proj) || return nothing
     pat = Regex("^\\s*" * key * "\\s*=\\s*\"([^\"]+)\"")
     for line in eachline(proj)
+        occursin(r"^\s*\[", line) && break
         m = match(pat, line)
         m === nothing || return m.captures[1]
     end
@@ -1051,21 +1054,6 @@ function _badge_license(target_dir::AbstractString)
     return String(strip(String(something(m.captures[1]))))
 end
 
-# What `target_dir` declares its licence to be, as `(id, source_file)`, or
-# `(nothing, nothing)` when it declares nothing. Both the README badge and the
-# `Project.toml` `license` field are read, and the first SPDX-shaped one wins,
-# so a badge carrying a prose label defers to the machine-readable field.
-function _declared_license(target_dir::AbstractString)
-    found = Tuple{String, String}[]
-    badge = _badge_license(target_dir)
-    badge === nothing || push!(found, (badge, "README.md"))
-    proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
-    proj === nothing || push!(found, (String(strip(proj)), "Project.toml"))
-    isempty(found) && return (nothing, nothing)
-    idx = findfirst(d -> _is_spdx_id(first(d)), found)
-    return idx === nothing ? found[1] : found[idx]
-end
-
 """
     _detect_license(target_dir)
 
@@ -1077,24 +1065,57 @@ value has to be read back from the destination or the managed README badge
 would be rewritten to `$(repr(DEFAULT_LICENSE))` on every run. Matching is
 case-insensitive, so a differently-spelled declaration still resolves.
 
-A declaration outside `SUPPORTED_LICENSES` throws, naming the file it was read
-from. The badge is rendered from this value, so falling back to the default
-would publish a licence claim the package never made.
+The declaration is the top-level `Project.toml` `license` field. A value
+outside `SUPPORTED_LICENSES` throws, since the badge is rendered from it and
+the default would publish a licence claim the package never made. Pass
+`license` explicitly to relabel a package on purpose.
+
+With no field to read, the managed README badge supplies the value. The badge
+is kit output rather than a declaration, so a label naming no supported
+licence is warned about and ignored, leaving the sync free to rewrite it.
 """
 function _detect_license(target_dir::AbstractString)
-    id, source = _declared_license(target_dir)
-    id === nothing && return nothing
-    spdx = _supported_license(id)
+    proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
+    if proj !== nothing
+        declared = String(strip(proj))
+        spdx = _supported_license(declared)
+        spdx === nothing || return spdx
+        supported = join(repr.(SUPPORTED_LICENSES), ", ")
+        detail = _is_spdx_id(declared) ?
+            "which is not one of $supported. Add it to SUPPORTED_LICENSES " *
+            "with a bundled licence text" :
+            "which is not an SPDX identifier. Correct it to one of $supported"
+        error(
+            "Project.toml declares license $(repr(declared)), $detail, or " *
+                "pass `license` explicitly to relabel the package."
+        )
+    end
+    badge = _badge_license(target_dir)
+    badge === nothing && return nothing
+    spdx = _supported_license(badge)
     spdx === nothing || return spdx
-    supported = join(repr.(SUPPORTED_LICENSES), ", ")
-    detail = _is_spdx_id(id) ?
-        "which is not one of $supported. Add it to SUPPORTED_LICENSES " *
-        "with a bundled licence text" :
-        "which is not an SPDX identifier. Correct it to one of $supported"
-    return error(
-        "$source declares license $(repr(id)), $detail, or pass " *
-            "`license` explicitly to relabel the package."
+    @warn(
+        "README License badge names an unsupported licence and is " *
+            "ignored. Set the Project.toml `license` field or pass " *
+            "`license` to keep it.",
+        badge
     )
+    return nothing
+end
+
+# The package name and `org/repo` slug for `target_dir`, each `nothing` when
+# it is neither passed nor readable from `Project.toml`.
+function _package_and_repo(
+        target_dir::AbstractString,
+        package::Union{Nothing, AbstractString},
+        repo::Union{Nothing, AbstractString},
+        org::AbstractString
+    )
+    pkg = package === nothing ?
+        _project_string(joinpath(target_dir, "Project.toml"), "name") : package
+    rp = repo === nothing ?
+        (pkg === nothing ? nothing : string(org, "/", pkg, ".jl")) : repo
+    return (pkg, rp)
 end
 
 """
@@ -1130,10 +1151,11 @@ into a template:
     rendered and which bundled text a new `LICENSE` gets. One of
     `$(join(SUPPORTED_LICENSES, ", "))`. Default `nothing`, in which case the
     licence the repo declares is recovered and kept, falling back to
-    `$(repr(DEFAULT_LICENSE))` when it declares none. A declared licence
-    outside the supported set is an error rather than a relabelling, so a sync
-    cannot badge a package with a licence it did not choose. The `LICENSE`
-    text itself is written once and never overwritten by [`update`](@ref).
+    `$(repr(DEFAULT_LICENSE))` when it declares none. A `Project.toml`
+    `license` field outside the supported set is an error rather than a
+    relabelling, so a sync cannot badge a package with a licence it did not
+    choose. The `LICENSE` text itself is written once and never overwritten by
+    [`update`](@ref).
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
     given a DOI badge is added to the README "License & DOI" cell. Both default
     to `nothing`, in which case any DOI badge already committed to the README is
@@ -1176,14 +1198,12 @@ function scaffold_inputs(
         something(_detect_license(target_dir), DEFAULT_LICENSE) : license
     _validate_license(license)
     proj = joinpath(target_dir, "Project.toml")
-    pkg = package === nothing ? _project_string(proj, "name") : package
+    pkg, rp = _package_and_repo(target_dir, package, repo, org)
     auth_vec = _project_authors(proj)
     auth = authors === nothing ?
         (isempty(auth_vec) ? nothing : join(_author_name.(auth_vec), ", ")) :
         authors
     hold = holder === nothing ? auth : holder
-    rp = repo === nothing ?
-        (pkg === nothing ? nothing : string(org, "/", pkg, ".jl")) : repo
     # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
     # `reviewers`, the version bump's assignee and the Claude bot's actor gate.
     # It must be a username or `org/team` slug: GitHub cannot assign a bare
