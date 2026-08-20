@@ -450,13 +450,9 @@ end
 end
 
 # The published `latest.json` is the results file for the revision the run
-# measured. benchpkg names that file, so the step matches on the revision and
-# leaves the rest of the name to benchpkg.
-# Runs the step's own script, so it needs a POSIX shell. The workflow runs on
-# `ubuntu-latest` only.
+# measured, matched on the revision so benchpkg names the rest of it. Runs the
+# step's own script, which needs the POSIX shell the step runs under.
 @testitem "publishing finds results by revision" begin
-    # Runs the step's own script, so it needs a POSIX shell. The step
-    # runs on `ubuntu-latest`.
     using Test
     using EpiAwarePackageTools
 
