@@ -90,10 +90,6 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/pre-commit.yaml", true, true
     ),
     Template(
-        ".github/workflows/codecoverage.yaml",
-        ".github/workflows/codecoverage.yaml", true, true
-    ),
-    Template(
         ".github/workflows/docpreviewcleanup.yaml",
         ".github/workflows/docpreviewcleanup.yaml", true, true
     ),
@@ -396,6 +392,11 @@ const RETIRED_PATHS = String[
     # content on any package whose docs build does not clean `docs/src` first.
     "docs/src/getting-started/tutorials/ad-backends.jl",
     "docs/src/getting-started/tutorials/ad-backends.md",
+    # The separate coverage caller duplicated a whole second run of the test
+    # suite to collect coverage that `tests.yml`'s own ubuntu leg now
+    # collects and uploads via its `upload_coverage` input. Retired rather
+    # than left behind running an unnecessary suite alongside it.
+    ".github/workflows/codecoverage.yaml",
 ]
 
 # --- stale package-owned prose (#328) ---------------------------------------
@@ -711,11 +712,9 @@ end
 # here, so refresh both together.
 const _REUSABLE_SEED_REFS = Dict{String, String}(
     "ad.yml" =>
-        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
+        "00d30434df0edff7bbcc0b488d505a0a9ac1c36b",  # pragma: allowlist secret
     "cancel-on-close.yml" =>
         "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret
-    "coverage.yml" =>
-        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "docs-preview-cleanup.yml" =>
         "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "documentation.yml" =>
@@ -738,7 +737,7 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
     "tagbot.yml" =>
         "9692b37b9127099d9c1a51db5034a084edaeb56e",  # pragma: allowlist secret
     "tests.yml" =>
-        "155fc902a533f8dc33b9928322f5d46add789f75",  # pragma: allowlist secret
+        "491d0d9979bb59b0f82fc508ca55fb31698eb840",  # pragma: allowlist secret
 )
 
 # The seed ref for `workflow`, erroring rather than inventing one: a caller
@@ -1680,9 +1679,9 @@ end
 # `_julia_versions_below_floor` warns when such a package's override reaches
 # back below the floor.
 #
-# Scoped to the reusable that renders the key, not global by name:
-# `codecoverage.yaml`'s caller renders a `julia_version` of its own which IS
-# managed, and a bare-name set would un-manage that too.
+# Scoped to the reusable that renders the key, not global by name: another
+# caller rendering a same-named key stays fully managed, since a bare-name
+# set would un-manage that too.
 const _WITH_SEED_DEFAULT_KEYS = Dict(
     "tests.yml" => Set(["julia_versions"]),
     "downgrade.yml" => Set(["julia_version"])
@@ -4348,8 +4347,8 @@ function _apply(
     # A package may pick its own Julia matrix (#73) and the kit does not
     # overwrite it, but under `unregistered_sources` a leg below the floor
     # ignores the pins the package depends on. Scanned across every managed
-    # caller, not just `test.yaml`: `codecoverage.yaml` names a version of its
-    # own.
+    # caller, not just `test.yaml`, so a future workflow naming its own
+    # version stays covered too.
     wf_dir = joinpath(target_dir, ".github", "workflows")
     if unregistered_sources && isdir(wf_dir)
         for f in sort(readdir(wf_dir))
