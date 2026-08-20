@@ -128,6 +128,9 @@ Whichever results the page reads, it renders what it finds and never measures:
 
 Costs are relative to ForwardDiff where it has numbers, and otherwise to the
 first backend that does.
+Each time is the fastest sample of its benchmark, whether the page read it from
+a published run or measured it, which is the estimator
+`DifferentiationInterfaceTest.benchmark_differentiation` reports.
 
 ### One single source of truth
 

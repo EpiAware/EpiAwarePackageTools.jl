@@ -133,7 +133,9 @@ Combinations declared broken or skipped in the registry are excluded from
 their backend's rows, so they show up as reduced scenario coverage in the
 `Scenarios` column below, rather than as timings of gradients that are
 wrong or crash.
-The figures are the prepared per-call cost.
+The figures are the prepared per-call cost, each the fastest of the
+recorded samples, whether this build measured it or read it from the
+benchmark run.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
 reused operator, so that one-off preparation is excluded.

@@ -102,16 +102,47 @@ end
 ] begin
     using EpiAwarePackageTools: load_ad_benchmarks
 
+    # Both siblings are nested as deeply as a gradient benchmark, so each
+    # would split into a (scenario, backend) row on any reading that does not
+    # hold them to the gradient group's exact name.
     file = joinpath(mktempdir(), "results.json")
     write_results(
         file, Dict("AR" => Dict("ForwardDiff" => leaf(1000.0, 2048)));
-        extra = Dict(
-            "Evaluation" => group(Dict("logpdf" => leaf(50.0, 16)))
-        )
+        extra = [
+            "Evaluation" => group(
+                Dict("density" => group(Dict("logpdf" => leaf(50.0, 16))))
+            ),
+            "AD gradients extra" => group(
+                Dict("AR" => group(Dict("ForwardDiff" => leaf(70.0, 32))))
+            ),
+        ]
     )
 
     r = load_ad_benchmarks(file, ["ForwardDiff"])
-    @test [x.scenario for x in r.rows] == ["AR"]
+    @test [(x.scenario, x.time_us) for x in r.rows] == [("AR", 1.0)]
+end
+
+@testitem "AD benchmarks: the reported time is the fastest sample" setup = [
+    ADResultFixtures,
+] begin
+    using EpiAwarePackageTools: load_ad_benchmarks
+
+    # The statistic `DifferentiationInterfaceTest.benchmark_differentiation`
+    # reports, so the page states one whichever path filled it.
+    file = joinpath(mktempdir(), "results.json")
+    samples = """{"times": [4000.0, 1000.0, 9000.0], "memory": 2048}"""
+    write(
+        file,
+        group(
+            [
+                "AD gradients" => group(
+                    ["AR" => group(["ForwardDiff" => samples])]
+                ),
+            ]
+        )
+    )
+
+    @test only(load_ad_benchmarks(file, ["ForwardDiff"]).rows).time_us ≈ 1.0
 end
 
 @testitem "AD benchmarks: a partial run is reported" setup = [
@@ -172,7 +203,7 @@ end
                 # No memory recorded, so there is no allocation figure to
                 # divide by the baseline's.
                 "Zygote" => "{\"times\": [1000.0]}",
-                # Measured but with no timing samples.
+                # Recorded, but with no sample to take a time from.
                 "Enzyme reverse" => "{\"times\": [], \"memory\": 16}"
             )
         )
@@ -181,6 +212,7 @@ end
     r = load_ad_benchmarks(file, ["ForwardDiff", "Zygote", "Enzyme reverse"])
     @test r.backends == ["ForwardDiff"]
     @test r.missing_backends == ["Zygote", "Enzyme reverse"]
+    @test only(r.rows).backend == "ForwardDiff"
 end
 
 @testitem "AD benchmarks: a backend outside the registry is kept" setup = [
@@ -327,6 +359,42 @@ end
         extra = ["Evaluation" => group(Dict("logpdf" => leaf(50.0, 16)))]
     )
     @test published_ad_benchmark_results(evaluation_only) === nothing
+end
+
+@testitem "AD benchmarks: the exported path is scoped to one render" setup = [
+    ADResultFixtures,
+] begin
+    using EpiAwarePackageTools.DocsBuild: _with_ad_benchmark_results
+
+    root = benchmarks_branch_repo(
+        Dict("AR" => Dict("ForwardDiff" => leaf(1000.0, 2048)))
+    )
+    docs = mktempdir()
+    saved = get(ENV, "AD_BENCHMARK_RESULTS", nothing)
+    try
+        # The page's subprocess needs the variable while the render runs, and
+        # a second package built in this process must resolve its own.
+        delete!(ENV, "AD_BENCHMARK_RESULTS")
+        during = _with_ad_benchmark_results(docs, nothing, root) do
+            get(ENV, "AD_BENCHMARK_RESULTS", "")
+        end
+        @test !isempty(during)
+        @test !haskey(ENV, "AD_BENCHMARK_RESULTS")
+
+        # An empty value is a real setting the caller made: it opts out, and
+        # it comes back rather than being replaced by the resolved path.
+        ENV["AD_BENCHMARK_RESULTS"] = ""
+        _with_ad_benchmark_results(docs, nothing, root) do
+            nothing
+        end
+        @test ENV["AD_BENCHMARK_RESULTS"] == ""
+    finally
+        if saved === nothing
+            delete!(ENV, "AD_BENCHMARK_RESULTS")
+        else
+            ENV["AD_BENCHMARK_RESULTS"] = saved
+        end
+    end
 end
 
 @testitem "AD benchmarks: the build exports a results path" setup = [

@@ -2614,19 +2614,19 @@ function build_docs(
     # `tutorial_environments` and `heavy_tutorial_workers` are shared on the
     # same terms.
     #
-    # The AD-comparison page reads the gradient numbers the benchmark run
-    # published when this build has them. Resolved and exported here because
-    # the page executes in a subprocess that inherits this environment; with
-    # nothing configured and nothing in the environment the variable is left
-    # alone and the page measures live.
-    _export_ad_benchmark_results(
+    # The AD-comparison page's numbers reach it through the environment, which
+    # the page's subprocess inherits, and are scoped to this render so a later
+    # build in the same process resolves its own.
+    _with_ad_benchmark_results(
         docs_dir, ad_benchmark_results, project_root
-    )
-    _render_tutorials(
-        docs_dir, benchmarks_dir, skip_notebooks, String[],
-        heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials,
-        envs = tutorial_environments, workers = heavy_tutorial_workers
-    )
+    ) do
+        _render_tutorials(
+            docs_dir, benchmarks_dir, skip_notebooks, String[],
+            heavy_benchmarks, benchmark_stubs;
+            force_stub = force_stub_tutorials,
+            envs = tutorial_environments, workers = heavy_tutorial_workers
+        )
+    end
 
     # --- generated pages ---------------------------------------------------
     build_index(;

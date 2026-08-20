@@ -25,6 +25,10 @@ concurrency:
 jobs:
   history:
     runs-on: ubuntu-latest
+    # Six revisions in one job, each preparing the whole AD gradient grid
+    # before measuring it, so a grid that outgrows the runner fails here
+    # rather than at GitHub's six-hour default.
+    timeout-minutes: 120
     steps:
       # fetch-depth: 0 so all tags resolve; benchpkg checks out each
       # historical rev from this working tree.
@@ -142,13 +146,17 @@ jobs:
       # rather than repeating the whole grid in the docs process.
       #
       # `latest.json` copies the file for the revision this run was triggered
-      # for. It names that revision by content rather than by modification
-      # time, which a git checkout of the branch flattens.
+      # for, named by content rather than by modification time, which a git
+      # checkout of the branch flattens. The file is matched on the revision
+      # alone, so benchpkg is free to change how it spells the rest of the
+      # name.
       - name: Publish raw results
         run: |
           cp -r results public/results
-          head_file="results/results_{{PACKAGE}}@${GITHUB_SHA}.json"
-          if [ -f "$head_file" ]; then
+          head_file=$(
+            ls -1 results/*"${GITHUB_SHA}"*.json 2>/dev/null | head -n 1
+          )
+          if [ -n "$head_file" ] && [ -f "$head_file" ]; then
             cp "$head_file" public/results/latest.json
           else
             echo "no results for ${GITHUB_SHA}: publishing without latest"

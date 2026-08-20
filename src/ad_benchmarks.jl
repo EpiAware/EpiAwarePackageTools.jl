@@ -13,8 +13,8 @@
 # and returns data, so it can be unit tested directly.
 
 # One (backend, scenario) measurement, the row shape the page's `bench_long`
-# frame has: `time_us` is the median time in microseconds and `bytes_kb` the
-# allocated memory in kibibytes.
+# frame has: `time_us` is the minimum sample in microseconds and `bytes_kb`
+# the allocated memory in kibibytes.
 const ADBenchmarkRow = @NamedTuple{
     backend::String, scenario::String, time_us::Float64, bytes_kb::Float64,
 }
@@ -46,12 +46,12 @@ end
 # manifest as a dependency of Documenter/Literate, so this adds nothing to
 # `docs/Project.toml` (see `_json`).
 
-# Median of a vector of times, robust to empties and unsorted input.
-function _median_time(times)
-    xs = sort(Float64[t for t in times if t isa Real])
-    n = length(xs)
-    n == 0 && return NaN
-    return isodd(n) ? xs[(n + 1) ÷ 2] : (xs[n ÷ 2] + xs[n ÷ 2 + 1]) / 2
+# Minimum of the samples, the estimator both
+# `DifferentiationInterfaceTest.benchmark_differentiation` and BenchmarkTools
+# report, so the AD page carries one statistic whichever path filled it.
+function _sample_time(times)
+    xs = Float64[t for t in times if t isa Real]
+    return isempty(xs) ? NaN : minimum(xs)
 end
 
 # Flatten a published benchmark group into `key path => (time_ns, bytes)`.
@@ -63,8 +63,8 @@ function _flatten_benchmarks!(out, node, prefix::String)
     if haskey(node, "times")
         times = node["times"]
         memory = get(node, "memory", nothing)
-        if times isa AbstractVector && !isempty(times) && memory isa Real
-            out[prefix] = (_median_time(times), Float64(memory))
+        if times isa AbstractVector && memory isa Real
+            out[prefix] = (_sample_time(times), Float64(memory))
         end
     elseif haskey(node, "data") && node["data"] isa AbstractDict
         for (k, v) in node["data"]
@@ -132,6 +132,10 @@ page.
 `expected_backends` is the registry's backend labels, in the order the page
 wants them. It fixes the row order and is what "missing" is measured against,
 so a benchmark's last key segment must be the registry label exactly.
+
+Each row's time is the minimum of the benchmark's samples, the estimator
+`DifferentiationInterfaceTest.benchmark_differentiation` reports, so a page
+rendering these numbers states the same statistic as one measuring its own.
 
 Nothing here is fatal. A missing file, one that is not valid JSON, and a suite
 with no gradient group all produce an `ADBenchmarkResults` describing what was
@@ -320,4 +324,22 @@ function _export_ad_benchmark_results(docs_dir, configured, project_root)
     ENV["AD_BENCHMARK_RESULTS"] = path
     println("AD benchmark results: rendering from $path")
     return path
+end
+
+# Run `f` with the resolved path exported, then put the environment back as it
+# was. The variable overrides what a package configured, so a driver building
+# several packages in one process would otherwise render the second package's
+# page from the first package's numbers.
+function _with_ad_benchmark_results(f, docs_dir, configured, project_root)
+    saved = get(ENV, "AD_BENCHMARK_RESULTS", nothing)
+    _export_ad_benchmark_results(docs_dir, configured, project_root)
+    try
+        return f()
+    finally
+        if saved === nothing
+            delete!(ENV, "AD_BENCHMARK_RESULTS")
+        else
+            ENV["AD_BENCHMARK_RESULTS"] = saved
+        end
+    end
 end
