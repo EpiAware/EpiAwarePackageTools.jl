@@ -491,7 +491,8 @@ end
             env["GITHUB_SHA"] = sha
             run(
                 pipeline(
-                    setenv(`bash -c $script`, env; dir = dir); stdout = devnull
+                    setenv(`bash -eo pipefail -c $script`, env; dir = dir);
+                    stdout = devnull
                 )
             )
             out = joinpath(dir, "public", "results", "latest.json")

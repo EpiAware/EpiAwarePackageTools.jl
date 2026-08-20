@@ -153,10 +153,13 @@ jobs:
       - name: Publish raw results
         run: |
           cp -r results public/results
-          head_file=$(
-            ls -1 results/*"${GITHUB_SHA}"*.json 2>/dev/null | head -n 1
-          )
-          if [ -n "$head_file" ] && [ -f "$head_file" ]; then
+          head_file=""
+          for f in results/*"${GITHUB_SHA}"*.json; do
+            [ -f "$f" ] || continue
+            head_file="$f"
+            break
+          done
+          if [ -n "$head_file" ]; then
             cp "$head_file" public/results/latest.json
           else
             echo "no results for ${GITHUB_SHA}: publishing without latest"
