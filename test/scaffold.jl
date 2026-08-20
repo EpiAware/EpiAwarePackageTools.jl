@@ -5142,7 +5142,8 @@ end
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _undeclared_test_stdlibs, _used_module_names,
         _declared_deps, _julia_stdlibs,
-        _manifest_packages, update
+        _manifest_packages, update, _workspace_projects,
+        _workspace_manifest_path
     _p(dir, rel) = joinpath(dir, split(rel, '/')...)
     # A minimal resolved test manifest naming `pkgs` — the availability oracle
     # the scan reads (a real Manifest lists the full transitive set). Only the
@@ -5295,65 +5296,104 @@ end
         end
     end
 
-    @testset "workspace layout: root Manifest.toml is read" begin
-        # The managed shape puts `test` in the root `[workspace] projects`,
-        # so Pkg resolves it into the root Manifest.toml and
-        # `test/Manifest.toml` never exists. The root manifest is therefore
-        # the availability oracle for a workspace-layout package.
+    @testset "the workspace projects list is bounded by its table" begin
+        mktempdir() do dir
+            proj = joinpath(dir, "Project.toml")
+            write(
+                proj,
+                "name = \"Foo\"\n\n[workspace]\n" *
+                    "projects = [\"test\", \"docs\"]\n"
+            )
+            @test _workspace_projects(proj) == ["test", "docs"]
+            # A `projects` key belonging to a later table is not the
+            # workspace's, and an empty `[workspace]` declares no members.
+            write(
+                proj,
+                "name = \"Foo\"\n\n[workspace]\n\n[extras]\n" *
+                    "projects = [\"docs\"]\n"
+            )
+            @test _workspace_projects(proj) == String[]
+            write(proj, "name = \"Foo\"\n")
+            @test _workspace_projects(proj) == String[]
+            @test _workspace_projects(joinpath(dir, "none.toml")) == String[]
+        end
+    end
+
+    @testset "the resolved manifest follows Pkg's workspace rule" begin
+        # From 1.12 a subdirectory listed in the root `[workspace] projects`
+        # shares the root resolve and its own Manifest.toml is ignored.
+        # Earlier versions do not read `[workspace]` at all.
         mktempdir() do dir
             mkpath(joinpath(dir, "test"))
             write(
                 joinpath(dir, "Project.toml"),
-                "name = \"Foo\"\n\n[workspace]\n" *
-                    "projects = [\"test\", \"docs\"]\n"
+                "name = \"Foo\"\n\n[workspace]\nprojects = [\"test\"]\n"
             )
-            write(_p(dir, "test/Project.toml"), "[deps]\n")
             write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
-            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
-            @test _undeclared_test_stdlibs(dir) == ["LinearAlgebra"]
-        end
-        # A stdlib genuinely resolved via the root manifest is not flagged.
-        mktempdir() do dir
-            mkpath(joinpath(dir, "test"))
-            write(
-                joinpath(dir, "Project.toml"),
-                "name = \"Foo\"\n\n[workspace]\n" *
-                    "projects = [\"test\", \"docs\"]\n"
+            write(_p(dir, "test/Manifest.toml"), _manifest(["Test"]))
+            @test _workspace_manifest_path(dir, "test") == (
+                VERSION >= v"1.12" ? joinpath(dir, "Manifest.toml") :
+                    _p(dir, "test/Manifest.toml")
             )
-            write(_p(dir, "test/Project.toml"), "[deps]\n")
-            write(joinpath(dir, "Manifest.toml"), _manifest(["LinearAlgebra"]))
-            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
-            @test _undeclared_test_stdlibs(dir) == String[]
         end
-        # `test` not listed in `[workspace] projects`: the root manifest is
-        # not this env's resolve, so it must not be consulted — stays silent,
-        # same as the genuine bare-checkout case.
+        # A subdirectory the workspace does not list keeps its own resolve.
         mktempdir() do dir
             mkpath(joinpath(dir, "test"))
             write(
                 joinpath(dir, "Project.toml"),
                 "name = \"Foo\"\n\n[workspace]\nprojects = [\"docs\"]\n"
             )
+            write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/Manifest.toml"), _manifest(["Test"]))
+            @test _workspace_manifest_path(dir, "test") ==
+                _p(dir, "test/Manifest.toml")
+        end
+    end
+
+    @testset "workspace layout: the shared root manifest is the oracle" begin
+        # The managed shape lists `test` in the root `[workspace] projects`,
+        # so on 1.12 Pkg resolves it into the root Manifest.toml and
+        # `test/Manifest.toml` never exists.
+        _ws(dir) = write(
+            joinpath(dir, "Project.toml"),
+            "name = \"Foo\"\n\n[workspace]\n" *
+                "projects = [\"test\", \"docs\"]\n"
+        )
+        # A stdlib the root resolve does not carry is flagged.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            _ws(dir)
             write(_p(dir, "test/Project.toml"), "[deps]\n")
             write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
             write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
-            @test _undeclared_test_stdlibs(dir) == String[]
+            @test _undeclared_test_stdlibs(dir) ==
+                (VERSION >= v"1.12" ? ["LinearAlgebra"] : String[])
         end
-        # Both manifests present and the workspace declares `test`: Pkg uses
-        # the subdir's own resolve, so `test/Manifest.toml` wins. The root
-        # manifest here would suppress the warning if it were read instead.
+        # One it does carry is not, even with a `test/Manifest.toml` that
+        # lacks it sitting alongside.
         mktempdir() do dir
             mkpath(joinpath(dir, "test"))
-            write(
-                joinpath(dir, "Project.toml"),
-                "name = \"Foo\"\n\n[workspace]\n" *
-                    "projects = [\"test\", \"docs\"]\n"
-            )
+            _ws(dir)
             write(_p(dir, "test/Project.toml"), "[deps]\n")
             write(joinpath(dir, "Manifest.toml"), _manifest(["LinearAlgebra"]))
             write(_p(dir, "test/Manifest.toml"), _manifest(["Test"]))
             write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
-            @test _undeclared_test_stdlibs(dir) == ["LinearAlgebra"]
+            @test _undeclared_test_stdlibs(dir) ==
+                (VERSION >= v"1.12" ? String[] : ["LinearAlgebra"])
+        end
+        # A stale `test/Manifest.toml` alongside it is not the resolve on
+        # 1.12, so the root's verdict stands and the stdlib stays flagged.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            _ws(dir)
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
+            write(
+                _p(dir, "test/Manifest.toml"), _manifest(["LinearAlgebra"])
+            )
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir) ==
+                (VERSION >= v"1.12" ? ["LinearAlgebra"] : String[])
         end
     end
 
@@ -5372,9 +5412,16 @@ end
             @test !any(w -> occursin("#263", w), res.warnings)
             # A contributor adds `using LinearAlgebra` without declaring it, in
             # an instantiated env (manifest present) that does not resolve it.
+            # `scaffold` writes the `[workspace]` shape, so the resolve lands
+            # at the root from 1.12 and in `test/` before it; both are seeded
+            # so the warning is checked whichever one is read.
             write(
                 _p(dir, "test/renewal_tests.jl"),
                 "using LinearAlgebra: dot\n"
+            )
+            write(
+                joinpath(dir, "Manifest.toml"),
+                _manifest(["Test", "Aqua", "JET"])
             )
             write(
                 _p(dir, "test/Manifest.toml"),

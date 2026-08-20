@@ -4484,41 +4484,44 @@ function _manifest_packages(path::AbstractString)
 end
 
 # The `projects = [...]` array from a root Project.toml's `[workspace]`
-# table, or an empty vector when there is no such table (or no file). A line
-# scan over the captured array body, like `_project_authors`.
+# table, or an empty vector when there is no such table (or no file). The
+# table body is sliced out at the next header first, so a `projects` key
+# belonging to a later table is not read as the workspace's.
 function _workspace_projects(proj::AbstractString)
     isfile(proj) || return String[]
     text = read(proj, String)
-    m = match(r"(?ms)^\[workspace\].*?^projects\s*=\s*\[(.*?)\]", text)
+    tbl = match(r"(?ms)^\[workspace\][^\n]*\n(.*?)(?=^\[|\z)", text)
+    tbl === nothing && return String[]
+    body = something(tbl.captures[1], "")
+    m = match(r"(?ms)^projects\s*=\s*\[(.*?)\]", body)
     m === nothing && return String[]
-    inner = m.captures[1]
-    inner === nothing && return String[]
     return [
         String(something(x.captures[1], ""))
-            for x in eachmatch(r"\"([^\"]*)\"", inner)
+            for x in eachmatch(r"\"([^\"]*)\"", something(m.captures[1], ""))
     ]
 end
 
 """
     _workspace_manifest_path(target_dir, subdir)
 
-The Manifest.toml Pkg actually resolves for the `<subdir>/Project.toml` env,
-following the same rule Pkg itself does: `<subdir>`'s own `Manifest.toml` when
-present, otherwise the root `Manifest.toml` when the root `Project.toml`
-declares `<subdir>` in `[workspace] projects` (the managed shape
-`_apply_workspace` writes, sharing one resolve across `test` and `docs`).
-`nothing` when neither applies, so the caller can tell "not instantiated" from
-"instantiated at the root".
+The Manifest.toml path Pkg resolves for the `<subdir>/Project.toml`
+environment, whether or not that file exists.
+
+From Julia 1.12 a subdirectory named in the root `Project.toml`'s
+`[workspace] projects` shares the root resolve, so the root `Manifest.toml`
+is its manifest and `<subdir>/Manifest.toml` is ignored outright. This is the
+managed shape `_apply_workspace` writes, sharing one resolve across `test`
+and `docs`. Earlier Julia versions have no `[workspace]` support and always
+read `<subdir>/Manifest.toml`.
 """
 function _workspace_manifest_path(
         target_dir::AbstractString, subdir::AbstractString
     )
-    own = joinpath(target_dir, subdir, "Manifest.toml")
-    isfile(own) && return own
     proj = joinpath(target_dir, "Project.toml")
-    subdir in _workspace_projects(proj) || return nothing
-    root = joinpath(target_dir, "Manifest.toml")
-    return isfile(root) ? root : nothing
+    if VERSION >= v"1.12" && subdir in _workspace_projects(proj)
+        return joinpath(target_dir, "Manifest.toml")
+    end
+    return joinpath(target_dir, subdir, "Manifest.toml")
 end
 
 # Standard libraries `using`d in a package's committed test sources but not
@@ -4527,21 +4530,16 @@ end
 #
 # Availability is judged against the resolved manifest, not the `[deps]` lines
 # alone: a stdlib pulled in transitively (e.g. LinearAlgebra via Aqua/JET) is
-# genuinely loadable and must not be flagged. The managed `[workspace]` shape
-# puts `test` in the root's `projects`, so the resolved manifest usually lives
-# at the repo root rather than `test/Manifest.toml`; `_workspace_manifest_path`
-# finds whichever one Pkg actually resolved into. A Manifest is
-# gitignored, so it exists only in an instantiated env, which is where the
-# warning is actionable anyway. Without one, no warning: a missed hint in a
-# bare CI checkout buys zero false positives.
+# genuinely loadable and must not be flagged. A Manifest is gitignored, so it
+# exists only in an instantiated env. Without one, no warning: a missed hint
+# in a bare CI checkout buys zero false positives.
 function _undeclared_test_stdlibs(target_dir::AbstractString)
     test_dir = joinpath(target_dir, "test")
     isdir(test_dir) || return String[]
     stdlibs = _julia_stdlibs()
     isempty(stdlibs) && return String[]
     manifest = _workspace_manifest_path(target_dir, "test")
-    available = manifest === nothing ?
-        Set{String}() : _manifest_packages(manifest)
+    available = _manifest_packages(manifest)
     isempty(available) && return String[]
     # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
     available = union(
