@@ -816,6 +816,13 @@ function _supported_license(id::AbstractString)
     return idx === nothing ? nothing : SUPPORTED_LICENSES[idx]
 end
 
+# Whether `id` is shaped like an SPDX identifier: an alphanumeric start, then
+# alphanumerics separated by `.`, `-` or `+`. A shape check only, telling a
+# licence the kit will not write apart from a string naming no licence at all.
+function _is_spdx_id(id::AbstractString)
+    return occursin(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$", strip(id))
+end
+
 # Reject an unsupported `license` eagerly, naming the value and the valid set,
 # rather than letting it propagate into a substitution that fails later with no
 # reference back to the bad input (#310). The reference implementation
@@ -1031,42 +1038,63 @@ function _detect_doi(target_dir::AbstractString)
     return (String(something(m.captures[2])), String(something(m.captures[1])))
 end
 
+# The label of the managed README License badge, or `nothing` when the README
+# carries none.
+function _badge_license(target_dir::AbstractString)
+    readme = joinpath(target_dir, "README.md")
+    isfile(readme) || return nothing
+    m = match(
+        r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
+        read(readme, String)
+    )
+    m === nothing && return nothing
+    return String(strip(String(something(m.captures[1]))))
+end
+
+# What `target_dir` declares its licence to be, as `(id, source_file)`, or
+# `(nothing, nothing)` when it declares nothing. Both the README badge and the
+# `Project.toml` `license` field are read, and the first SPDX-shaped one wins,
+# so a badge carrying a prose label defers to the machine-readable field.
+function _declared_license(target_dir::AbstractString)
+    found = Tuple{String, String}[]
+    badge = _badge_license(target_dir)
+    badge === nothing || push!(found, (badge, "README.md"))
+    proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
+    proj === nothing || push!(found, (String(strip(proj)), "Project.toml"))
+    isempty(found) && return (nothing, nothing)
+    idx = findfirst(d -> _is_spdx_id(first(d)), found)
+    return idx === nothing ? found[1] : found[idx]
+end
+
 """
     _detect_license(target_dir)
 
-Recover an already-scaffolded repo's licence so a resync (`update`
-with no `license` kwarg) keeps it instead of resetting the README badge to
-`$(repr(DEFAULT_LICENSE))` (#235).
+The SPDX licence identifier `target_dir` declares, in the canonical spelling
+of its `SUPPORTED_LICENSES` entry, or `nothing` when it declares none.
 
-The README badge cell is managed, but `license` defaults to
-`$(repr(DEFAULT_LICENSE))` and the scheduled template-sync never re-passes it,
-so a non-MIT adopter's badge was flipped to MIT on every sync — the same
-failure mode `_detect_doi` fixed for the DOI badge (#161). The value is read
-back from the destination: first the managed License badge, then the
-`Project.toml` `license` field. Returns the SPDX id, or `nothing` when neither
-carries one.
+The scheduled sync runs [`update`](@ref) with no `license` keyword, so the
+value has to be read back from the destination or the managed README badge
+would be rewritten to `$(repr(DEFAULT_LICENSE))` on every run. Matching is
+case-insensitive, so a differently-spelled declaration still resolves.
 
-Only a `SUPPORTED_LICENSES` entry is recovered, matched case-insensitively
-and returned in its canonical spelling, so a differently-spelled declaration
-still resolves and a hand-edited badge cannot introduce a licence the kit does
-not support. Anything else yields `nothing` and the default applies. An
-explicit `license` keyword wins over whatever is recovered.
+A declaration outside `SUPPORTED_LICENSES` throws, naming the file it was read
+from. The badge is rendered from this value, so falling back to the default
+would publish a licence claim the package never made.
 """
 function _detect_license(target_dir::AbstractString)
-    readme = joinpath(target_dir, "README.md")
-    if isfile(readme)
-        m = match(
-            r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
-            read(readme, String)
-        )
-        if m !== nothing
-            spdx = _supported_license(String(something(m.captures[1])))
-            spdx === nothing || return spdx
-        end
-    end
-    proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
-    proj === nothing && return nothing
-    return _supported_license(proj)
+    id, source = _declared_license(target_dir)
+    id === nothing && return nothing
+    spdx = _supported_license(id)
+    spdx === nothing || return spdx
+    supported = join(repr.(SUPPORTED_LICENSES), ", ")
+    detail = _is_spdx_id(id) ?
+        "which is not one of $supported. Add it to SUPPORTED_LICENSES " *
+        "with a bundled licence text" :
+        "which is not an SPDX identifier. Correct it to one of $supported"
+    return error(
+        "$source declares license $(repr(id)), $detail, or pass " *
+            "`license` explicitly to relabel the package."
+    )
 end
 
 """
@@ -1101,9 +1129,11 @@ into a template:
   - `license` — the SPDX licence identifier selecting which README badge is
     rendered and which bundled text a new `LICENSE` gets. One of
     `$(join(SUPPORTED_LICENSES, ", "))`. Default `nothing`, in which case the
-    licence already committed to the repo is recovered and kept, falling back
-    to `$(repr(DEFAULT_LICENSE))`. The `LICENSE` text itself is written once
-    and never overwritten by [`update`](@ref).
+    licence the repo declares is recovered and kept, falling back to
+    `$(repr(DEFAULT_LICENSE))` when it declares none. A declared licence
+    outside the supported set is an error rather than a relabelling, so a sync
+    cannot badge a package with a licence it did not choose. The `LICENSE`
+    text itself is written once and never overwritten by [`update`](@ref).
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
     given a DOI badge is added to the README "License & DOI" cell. Both default
     to `nothing`, in which case any DOI badge already committed to the README is
@@ -1140,8 +1170,8 @@ function scaffold_inputs(
         docs_timeout::Union{Nothing, Integer} = nothing,
         ad_timeout::Union{Nothing, Integer} = nothing
     )
-    # Recover the committed licence so a bare sync keeps a non-MIT adopter's
-    # badge instead of resetting it to the default (#235).
+    # Keep whatever licence the repo declares, so a bare sync cannot reset a
+    # non-MIT adopter's badge to the default.
     license = license === nothing ?
         something(_detect_license(target_dir), DEFAULT_LICENSE) : license
     _validate_license(license)

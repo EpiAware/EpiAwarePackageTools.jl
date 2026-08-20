@@ -34,6 +34,13 @@
         return dir
     end
 
+    # A minimal README carrying the managed License badge for `label`, the
+    # shape a declaration is read back from.
+    function _badge_readme(label)
+        return "# Wombat\n\n" *
+            EpiAwarePackageTools._license_badge(label) * "\n"
+    end
+
     # Actually `Pkg.instantiate` a generated environment in an isolated
     # subprocess (kit issue #59): file-presence and text-substitution checks
     # never prove an emitted Project.toml/[compat]/[sources] table actually
@@ -3659,38 +3666,117 @@
             end
         end
 
-        @testset "_detect_license ignores an unsupported licence" begin
+        @testset "_detect_license rejects an unsupported declaration" begin
             using EpiAwarePackageTools: _detect_license
-            # Detection is restricted to the supported set: a badge label or
-            # Project.toml field naming anything else cannot introduce a
-            # licence the kit does not support.
-            for label in ("GPL-3.0-only", "not a licence")
-                mktempdir() do dir
-                    _fake_pkg(dir; name = "Wombat")
-                    write(
-                        joinpath(dir, "README.md"),
-                        "# Wombat\n\n[![License: $label]" *
-                            "(https://img.shields.io/badge/License-x-green" *
-                            ".svg)](https://example.com)\n"
+            # An unsupported licence the repo genuinely declares is refused,
+            # naming the file it was read from, rather than being replaced by
+            # the default and published as a badge the package never chose.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "README.md"), _badge_readme("GPL-3.0-only"))
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("README.md", err.msg)
+                @test occursin("GPL-3.0-only", err.msg)
+                @test occursin("not one of", err.msg)
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-3.0-only\"\n")
+                end
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("Project.toml", err.msg)
+                @test occursin("GPL-3.0-only", err.msg)
+            end
+        end
+
+        @testset "_detect_license rejects an unreadable declaration" begin
+            using EpiAwarePackageTools: _detect_license
+            # A string that names no licence cannot be resolved and cannot be
+            # assumed to mean the default either, so it is refused too, with a
+            # message saying what is wrong with it.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"see the LICENSE file\"\n")
+                end
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("not an SPDX identifier", err.msg)
+                @test occursin("see the LICENSE file", err.msg)
+            end
+            # A prose badge label is display text, not a declaration, so the
+            # Project.toml field decides and no error is raised.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "README.md"), _badge_readme("MIT License"))
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"Apache-2.0\"\n")
+                end
+                @test _detect_license(dir) == "Apache-2.0"
+            end
+            # With nothing else to go on, the prose label is itself refused.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "README.md"), _badge_readme("MIT License"))
+                @test_throws ErrorException _detect_license(dir)
+            end
+        end
+
+        @testset "update refuses to relabel an unsupported licence" begin
+            # The failure this guards: a bare resync reading a licence it
+            # cannot write, substituting the default, and publishing a badge
+            # that contradicts the package's own LICENSE file.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-3.0-only\"\n")
+                end
+                readme_path = joinpath(dir, "README.md")
+                write(
+                    readme_path,
+                    replace(
+                        read(readme_path, String),
+                        "Apache-2.0" => "GPL-3.0-only",
+                        "Apache--2.0" => "GPL--3.0--only"
                     )
-                    @test _detect_license(dir) === nothing
-                end
-                mktempdir() do dir
-                    _fake_pkg(dir; name = "Wombat")
-                    open(joinpath(dir, "Project.toml"), "a") do io
-                        write(io, "license = \"$label\"\n")
-                    end
-                    @test _detect_license(dir) === nothing
-                end
+                )
+                @test_throws ErrorException update(dir; ad = false)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-3.0-only", readme)
+                @test !occursin("License: MIT", readme)
             end
         end
 
         @testset "scaffold_inputs accepts only the supported licences" begin
             using EpiAwarePackageTools: scaffold_inputs, SUPPORTED_LICENSES
+            # Named here rather than read from the constant, so dropping an
+            # entry from it fails this test instead of shrinking what the
+            # test checks.
+            supported = ("MIT", "Apache-2.0", "GPL-2.0-or-later")
+            @test Set(SUPPORTED_LICENSES) == Set(supported)
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                for good in SUPPORTED_LICENSES
+                for good in supported
                     @test scaffold_inputs(dir; license = good).LICENSE == good
+                    @test isfile(
+                        joinpath(_templates_dir(), "LICENSE.$good")
+                    )
                 end
             end
             # A committed licence file does not widen the set: an id the kit
