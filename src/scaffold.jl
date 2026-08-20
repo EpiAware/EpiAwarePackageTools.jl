@@ -4256,8 +4256,29 @@ function _apply(
     # LICENSE is package-owned and write-once: `update` never touches it, so a
     # deliberate licence stands.
     license_action = managed_only ? :skipped : _apply_license(target_dir, inputs)
+    # A Julia stdlib is not implicitly available in a test environment: it
+    # needs declaring as a dep, or reaching transitively. A `using <stdlib>`
+    # added without one makes the whole env fail to resolve with an opaque
+    # error, invisible until CI reds (#263). test/Project.toml is
+    # package-owned, so a warning naming the exact stdlib is the durable fix.
+    stdlibs = _undeclared_test_stdlibs(target_dir)
+    isempty(stdlibs) || push!(
+        warnings,
+        string(
+            "test/ uses the standard librar",
+            length(stdlibs) == 1 ? "y " : "ies ", join(stdlibs, ", "),
+            " but ", length(stdlibs) == 1 ? "it is" : "they are",
+            " declared in neither test/Project.toml nor Project.toml. A Julia ",
+            "stdlib must be an explicit dep to load in the test environment, ",
+            "so the whole env fails to resolve on every platform with an ",
+            "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
+            " to test/Project.toml `[deps]` (#263)."
+        )
+    )
     # Injected into the package-owned root Project.toml when absent, on both
-    # scaffold and update, and preserved thereafter.
+    # scaffold and update, and preserved thereafter. Any manifest on disk was
+    # resolved under the layout the root Project.toml declared before this
+    # call, so the stdlib scan above reads it under that same layout.
     workspace_action = _apply_workspace(target_dir)
     # A package's `[compat] julia` is package-owned, and the managed standard
     # no longer needs 1.11 of its own accord (#410) — so this fires only for a
@@ -4316,25 +4337,6 @@ function _apply(
         push!(warnings, kit_pin)
         @warn kit_pin
     end
-    # A Julia stdlib is not implicitly available in a test environment: it
-    # needs declaring as a dep, or reaching transitively. A `using <stdlib>`
-    # added without one makes the whole env fail to resolve with an opaque
-    # error, invisible until CI reds (#263). test/Project.toml is
-    # package-owned, so a warning naming the exact stdlib is the durable fix.
-    stdlibs = _undeclared_test_stdlibs(target_dir)
-    isempty(stdlibs) || push!(
-        warnings,
-        string(
-            "test/ uses the standard librar",
-            length(stdlibs) == 1 ? "y " : "ies ", join(stdlibs, ", "),
-            " but ", length(stdlibs) == 1 ? "it is" : "they are",
-            " declared in neither test/Project.toml nor Project.toml. A Julia ",
-            "stdlib must be an explicit dep to load in the test environment, ",
-            "so the whole env fails to resolve on every platform with an ",
-            "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
-            " to test/Project.toml `[deps]` (#263)."
-        )
-    )
     # An existing `ad = true` adopter's package-owned `docs/docs_config.jl`
     # may predate the `ad-comparison.jl` split (#299/#305): `update` cannot
     # add the missing HEAVY_BENCHMARKS/BENCHMARK_STUBS registration itself,
@@ -4501,24 +4503,48 @@ function _workspace_projects(proj::AbstractString)
     ]
 end
 
+# The first Julia version whose code loading reads `[workspace]`.
+const _WORKSPACE_JULIA = v"1.12"
+
+# Whether `<target_dir>/<subdir>` is a member of the root `[workspace]`.
+# Pkg joins each `projects` entry to the workspace root and compares it with
+# `samefile`, so `"test"`, `"./test"` and `"test/"` all name one member, and a
+# listed directory absent from disk names none.
+function _workspace_member(
+        target_dir::AbstractString, subdir::AbstractString
+    )
+    dir = joinpath(target_dir, subdir)
+    isdir(dir) || return false
+    proj = joinpath(target_dir, "Project.toml")
+    for entry in _workspace_projects(proj)
+        path = joinpath(target_dir, entry)
+        isdir(path) && samefile(path, dir) && return true
+    end
+    return false
+end
+
 """
-    _workspace_manifest_path(target_dir, subdir)
+    _workspace_manifest_path(target_dir, subdir; version = VERSION)
 
 The Manifest.toml path Pkg resolves for the `<subdir>/Project.toml`
-environment, whether or not that file exists.
+environment, whether or not that file exists. `version` is the Julia version
+the answer is wanted for.
 
 From Julia 1.12 a subdirectory named in the root `Project.toml`'s
 `[workspace] projects` shares the root resolve, so the root `Manifest.toml`
-is its manifest and `<subdir>/Manifest.toml` is ignored outright. This is the
+is where Pkg writes and reads that environment's dependencies and
+`<subdir>/Manifest.toml` plays no part in it. Base's code loading falls back
+to `<subdir>/Manifest.toml` only when the root `Manifest.toml` is absent, so
+the shared root manifest is the oracle wherever one exists. This is the
 managed shape `_apply_workspace` writes, sharing one resolve across `test`
 and `docs`. Earlier Julia versions have no `[workspace]` support and always
 read `<subdir>/Manifest.toml`.
 """
 function _workspace_manifest_path(
-        target_dir::AbstractString, subdir::AbstractString
+        target_dir::AbstractString, subdir::AbstractString;
+        version::VersionNumber = VERSION
     )
-    proj = joinpath(target_dir, "Project.toml")
-    if VERSION >= v"1.12" && subdir in _workspace_projects(proj)
+    if version >= _WORKSPACE_JULIA && _workspace_member(target_dir, subdir)
         return joinpath(target_dir, "Manifest.toml")
     end
     return joinpath(target_dir, subdir, "Manifest.toml")
@@ -4533,12 +4559,16 @@ end
 # genuinely loadable and must not be flagged. A Manifest is gitignored, so it
 # exists only in an instantiated env. Without one, no warning: a missed hint
 # in a bare CI checkout buys zero false positives.
-function _undeclared_test_stdlibs(target_dir::AbstractString)
+function _undeclared_test_stdlibs(
+        target_dir::AbstractString; version::VersionNumber = VERSION
+    )
     test_dir = joinpath(target_dir, "test")
     isdir(test_dir) || return String[]
     stdlibs = _julia_stdlibs()
     isempty(stdlibs) && return String[]
-    manifest = _workspace_manifest_path(target_dir, "test")
+    manifest = _workspace_manifest_path(
+        target_dir, "test"; version = version
+    )
     available = _manifest_packages(manifest)
     isempty(available) && return String[]
     # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
