@@ -31,7 +31,7 @@ import Statistics
 export build_docs, build_index, build_release_notes, build_benchmark_page,
     build_api_pages, api_bindings, api_owning_modules, api_remotes
 export ADBenchmarkResults, load_ad_benchmarks, ad_benchmark_note,
-    ad_benchmark_results_path
+    ad_benchmark_results_path, published_ad_benchmark_results
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -2530,14 +2530,18 @@ masking the rest.
 same pipeline again over `src/benchmarks/`, so a benchmark report renders
 under its own top-level "Benchmarks" nav group rather than under Tutorials.
 
-`ad_benchmark_results` opts the scaffolded AD-comparison page into rendering
-the gradient numbers the package's benchmark run already published, rather than
-measuring every (backend, scenario) pair again during the build. It is a
-results file or a directory of them; a relative path resolves against `docs/`,
-and the `AD_BENCHMARK_RESULTS` environment variable overrides it so CI can name
-a checkout without the package editing its config. See
-[`ad_benchmark_results_path`](@ref) and [`load_ad_benchmarks`](@ref). It
-defaults to `nothing`, which leaves the page measuring live.
+`ad_benchmark_results` names where the scaffolded AD-comparison page's gradient
+numbers are, so it renders what the package's benchmark run already measured
+rather than measuring every (backend, scenario) pair again during the build. It
+is a results file or a directory of them; a relative path resolves against
+`docs/`, and the `AD_BENCHMARK_RESULTS` environment variable overrides it so CI
+can name a checkout without the package editing its config. See
+[`ad_benchmark_results_path`](@ref) and [`load_ad_benchmarks`](@ref).
+
+It defaults to `nothing`, which falls back to the results the package's
+benchmark run deploys to its `benchmarks` branch (see
+[`published_ad_benchmark_results`](@ref)), and leaves the page measuring live
+only where that branch carries no gradient numbers.
 
 `deploy=false` builds without deploying and `build_vitepress=false` runs
 Documenter without the final npm pass; both are used by tests and fast local
@@ -2615,7 +2619,9 @@ function build_docs(
     # the page executes in a subprocess that inherits this environment; with
     # nothing configured and nothing in the environment the variable is left
     # alone and the page measures live.
-    _export_ad_benchmark_results(docs_dir, ad_benchmark_results)
+    _export_ad_benchmark_results(
+        docs_dir, ad_benchmark_results, project_root
+    )
     _render_tutorials(
         docs_dir, benchmarks_dir, skip_notebooks, String[],
         heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials,

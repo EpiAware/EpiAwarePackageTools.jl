@@ -90,16 +90,26 @@ matrix, so one suite definition feeds both it and this page.
 `benchmark-history.yaml` runs the suite on each push to `main` and deploys the
 run to the `benchmarks` branch, with the raw per-revision results under
 `history/results/` beside the plots.
+`latest.json` there is the file for the revision that run measured.
 
-Point the docs build at those results:
+The docs build reads that file without the package configuring anything.
+It resolves the branch with `git`, exactly as the performance-history page
+resolves `history/table.md`, so no checkout step is needed.
+A package whose run carried no gradient numbers at all is left measuring every
+(backend, scenario) pair itself while the docs build runs, which is fine for a
+small registry and stops fitting in a CI job for a large one.
+
+Name a different location to read some other run:
 
 ```julia
 # docs/docs_config.jl
 const AD_BENCHMARK_RESULTS = "bench-results"
 ```
 
-The value is a results file, or a directory of them, in which case the most
-recently written is used.
+The value is a results file, or a directory of them, in which case `latest.json`
+wins and otherwise the most recently written file does.
+A git checkout gives every file the same modification time, which is why the run
+names its own revision rather than leaving the newest file to be guessed.
 A relative path resolves against `docs/`.
 The `AD_BENCHMARK_RESULTS` environment variable overrides the const, so CI can
 name a checkout without touching the package-owned config:
@@ -108,8 +118,7 @@ name a checkout without touching the package-owned config:
 AD_BENCHMARK_RESULTS=bench-results julia --project=docs docs/make.jl
 ```
 
-With either the const or the variable set the page renders what it finds and
-never measures:
+Whichever results the page reads, it renders what it finds and never measures:
 
 - Nothing found: the page states that no measurements are available.
 - Some backends missing: the page renders those it has and names the rest.
@@ -119,9 +128,6 @@ never measures:
 
 Costs are relative to ForwardDiff where it has numbers, and otherwise to the
 first backend that does.
-
-With both unset, the default, the page measures every (backend, scenario) pair
-itself while the docs build runs.
 
 ### One single source of truth
 

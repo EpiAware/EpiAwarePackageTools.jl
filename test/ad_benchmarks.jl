@@ -34,9 +34,9 @@
         return path
     end
 
-    # `touch` cannot set a time, and the loader picks the newest file by
-    # modification time, so the tests stamp files rather than sleeping between
-    # writes and hoping the filesystem's granularity is fine enough.
+    # `touch` cannot set a time, and the loader falls back to the newest file
+    # by modification time, so the tests stamp files rather than sleeping
+    # between writes and hoping the filesystem's granularity is fine enough.
     function set_mtime(path, t)
         f = Base.Filesystem.open(path, Base.Filesystem.JL_O_RDWR)
         try
@@ -45,6 +45,27 @@
             close(f)
         end
         return path
+    end
+
+    # A repo whose `benchmarks` branch carries a published run, laid out the
+    # way `benchmark-history.yaml` deploys it.
+    function benchmarks_branch_repo(gradients; extra = Pair{String, String}[])
+        root = mktempdir()
+        run(pipeline(`git -C $root init -q`; stderr = devnull))
+        run(`git -C $root symbolic-ref HEAD refs/heads/benchmarks`)
+        write_results(
+            joinpath(root, "history", "results", "latest.json"), gradients;
+            extra = extra
+        )
+        run(`git -C $root add -A`)
+        run(
+            pipeline(
+                `git -C $root -c user.email=t@example -c user.name=T
+                commit -q -m published`;
+                stdout = devnull
+            )
+        )
+        return root
     end
 end
 
@@ -244,6 +265,98 @@ end
             "/tmp/from-ci"
         ENV["AD_BENCHMARK_RESULTS"] = ""
         @test ad_benchmark_results_path(docs, nothing) === nothing
+    finally
+        if saved === nothing
+            delete!(ENV, "AD_BENCHMARK_RESULTS")
+        else
+            ENV["AD_BENCHMARK_RESULTS"] = saved
+        end
+    end
+end
+
+@testitem "AD benchmarks: the run's own file wins in a checkout" setup = [
+    ADResultFixtures,
+] begin
+    using EpiAwarePackageTools: load_ad_benchmarks
+
+    # A git checkout stamps every file with the checkout time, so which file
+    # is newest says nothing about which revision is newest. The run names its
+    # own revision in `latest.json`, and that is what the page wants.
+    dir = mktempdir()
+    latest = write_results(
+        joinpath(dir, "latest.json"),
+        Dict("AR" => Dict("ForwardDiff" => leaf(1000.0, 2048)))
+    )
+    tag = write_results(
+        joinpath(dir, "results_Pkg@v0.1.0.json"),
+        Dict("AR" => Dict("ForwardDiff" => leaf(9000.0, 2048)))
+    )
+    set_mtime(latest, 1.0e9)
+    set_mtime(tag, 1.0e9 + 60)
+
+    r = load_ad_benchmarks(dir, ["ForwardDiff"])
+    @test r.source == latest
+    @test only(r.rows).time_us ≈ 1.0
+end
+
+@testitem "AD benchmarks: the branch supplies the numbers" setup = [
+    ADResultFixtures,
+] begin
+    using EpiAwarePackageTools: load_ad_benchmarks
+    using EpiAwarePackageTools.DocsBuild: published_ad_benchmark_results
+
+    root = benchmarks_branch_repo(
+        Dict("AR" => Dict("ForwardDiff" => leaf(1000.0, 2048)))
+    )
+    file = published_ad_benchmark_results(root)
+    @test file !== nothing
+    @test only(load_ad_benchmarks(file, ["ForwardDiff"]).rows).time_us ≈
+        1.0
+end
+
+@testitem "AD benchmarks: an unpublished branch supplies nothing" setup = [
+    ADResultFixtures,
+] begin
+    using EpiAwarePackageTools.DocsBuild: published_ad_benchmark_results
+
+    # No repo at all, and a repo whose run measured no gradients. The second
+    # leaves the page measuring live rather than rendering an empty table.
+    @test published_ad_benchmark_results(mktempdir()) === nothing
+    evaluation_only = benchmarks_branch_repo(
+        Dict{String, Dict{String, String}}();
+        extra = ["Evaluation" => group(Dict("logpdf" => leaf(50.0, 16)))]
+    )
+    @test published_ad_benchmark_results(evaluation_only) === nothing
+end
+
+@testitem "AD benchmarks: the build exports a results path" setup = [
+    ADResultFixtures,
+] begin
+    using EpiAwarePackageTools.DocsBuild: _export_ad_benchmark_results
+
+    root = benchmarks_branch_repo(
+        Dict("AR" => Dict("ForwardDiff" => leaf(1000.0, 2048)))
+    )
+    docs = mktempdir()
+    saved = get(ENV, "AD_BENCHMARK_RESULTS", nothing)
+    try
+        # What the package named wins over the branch.
+        delete!(ENV, "AD_BENCHMARK_RESULTS")
+        @test _export_ad_benchmark_results(docs, "bench-results", root) ==
+            abspath(joinpath(docs, "bench-results"))
+
+        # With nothing named, the branch is what the page renders from, and
+        # the path reaches the page's subprocess through the environment.
+        delete!(ENV, "AD_BENCHMARK_RESULTS")
+        path = _export_ad_benchmark_results(docs, nothing, root)
+        @test path !== nothing
+        @test ENV["AD_BENCHMARK_RESULTS"] == path
+
+        # A package with no published run is left measuring live.
+        delete!(ENV, "AD_BENCHMARK_RESULTS")
+        @test _export_ad_benchmark_results(docs, nothing, mktempdir()) ===
+            nothing
+        @test !haskey(ENV, "AD_BENCHMARK_RESULTS")
     finally
         if saved === nothing
             delete!(ENV, "AD_BENCHMARK_RESULTS")

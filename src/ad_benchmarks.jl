@@ -4,8 +4,9 @@
 # The benchmark suite already measures every (backend, scenario) pair the
 # `ADFixtures` registry declares, under the shared `"AD gradients"` group, and
 # `benchmark-history.yaml` publishes its results to the `benchmarks` branch.
-# This reads that file so the docs build reports those numbers instead of
-# measuring the whole grid again in the docs process.
+# This finds that file, on the branch or where the package names one, and reads
+# it so the docs build reports those numbers instead of measuring the whole
+# grid again in the docs process.
 #
 # Included into `DocsBuild` so it sits with the rest of the docs machinery, but
 # it is deliberately free of any Documenter/Literate coupling: it takes a path
@@ -87,17 +88,29 @@ function _split_ad_key(key::AbstractString, group::AbstractString)
     return (scenario, backend)
 end
 
+# The file the benchmark run names as the revision it was triggered for. The
+# publishing workflow writes it beside the per-revision files, so a reader can
+# pick the right one out of a git checkout, where every file carries the
+# checkout time and modification order says nothing.
+const AD_RESULTS_LATEST = "latest.json"
+
 # The published results file, given a file or a directory. A directory is what
-# `benchpkg --output-dir` writes and what a `benchmarks` branch checkout gives,
-# and it holds one file per revision benchmarked; the most recently written one
-# is the newest revision.
+# `benchpkg --output-dir` writes and what the published `history/results/`
+# folder holds: one file per revision benchmarked. `latest.json` names the
+# wanted revision and is preferred wherever it is present. Failing that, in a
+# working directory of `benchpkg` output, the most recently written file is the
+# newest revision, with the name settling ties.
 function _ad_results_file(source::AbstractString)
     isfile(source) && return String(source)
     isdir(source) || return nothing
     files = String[]
+    latest = String[]
     for (root, _, names) in walkdir(source), name in names
-        endswith(lowercase(name), ".json") && push!(files, joinpath(root, name))
+        endswith(lowercase(name), ".json") || continue
+        path = joinpath(root, name)
+        push!(name == AD_RESULTS_LATEST ? latest : files, path)
     end
+    isempty(latest) || return first(sort!(latest))
     isempty(files) && return nothing
     return last(sort!(files; by = f -> (mtime(f), f)))
 end
@@ -109,8 +122,9 @@ end
 Read the AD gradient measurements published by the package's benchmark run.
 
 `source` is a benchmark results JSON file, or a directory holding one or more
-of them, in which case the most recently written is used. `group` is the
-benchmark group the gradient benchmarks live under, the same convention
+of them, in which case a `latest.json` wins and otherwise the most recently
+written file does. `group` is the benchmark group the gradient benchmarks live
+under, the same convention
 [`EpiAwarePackageTools.Benchmarks.compare_comment`](@ref) folds into its AD
 matrix, so one suite definition feeds both the pull request comment and this
 page.
@@ -252,12 +266,56 @@ function ad_benchmark_results_path(
     return isabspath(raw) ? String(raw) : abspath(joinpath(docs_dir, raw))
 end
 
+"""
+    published_ad_benchmark_results(project_root) -> Union{Nothing,String}
+
+The gradient results this package's benchmark run deployed to its `benchmarks`
+branch, extracted to a temporary file, or `nothing`.
+
+`benchmark-history.yaml` publishes each run under `history/results/`, so the
+branch is read with git rather than checked out, the same way the
+performance-history page reads `history/table.md`. Nothing here is required to
+succeed: no branch, no network, and no `latest.json` on it all give `nothing`.
+
+A run that carried no gradient measurements also gives `nothing`, so a package
+whose suite benchmarks evaluation alone is left measuring the AD grid in the
+docs build rather than handed an empty file and a page reporting no numbers.
+"""
+function published_ad_benchmark_results(project_root::AbstractString)
+    ref = _benchmarks_ref(project_root)
+    ref === nothing && return nothing
+    path = "history/results/" * AD_RESULTS_LATEST
+    dest = joinpath(mktempdir(), AD_RESULTS_LATEST)
+    try
+        open(dest, "w") do io
+            run(
+                pipeline(
+                    `git -C $project_root show $ref:$path`;
+                    stdout = io, stderr = devnull
+                )
+            )
+        end
+    catch
+        return nothing
+    end
+    isempty(load_ad_benchmarks(dest, String[]).rows) && return nothing
+    return dest
+end
+
 # Publish the resolved path to the benchmark page's subprocess, which inherits
 # this process's environment. Writing it back as an absolute path also
 # normalises the relative form a `docs_config.jl` may have used, so the page
 # itself only ever reads one thing.
-function _export_ad_benchmark_results(docs_dir, configured)
+#
+# What the package configured wins, so a package naming its own location keeps
+# it. With nothing configured the branch its benchmark run publishes to is
+# tried, which is what leaves an ordinary package rendering measured numbers
+# without configuring anything.
+function _export_ad_benchmark_results(docs_dir, configured, project_root)
     path = ad_benchmark_results_path(docs_dir, configured)
+    if path === nothing
+        path = published_ad_benchmark_results(project_root)
+    end
     path === nothing && return nothing
     ENV["AD_BENCHMARK_RESULTS"] = path
     println("AD benchmark results: rendering from $path")

@@ -333,3 +333,111 @@
         end
     end
 end
+
+# The benchmark suite is what produces the gradient numbers the AD-comparison
+# docs page renders, so an AD package is scaffolded with that group already
+# measuring rather than with a commented example of one.
+@testitem "the seeded benchmark suite measures AD gradients" begin
+    using Test
+    using Pkg
+    using EpiAwarePackageTools
+
+    function _fake_pkg(dir)
+        write(
+            joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n"
+        )
+        return dir
+    end
+
+    _parses(txt) = !any(
+        e -> e isa Expr && e.head in (:error, :incomplete),
+        Meta.parseall(txt).args
+    )
+
+    @testset "an AD package gets a live gradient group" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true, benchmarks = true)
+            suite = read(joinpath(dir, "benchmark", "benchmarks.jl"), String)
+            # Assigned, not shown as a comment: the group the page reads and
+            # the pull request comment folds into its matrix.
+            @test occursin("SUITE[\"AD gradients\"] = grad", suite)
+            @test occursin("DI.prepare_gradient(", suite)
+            @test occursin("for entry in ADFixtures.backends()", suite)
+            @test !occursin("{{", suite)
+            @test _parses(suite)
+
+            # ...and the environment it measures in resolves those names.
+            proj = joinpath(dir, "benchmark", "Project.toml")
+            deps = Pkg.TOML.parsefile(proj)
+            @test haskey(deps["deps"], "ADFixtures")
+            @test haskey(deps["deps"], "DifferentiationInterface")
+            @test deps["sources"]["ADFixtures"]["path"] ==
+                "../test/ADFixtures"
+            @test haskey(deps["compat"], "DifferentiationInterface")
+            @test !occursin("{{", read(proj, String))
+            @test endswith(read(proj, String), "\n")
+        end
+    end
+
+    @testset "a non-AD package gets neither" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = false, benchmarks = true)
+            suite = read(joinpath(dir, "benchmark", "benchmarks.jl"), String)
+            @test !occursin("ADFixtures", suite)
+            @test !occursin(r"(?m)^SUITE\[\"AD gradients\"\]", suite)
+            @test _parses(suite)
+            proj = joinpath(dir, "benchmark", "Project.toml")
+            env = Pkg.TOML.parsefile(proj)
+            @test !haskey(env["deps"], "ADFixtures")
+            @test !haskey(env["deps"], "DifferentiationInterface")
+            @test !haskey(env["sources"], "ADFixtures")
+            @test endswith(read(proj, String), "\n")
+        end
+    end
+end
+
+# What lands on the `benchmarks` branch, and from which events. Only pushes to
+# `main`, tags and a manual dispatch write it, and each deploy replaces the
+# published folder, so nothing pull-request-scoped accumulates there and no
+# reaping workflow is needed. A trigger added here would change that.
+@testitem "only non-PR events publish to the benchmarks branch" begin
+    using Test
+    using EpiAwarePackageTools
+
+    mktempdir() do dir
+        write(
+            joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n"
+        )
+        scaffold(dir; benchmarks = true)
+        wf = joinpath(dir, ".github", "workflows")
+
+        history = read(joinpath(wf, "benchmark-history.yaml"), String)
+        stop = findfirst("permissions:", history)[1] - 1
+        triggers = history[findfirst("on:", history)[1]:stop]
+        @test !occursin("pull_request", triggers)
+        @test occursin("branches: [main]", triggers)
+        # Each deploy replaces the published folder rather than adding to it.
+        @test occursin("clean: true", history)
+        # Concurrent writers queue rather than clobber one another.
+        @test occursin("group: benchmark-history-deploy", history)
+        @test occursin("cancel-in-progress: false", history)
+        # The revision this run measured, named so a checkout can find it.
+        @test occursin("public/results/latest.json", history)
+
+        # The pull request workflow keeps its results as job artifacts and
+        # posts a comment; it deploys nothing anywhere.
+        comparison = read(joinpath(wf, "benchmark.yaml"), String)
+        @test occursin("pull_request:", comparison)
+        @test occursin("actions/upload-artifact", comparison)
+        @test !occursin("github-pages-deploy-action", comparison)
+        @test !occursin("branch: benchmarks", comparison)
+    end
+end

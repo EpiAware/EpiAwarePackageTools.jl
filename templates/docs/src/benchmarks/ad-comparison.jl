@@ -18,9 +18,10 @@
 #src page measures every (backend, scenario) pair itself; set, it reads the
 #src `"AD gradients"` group of the benchmark run's published results and never
 #src measures live, because falling back would reinstate the cost pointing at
-#src published numbers exists to avoid. The docs build exports it from the
-#src package-owned const of that name in `docs/docs_config.jl`, and CI may set
-#src it directly. Reading, aggregating and reporting gaps in that data is
+#src published numbers exists to avoid. The docs build sets it from the
+#src package-owned const of that name in `docs/docs_config.jl`, else from the
+#src `benchmarks` branch this package's benchmark run deploys to; CI may also
+#src set it directly. Reading, aggregating and reporting gaps in that data is
 #src `EpiAwarePackageTools.load_ad_benchmarks`/`ad_benchmark_note`, so it is
 #src unit tested in the kit rather than only exercised by a docs build.
 #src
@@ -509,8 +510,8 @@ the gradient tests rather than leaving the suite red.
 
 ## Reproducing this page
 
-Each backend is measured on whichever machine ran it, so the figures reflect
-those CPUs rather than one.
+Every backend on this page is measured in a single run on one machine, so the
+figures compare with each other; they do not compare with another machine's.
 To regenerate locally:
 
 ```
@@ -523,11 +524,12 @@ or, equivalently:
 julia --project=docs docs/make.jl
 ```
 
-A local build measures every backend in the docs process, which for a large
-registry takes as long as the whole AD test matrix run one job after another.
-To read the benchmark run's published numbers instead, point the build at its
-results, which `benchmark-history.yaml` deploys to the `benchmarks` branch
-under `history/results/`:
+The build reads the gradient numbers this package's benchmark run deployed to
+its `benchmarks` branch, under `history/results/`, whenever it can reach them.
+Where it cannot, it measures every backend in the docs process, which for a
+large registry takes as long as the whole AD test matrix run one job after
+another.
+Point the build at a results file or directory to read a particular run:
 
 ```
 AD_BENCHMARK_RESULTS=bench-results julia --project=docs docs/make.jl

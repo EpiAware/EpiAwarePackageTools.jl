@@ -140,8 +140,19 @@ jobs:
       # AD-comparison docs page reads its per-(scenario, backend) gradient
       # numbers out of these, so it renders measurements this run already took
       # rather than repeating the whole grid in the docs process.
+      #
+      # `latest.json` copies the file for the revision this run was triggered
+      # for. It names that revision by content rather than by modification
+      # time, which a git checkout of the branch flattens.
       - name: Publish raw results
-        run: cp -r results public/results
+        run: |
+          cp -r results public/results
+          head_file="results/results_{{PACKAGE}}@${GITHUB_SHA}.json"
+          if [ -f "$head_file" ]; then
+            cp "$head_file" public/results/latest.json
+          else
+            echo "no results for ${GITHUB_SHA}: publishing without latest"
+          fi
 
       # Minimal index so the published folder lists the generated plots.
       - name: Write index page
@@ -154,7 +165,8 @@ jobs:
             echo "See \`table.md\` for the ratio summary and the PNG"
             echo "files in this folder for per-benchmark timelines."
             echo
-            echo "\`results/\` holds the raw per-revision benchmark data."
+            echo "\`results/\` holds the raw per-revision benchmark data,"
+            echo "with \`latest.json\` the file for the newest revision."
           } > public/README.md
 
       # Deploy to a dedicated `benchmarks` branch, deliberately not
