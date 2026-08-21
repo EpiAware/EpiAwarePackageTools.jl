@@ -333,3 +333,208 @@
         end
     end
 end
+
+# The benchmark suite is what produces the gradient numbers the AD-comparison
+# docs page renders, so an AD package is scaffolded with that group already
+# measuring rather than with a commented example of one.
+@testitem "the seeded benchmark suite measures AD gradients" begin
+    using Test
+    using Pkg
+    using EpiAwarePackageTools
+
+    function _fake_pkg(dir)
+        write(
+            joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n"
+        )
+        return dir
+    end
+
+    _parses(txt) = !any(
+        e -> e isa Expr && e.head in (:error, :incomplete),
+        Meta.parseall(txt).args
+    )
+
+    @testset "an AD package gets a live gradient group" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = true, benchmarks = true)
+            suite = read(joinpath(dir, "benchmark", "benchmarks.jl"), String)
+            # Assigned, not shown as a comment: the group the page reads and
+            # the pull request comment folds into its matrix.
+            @test occursin("SUITE[\"AD gradients\"] = grad", suite)
+            @test occursin("DI.prepare_gradient(", suite)
+            @test occursin("for entry in ADFixtures.backends()", suite)
+            @test !occursin("{{", suite)
+            @test _parses(suite)
+
+            # ...and the environment it measures in resolves those names.
+            proj = joinpath(dir, "benchmark", "Project.toml")
+            deps = Pkg.TOML.parsefile(proj)
+            @test haskey(deps["deps"], "ADFixtures")
+            @test haskey(deps["deps"], "DifferentiationInterface")
+            @test deps["sources"]["ADFixtures"]["path"] ==
+                "../test/ADFixtures"
+            @test haskey(deps["compat"], "DifferentiationInterface")
+            @test !occursin("{{", read(proj, String))
+            @test endswith(read(proj, String), "\n")
+        end
+    end
+
+    @testset "a non-AD package gets neither" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; ad = false, benchmarks = true)
+            suite = read(joinpath(dir, "benchmark", "benchmarks.jl"), String)
+            @test !occursin("ADFixtures", suite)
+            @test !occursin(r"(?m)^SUITE\[\"AD gradients\"\]", suite)
+            @test _parses(suite)
+            proj = joinpath(dir, "benchmark", "Project.toml")
+            env = Pkg.TOML.parsefile(proj)
+            @test !haskey(env["deps"], "ADFixtures")
+            @test !haskey(env["deps"], "DifferentiationInterface")
+            @test !haskey(env["sources"], "ADFixtures")
+            @test endswith(read(proj, String), "\n")
+        end
+    end
+end
+
+# What lands on the `benchmarks` branch, and from which events. Only pushes to
+# `main`, tags and a manual dispatch write it, and each deploy replaces the
+# published folder, so nothing pull-request-scoped accumulates there and no
+# reaping workflow is needed. A trigger added here would change that.
+@testitem "only non-PR events publish to the benchmarks branch" begin
+    using Test
+    using EpiAwarePackageTools
+
+    mktempdir() do dir
+        write(
+            joinpath(dir, "Project.toml"),
+            "name = \"Wombat\"\n" *
+                "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                "authors = [\"Ada Lovelace\"]\n"
+        )
+        scaffold(dir; benchmarks = true)
+        wf = joinpath(dir, ".github", "workflows")
+
+        history = read(joinpath(wf, "benchmark-history.yaml"), String)
+        stop = findfirst("permissions:", history)[1] - 1
+        triggers = history[findfirst("on:", history)[1]:stop]
+        @test !occursin("pull_request", triggers)
+        @test occursin("branches: [main]", triggers)
+        # Each deploy replaces the published folder rather than adding to it.
+        @test occursin("clean: true", history)
+        # Concurrent writers queue rather than clobber one another. Read
+        # from the `concurrency:` block alone, since the prose above it names
+        # the same settings.
+        block = history[
+            findfirst("concurrency:", history)[1]:(
+                findfirst("jobs:", history)[1] - 1
+            ),
+        ]
+        @test occursin("group: benchmark-history-deploy", block)
+        @test occursin("cancel-in-progress: false", block)
+        # The revision this run measured, named so a checkout can find it.
+        @test occursin("public/results/latest.json", history)
+
+        # The pull request workflow keeps its results as job artifacts and
+        # posts a comment; it deploys nothing anywhere.
+        comparison = read(joinpath(wf, "benchmark.yaml"), String)
+        @test occursin("pull_request:", comparison)
+        @test occursin("actions/upload-artifact", comparison)
+        @test !occursin("github-pages-deploy-action", comparison)
+        @test !occursin("branch: benchmarks", comparison)
+    end
+end
+
+# The published `latest.json` is the results file for the revision the run
+# measured, matched on the revision so benchpkg names the rest of it. Runs the
+# step's own script, which needs the POSIX shell the step runs under.
+@testitem "publishing finds results by revision" begin
+    using Test
+    using EpiAwarePackageTools
+
+    if !Sys.iswindows()
+        # The `run:` script of a named workflow step, dedented so bash can
+        # run it.
+        function step_script(yaml, name)
+            lines = split(yaml, '\n')
+            i = findfirst(l -> occursin("- name: " * name, l), lines)
+            j = i - 1 + findfirst(l -> occursin("run: |", l), lines[i:end])
+            body = String[]
+            for l in lines[(j + 1):end]
+                isempty(strip(l)) && continue
+                startswith(l, " "^10) || break
+                push!(body, l[11:end])
+            end
+            return join(body, "\n")
+        end
+
+        sha = repeat("0123456789", 4)
+
+        # Run `script` over a `results/` directory holding `files`, and return
+        # what landed in `public/results/latest.json`, or `nothing`.
+        function publish(script, files)
+            dir = mktempdir()
+            mkpath(joinpath(dir, "results"))
+            mkpath(joinpath(dir, "public"))
+            for (name, body) in files
+                write(joinpath(dir, "results", name), body)
+            end
+            env = copy(ENV)
+            env["GITHUB_SHA"] = sha
+            run(
+                pipeline(
+                    setenv(`bash -eo pipefail -c $script`, env; dir = dir);
+                    stdout = devnull
+                )
+            )
+            out = joinpath(dir, "public", "results", "latest.json")
+            return isfile(out) ? read(out, String) : nothing
+        end
+
+        mktempdir() do dir
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                    "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                    "authors = [\"Ada Lovelace\"]\n"
+            )
+            scaffold(dir; benchmarks = true)
+            script = step_script(
+                read(
+                    joinpath(
+                        dir, ".github", "workflows", "benchmark-history.yaml"
+                    ),
+                    String
+                ),
+                "Publish raw results"
+            )
+
+            # The name benchpkg writes today.
+            @test publish(
+                script,
+                [
+                    "results_Wombat@$sha.json" => "head",
+                    "results_Wombat@v0.1.0.json" => "tag",
+                ]
+            ) == "head"
+
+            # The same revision under a different naming convention.
+            @test publish(
+                script,
+                [
+                    "Wombat-$sha-bench.json" => "head",
+                    "Wombat-v0.1.0.json" => "tag",
+                ]
+            ) == "head"
+
+            # A run whose revision produced no file publishes the rest
+            # without a `latest.json` rather than failing the deploy.
+            @test publish(script, ["results_Wombat@v0.1.0.json" => "tag"]) ===
+                nothing
+        end
+    end
+end

@@ -2216,6 +2216,100 @@ function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
     )
 end
 
+# --- the seeded benchmark environment and suite ------------------------------
+#
+# The benchmark templates are package-owned skeletons, written once. For an AD
+# package they are seeded with the gradient grid the AD-comparison docs page
+# renders and the pull request comment folds into its matrix, so a fresh
+# package publishes gradient numbers from its first benchmark run. A non-AD
+# package gets neither the deps nor the group.
+
+# The `[deps]` the seeded gradient suite needs, each emitted where the sorted
+# dep list puts it: the package-owned `ADFixtures` registry (path-sourced
+# below, and carrying the backend packages itself) and the gradient driver.
+function _ad_bench_fixtures_dep(ad::Bool, adfix_uuid::AbstractString)
+    ad || return ""
+    return string("ADFixtures = \"", adfix_uuid, "\"\n")
+end
+
+function _ad_bench_di_dep(ad::Bool)
+    ad || return ""
+    return string(
+        "DifferentiationInterface = ",
+        "\"a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63\"\n"
+    )
+end
+
+# `benchmark-history.yaml` stages `test/ADFixtures` where benchpkg's temp
+# environment resolves this relative source from.
+function _ad_bench_sources(ad::Bool)
+    ad || return ""
+    return "ADFixtures = {path = \"../test/ADFixtures\"}\n"
+end
+
+# ADFixtures is path-pinned, so it carries no bound. Written as a tail on the
+# preceding line, so the template keeps the single trailing newline pre-commit
+# requires whichever way this renders.
+function _ad_bench_compat(ad::Bool)
+    ad || return ""
+    return "\nDifferentiationInterface = \"0.6, 0.7\""
+end
+
+# The seeded `"AD gradients"` group: every (scenario, backend) pair the
+# registry declares, minus the pairs it declares broken or skipped, timed as
+# the prepared per-call cost the docs page reports. A pair whose preparation
+# throws is left out rather than failing the whole suite, matching how the
+# gradient tests treat an undeclared break. Carries its own leading newline
+# and none at the end, so the template keeps its single trailing newline.
+function _ad_bench_suite(ad::Bool)
+    ad || return string(
+        "\n# Example AD-gradient group (folded into a matrix by ",
+        "`compare.jl`):\n",
+        "# SUITE[\"AD gradients\"][\"scenario\"][\"ForwardDiff\"] = ",
+        "@benchmarkable ..."
+    )
+    return chomp(
+        """
+
+        # The AD gradient grid, read from the package-owned `test/ADFixtures`
+        # registry: declare a scenario or a broken pair there, not here.
+        using ADFixtures
+        import DifferentiationInterface as DI
+
+        let grad = BenchmarkGroup()
+            broken = Set(ADFixtures.broken_scenario_names())
+            per_backend = ADFixtures.backend_broken_scenarios()
+            skipped = ADFixtures.backend_skip_scenarios()
+            for entry in ADFixtures.backends()
+                excluded = union(
+                    broken,
+                    get(per_backend, entry.name, Set{String}()),
+                    get(skipped, entry.name, Set{String}())
+                )
+                for scen in ADFixtures.scenarios()
+                    scen.name in excluded && continue
+                    prep = try
+                        DI.prepare_gradient(
+                            scen.f, entry.backend, scen.x, scen.contexts...
+                        )
+                    catch
+                        @warn "no gradient prep" scen.name entry.name
+                        continue
+                    end
+                    haskey(grad, scen.name) ||
+                        (grad[scen.name] = BenchmarkGroup())
+                    grad[scen.name][entry.name] = @benchmarkable DI.gradient(
+                        \$(scen.f), \$prep, \$(entry.backend), \$(scen.x),
+                        \$(scen.contexts)...
+                    )
+                end
+            end
+            SUITE["AD gradients"] = grad
+        end
+        """
+    )
+end
+
 # --- the extensions docs surface --------------------------------------------
 #
 # A package that ships `[extensions]` gets an "Extensions" nav group, one entry
@@ -4177,6 +4271,16 @@ function _apply(
             AD_HEAVY_BENCHMARKS = _ad_heavy_benchmarks(ad),
             AD_BENCHMARK_STUBS = _ad_benchmark_stubs(ad),
             EXTENSIONS_NAV = _extensions_nav(target_dir),
+            # The benchmark environment and suite seeds, so an AD
+            # package's first benchmark run publishes gradient numbers for
+            # the comparison page to read.
+            AD_BENCH_FIXTURES_DEP = _ad_bench_fixtures_dep(
+                ad, inputs.ADFIXTURES_UUID
+            ),
+            AD_BENCH_DI_DEP = _ad_bench_di_dep(ad),
+            AD_BENCH_SOURCES = _ad_bench_sources(ad),
+            AD_BENCH_COMPAT = _ad_bench_compat(ad),
+            AD_BENCH_SUITE = _ad_bench_suite(ad),
             AD_DOCS_DEPS = _ad_docs_deps(ad, inputs.ADFIXTURES_UUID),
             AD_DOCS_SOURCES = _ad_docs_sources(ad),
             AD_DOCS_COMPAT = _ad_docs_compat(ad),
