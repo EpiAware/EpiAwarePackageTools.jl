@@ -88,6 +88,11 @@ runs:
         echo "New version: $NEW_VERSION"
         echo "old-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
         echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        # The existing-branch check and the push both key off the same
+        # branch name, computed once here rather than in each step that
+        # needs it.
+        echo "branch-name=auto/version-increment-${NEW_VERSION}" >> \
+          $GITHUB_OUTPUT
 
         sed -i "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Project.toml
 
@@ -96,22 +101,42 @@ runs:
       if: inputs.create-pr == 'true'
       shell: bash
       run: |
-        NEW_VERSION="${{ steps.increment.outputs.new-version }}"
+        BRANCH_NAME="${{ steps.increment.outputs.branch-name }}"
 
-        EXISTING_PR=$(gh pr list --state open --search "in:title \"${{ inputs.pr-title-prefix }} to $NEW_VERSION\"" --json number --jq '.[0].number // empty')
+        # Checking the ref directly, rather than searching PR titles, also
+        # catches a branch whose PR was closed or was never created (see
+        # "Create PR" below), not only one with a currently open PR by that
+        # title.
+        # The SHA doubles as the `--force-with-lease` expected value for the
+        # push in the Create PR step, so a stale branch from an earlier run
+        # is refreshed rather than permanently blocking this version.
+        REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH_NAME" | cut -f1)
+        echo "branch-sha=$REMOTE_SHA" >> $GITHUB_OUTPUT
+
+        EXISTING_PR=$(gh pr list --state open --head "$BRANCH_NAME" --json number --jq '.[0].number // empty')
 
         if [ -n "$EXISTING_PR" ]; then
           echo "existing-pr=true" >> $GITHUB_OUTPUT
           echo "existing-pr-number=$EXISTING_PR" >> $GITHUB_OUTPUT
-          echo "PR #$EXISTING_PR already exists for version $NEW_VERSION. Skipping PR creation."
+          echo "PR #$EXISTING_PR already exists for branch $BRANCH_NAME. Skipping PR creation."
         else
           echo "existing-pr=false" >> $GITHUB_OUTPUT
-          echo "No existing PR found for version $NEW_VERSION. Proceeding with PR creation."
+          if [ -n "$REMOTE_SHA" ]; then
+            echo "Branch $BRANCH_NAME exists with no open PR (closed, or creation failed previously). Recreating the PR."
+          else
+            echo "No existing branch or PR found for $BRANCH_NAME. Proceeding with PR creation."
+          fi
         fi
 
     - name: Create PR
       id: create-pr
       if: inputs.create-pr == 'true' && steps.check-pr.outputs.existing-pr == 'false'
+      # Some orgs forbid Actions from opening PRs, so `gh pr create` below
+      # can fail even though the branch push above it succeeds. Continuing
+      # on error lets the "Commit directly to branch" step recover instead
+      # of the job failing with the version bump stranded on a pushed,
+      # PR-less branch.
+      continue-on-error: true
       shell: bash
       run: |
         git config --local user.email "action@github.com"
@@ -120,8 +145,9 @@ runs:
         OLD_VERSION="${{ steps.increment.outputs.old-version }}"
         NEW_VERSION="${{ steps.increment.outputs.new-version }}"
         INCREMENT_TYPE="${{ inputs.increment-type }}"
+        BRANCH_NAME="${{ steps.increment.outputs.branch-name }}"
+        REMOTE_SHA="${{ steps.check-pr.outputs.branch-sha }}"
 
-        BRANCH_NAME="auto/version-increment-${NEW_VERSION}"
         git checkout -b "$BRANCH_NAME"
 
         git add Project.toml
@@ -132,7 +158,14 @@ runs:
         Previous version: $OLD_VERSION
         New version: $NEW_VERSION"
 
-        git push origin "$BRANCH_NAME"
+        # force-with-lease against the SHA `Check for existing PR` observed
+        # just before this run: a stale branch left by an earlier run for
+        # the same version does not block this push permanently. The
+        # explicit lease value (rather than a bare --force-with-lease) is
+        # necessary because `actions/checkout` never populates a
+        # remote-tracking ref for $BRANCH_NAME to lease against implicitly;
+        # an empty REMOTE_SHA asserts the ref must not exist yet.
+        git push --force-with-lease="refs/heads/$BRANCH_NAME:$REMOTE_SHA" origin "$BRANCH_NAME"
 
         # Only assign when a handle was configured. Assigning a bare org (the
         # fallback when no reviewer is set) errors on the update-existing-PR
@@ -165,7 +198,15 @@ runs:
           --head "$BRANCH_NAME" \
           "${ASSIGNEE_ARGS[@]}")
 
-        PR_NUMBER=$(echo "$PR_OUTPUT" | grep -o '/pull/[0-9]*' | grep -o '[0-9]*')
+        # Parsed explicitly and checked, so a `gh pr create` output that
+        # doesn't contain a PR number fails loudly with the actual output
+        # rather than behind a masked grep exit code.
+        PR_NUMBER=$(echo "$PR_OUTPUT" | grep -o '/pull/[0-9]*' | grep -o '[0-9]*' || true)
+        if [ -z "$PR_NUMBER" ]; then
+          echo "::error::Could not parse a PR number from gh pr create output:"
+          echo "$PR_OUTPUT"
+          exit 1
+        fi
         echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
         echo "Created PR #$PR_NUMBER"
 
@@ -179,22 +220,44 @@ runs:
         echo "Using existing PR #$EXISTING_PR_NUMBER"
 
     - name: Commit directly to branch
-      if: inputs.create-pr == 'false'
+      # Two different conditions reach this step, and it serves both:
+      #   - inputs.create-pr == 'false': the deliberate direct-commit
+      #     configuration `version-on-demand.yaml` uses, committing onto
+      #     whichever branch is already checked out.
+      #   - steps.create-pr.outcome == 'failure': the create-pr path pushed
+      #     its branch but `gh pr create` itself failed (e.g. the org
+      #     disallows Actions opening PRs), so this step lands the commit
+      #     directly instead. Checked via outcome rather than the
+      #     failure() status function: `continue-on-error` on the Create PR
+      #     step masks its conclusion to success, keeping the job out of a
+      #     failing state and the implicit `success()` this step's
+      #     condition is ANDed with true; failure() never fires here.
+      if: inputs.create-pr == 'false' || steps.create-pr.outcome == 'failure'
       shell: bash
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
-        OLD_VERSION="${{ steps.increment.outputs.old-version }}"
-        NEW_VERSION="${{ steps.increment.outputs.new-version }}"
-        INCREMENT_TYPE="${{ inputs.increment-type }}"
+        if [ "${{ inputs.create-pr }}" = "false" ]; then
+          OLD_VERSION="${{ steps.increment.outputs.old-version }}"
+          NEW_VERSION="${{ steps.increment.outputs.new-version }}"
+          INCREMENT_TYPE="${{ inputs.increment-type }}"
 
-        git add Project.toml
-        git commit -m "${{ inputs.pr-title-prefix }} to $NEW_VERSION
+          git add Project.toml
+          git commit -m "${{ inputs.pr-title-prefix }} to $NEW_VERSION
 
-        Automatically incremented $INCREMENT_TYPE version.
+          Automatically incremented $INCREMENT_TYPE version.
 
-        Previous version: $OLD_VERSION
-        New version: $NEW_VERSION"
+          Previous version: $OLD_VERSION
+          New version: $NEW_VERSION"
 
-        git pull && git push
+          git pull && git push
+        else
+          # The Create PR step already committed and pushed the version bump
+          # to $BRANCH_NAME before `gh pr create` failed, so there is nothing
+          # left to commit here. Land that existing commit on main directly
+          # instead of leaving it stranded on a PR-less branch.
+          BRANCH_NAME="${{ steps.increment.outputs.branch-name }}"
+          echo "gh pr create failed; pushing the already-committed version bump on $BRANCH_NAME straight to main."
+          git push origin "$BRANCH_NAME:main"
+        fi

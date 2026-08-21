@@ -4469,6 +4469,53 @@
             end
         end
 
+        @testset "auto-version-increment stays safe under races and blocked PRs" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                wf = read(
+                    _dest(dir, ".github/workflows/auto-version-increment.yaml"),
+                    String
+                )
+                # Concurrent runs queue rather than cancel: a cancelled
+                # queued run would skip observing the version the previous
+                # run just landed.
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                @test occursin("cancel-in-progress: false", wf)
+
+                act = read(
+                    _dest(
+                        dir,
+                        ".github/actions/increment-version/action.yaml"
+                    ), String
+                )
+                # The push is leased against the SHA `git ls-remote` reports
+                # for the branch, rather than blindly forced or gated on a
+                # PR-title search that cannot see a branch whose PR was
+                # closed or never created.
+                @test occursin("git ls-remote origin", act)
+                @test occursin("force-with-lease=", act)
+                @test !occursin("in:title", act)
+                @test occursin("gh pr list --state open --head", act)
+                # The direct-commit fallback is reachable both by the
+                # deliberate create-pr=false configuration and by the
+                # create-pr step's own outcome, so a `gh pr create` failure
+                # (e.g. the org disallows Actions opening PRs) still lands
+                # the version bump.
+                @test occursin("continue-on-error: true", act)
+                @test occursin(
+                    "inputs.create-pr == 'false' || " *
+                        "steps.create-pr.outcome == 'failure'",
+                    act
+                )
+                # A `gh pr create` output that cannot be parsed for a PR
+                # number fails loudly rather than silently.
+                @test occursin("Could not parse a PR number", act)
+            end
+        end
+
         @testset "docs build reproduces CD (Literate + citations + helpers)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
