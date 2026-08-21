@@ -117,12 +117,9 @@ function setup_checklist(
         org::AbstractString = DEFAULT_ORG,
         io::IO = stdout
     )
-    inputs = scaffold_inputs(
-        target_dir; package = package, repo = repo,
-        org = org
-    )
-    pkg = something(inputs.PACKAGE, "<package>")
-    rp = something(inputs.REPO, "<org>/<package>.jl")
+    name, slug = _package_and_repo(target_dir, package, repo, org)
+    pkg = something(name, "<package>")
+    rp = something(slug, "<org>/<package>.jl")
     steps = _setup_checklist_steps(pkg, rp)
     println(io, "Manual setup checklist for ", pkg, " (", rp, "):")
     println(io)

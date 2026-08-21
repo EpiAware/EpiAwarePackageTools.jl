@@ -34,6 +34,27 @@
         return dir
     end
 
+    # A minimal README carrying the managed License badge for `label`, the
+    # shape a declaration is read back from.
+    function _badge_readme(label)
+        return "# Wombat\n\n" *
+            EpiAwarePackageTools._license_badge(label) * "\n"
+    end
+
+    # Set `dir`'s top-level `license` key, above any table header so it reads
+    # as the package's own declaration rather than a key inside a table.
+    function _declare_license(dir, id)
+        path = joinpath(dir, "Project.toml")
+        lines = readlines(path)
+        at = findfirst(l -> startswith(strip(l), "["), lines)
+        insert!(
+            lines, at === nothing ? length(lines) + 1 : at,
+            "license = \"$id\""
+        )
+        write(path, join(lines, "\n") * "\n")
+        return path
+    end
+
     # Actually `Pkg.instantiate` a generated environment in an isolated
     # subprocess (kit issue #59): file-presence and text-substitution checks
     # never prove an emitted Project.toml/[compat]/[sources] table actually
@@ -3602,7 +3623,8 @@
                 _fake_pkg(dir; name = "Wombat")
                 @test _detect_license(dir) === nothing
             end
-            # The managed README badge is the source of truth ...
+            # The managed README badge carries the value when Project.toml
+            # declares nothing ...
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; license = "Apache-2.0", ad = false)
@@ -3659,38 +3681,167 @@
             end
         end
 
-        @testset "_detect_license ignores an unsupported licence" begin
+        @testset "_detect_license rejects an unsupported declaration" begin
             using EpiAwarePackageTools: _detect_license
-            # Detection is restricted to the supported set: a badge label or
-            # Project.toml field naming anything else cannot introduce a
-            # licence the kit does not support.
-            for label in ("GPL-3.0-only", "not a licence")
-                mktempdir() do dir
-                    _fake_pkg(dir; name = "Wombat")
-                    write(
-                        joinpath(dir, "README.md"),
-                        "# Wombat\n\n[![License: $label]" *
-                            "(https://img.shields.io/badge/License-x-green" *
-                            ".svg)](https://example.com)\n"
-                    )
-                    @test _detect_license(dir) === nothing
+            # A Project.toml licence the kit cannot badge stops the run,
+            # naming the file and the value, rather than being replaced by the
+            # default and published as a badge the package never chose.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-3.0-only\"\n")
                 end
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("Project.toml", err.msg)
+                @test occursin("GPL-3.0-only", err.msg)
+                @test occursin("not one of", err.msg)
+            end
+            # A string naming no licence at all cannot be resolved and cannot
+            # be read as the default either, so it is refused with a message
+            # saying what is wrong with it.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"see the LICENSE file\"\n")
+                end
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("not an SPDX identifier", err.msg)
+                @test occursin("see the LICENSE file", err.msg)
+            end
+        end
+
+        @testset "_detect_license reads the field over the badge" begin
+            using EpiAwarePackageTools: _detect_license
+            # The badge is rendered from the resolved licence, so it cannot
+            # also decide it: the Project.toml field is what the package
+            # declares and wins wherever the two disagree.
+            for (badge, field) in
+                (("MIT", "Apache-2.0"), ("Apache-2.0", "MIT"))
                 mktempdir() do dir
                     _fake_pkg(dir; name = "Wombat")
+                    write(joinpath(dir, "README.md"), _badge_readme(badge))
                     open(joinpath(dir, "Project.toml"), "a") do io
-                        write(io, "license = \"$label\"\n")
+                        write(io, "license = \"$field\"\n")
                     end
-                    @test _detect_license(dir) === nothing
+                    @test _detect_license(dir) == field
                 end
+            end
+            # A supported badge does not rescue an unsupported field.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "README.md"), _badge_readme("MIT"))
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-3.0-only\"\n")
+                end
+                @test_throws ErrorException _detect_license(dir)
+            end
+        end
+
+        @testset "_detect_license ignores an unbadgeable badge" begin
+            using EpiAwarePackageTools: _detect_license
+            # The badge is kit output, so a label the kit cannot render is
+            # warned about and dropped, leaving the sync free to rewrite it.
+            # A package with a hand-edited badge can repair itself.
+            for label in ("GPL-3.0-only", "MIT License")
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    write(joinpath(dir, "README.md"), _badge_readme(label))
+                    detected = @test_logs(
+                        (:warn,), match_mode = :any, _detect_license(dir)
+                    )
+                    @test detected === nothing
+                end
+            end
+            # With a supported field to read, the bad badge is not consulted
+            # and nothing is warned about.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(
+                    joinpath(dir, "README.md"), _badge_readme("BSD-3-Clause")
+                )
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"MIT\"\n")
+                end
+                @test (@test_logs _detect_license(dir)) == "MIT"
+            end
+        end
+
+        @testset "_detect_license reads only a top-level license key" begin
+            using EpiAwarePackageTools: _detect_license, scaffold_inputs
+            # A `license` key under a table belongs to that table. Only the
+            # top-level key is the package's own declaration.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "\n[extras]\nlicense = \"GPL-3.0-only\"\n")
+                end
+                @test _detect_license(dir) === nothing
+                @test scaffold_inputs(dir).LICENSE == "MIT"
+            end
+        end
+
+        @testset "update stops on an unsupported declared licence" begin
+            # A bare resync of a package declaring a licence the kit cannot
+            # write stops rather than publishing a badge that contradicts the
+            # package's own LICENSE file.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                _declare_license(dir, "GPL-3.0-only")
+                @test_throws ErrorException update(dir; ad = false)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: Apache-2.0", readme)
+                @test !occursin("License: MIT", readme)
+            end
+        end
+
+        @testset "update rewrites a badge naming another licence" begin
+            # The badge the sync would repair cannot be what blocks the sync,
+            # or a package carrying a hand-edited one has no way back.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                _declare_license(dir, "MIT")
+                readme_path = joinpath(dir, "README.md")
+                write(
+                    readme_path,
+                    replace(
+                        read(readme_path, String),
+                        "License: MIT" => "License: BSD-3-Clause",
+                        "License-MIT" => "License-BSD--3--Clause"
+                    )
+                )
+                update(dir; ad = false)
+                readme = read(readme_path, String)
+                @test occursin("License: MIT", readme)
+                @test !occursin("BSD-3-Clause", readme)
             end
         end
 
         @testset "scaffold_inputs accepts only the supported licences" begin
             using EpiAwarePackageTools: scaffold_inputs, SUPPORTED_LICENSES
+            # Named here rather than read from the constant, so dropping an
+            # entry from it fails this test instead of shrinking what the
+            # test checks.
+            supported = ("MIT", "Apache-2.0", "GPL-2.0-or-later")
+            @test Set(SUPPORTED_LICENSES) == Set(supported)
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                for good in SUPPORTED_LICENSES
+                for good in supported
                     @test scaffold_inputs(dir; license = good).LICENSE == good
+                    @test isfile(
+                        joinpath(_templates_dir(), "LICENSE.$good")
+                    )
                 end
             end
             # A committed licence file does not widen the set: an id the kit
