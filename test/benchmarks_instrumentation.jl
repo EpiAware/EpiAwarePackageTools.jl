@@ -2,8 +2,8 @@
 # benchmark is meant to describe, so a job that publishes timings runs every
 # measuring process uninstrumented. The managed benchmark workflows therefore
 # carry no coverage flag, no coverage upload, and none of the julia-actions
-# steps that add a coverage flag of their own; the managed coverage caller
-# measures nothing.
+# steps that add a coverage flag of their own; the one managed caller that does
+# instrument a run publishes no timings.
 
 @testitem "benchmark workflows measure uninstrumented" begin
     using Test
@@ -37,9 +37,17 @@
         @test !occursin("julia-actions/julia-docdeploy", body)
     end
 
-    @testset "the coverage caller runs no benchmark" begin
-        body = template("codecoverage.yaml")
-        @test !occursin("benchpkg", body)
-        @test !occursin("benchmark", body)
+    # `tests.yml`'s `upload_coverage` input makes the test caller the one
+    # managed workflow that instruments a full suite run, so it is the caller
+    # that must publish no timings. Its own comments name the benchmark
+    # environment, so match on the directives rather than the whole file.
+    @testset "the coverage-measuring caller runs no benchmark" begin
+        body = template("test.yaml")
+        @test occursin("upload_coverage: true", body)
+        directives = filter(
+            line -> !startswith(strip(line), "#"), split(body, "\n")
+        )
+        @test !any(line -> occursin("benchpkg", line), directives)
+        @test !any(line -> occursin("benchmark", line), directives)
     end
 end
