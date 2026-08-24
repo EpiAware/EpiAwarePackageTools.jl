@@ -103,7 +103,7 @@ This is the primary deviation, and the mirror image of `ad_harness.jl`'s `ADRegi
 - About eight private content generators in `src/scaffold.jl`, including the tutorial, benchmark and docs-dependency helpers, open with `ad || return ""` or `benchmarks || return ""`.
 This is a weaker deviation: real flag branching, but each function gates one fixed on/off feature rather than an extension point.
 
-Not deviations: `_resolve_docs_subdomain` already dispatches on type rather than branching on a flag; `benchmarks.jl`'s `status::Symbol` is a closed three-state tag, not an extension point; `run_tests.jl`'s `s.kind == :module` and `quality.jl`'s `expr.head in (...)` branch on someone else's API (TestItemRunner's, Julia's own AST) rather than this package's; and an ordinary `::Bool` keyword option is not a deviation on its own.
+Not deviations: `_resolve_docs_subdomain` already dispatches on type rather than branching on a flag; `benchmarks.jl`'s `status::Symbol` is a closed three-state tag, not an extension point; `quality.jl`'s `expr.head in (...)` branches on someone else's API (Julia's own AST) rather than this package's; and an ordinary `::Bool` keyword option is not a deviation on its own.
 
 ### 14. Package hygiene has one implementation
 
