@@ -4316,9 +4316,12 @@
                 # (e.g. the org disallows Actions opening PRs) still lands
                 # the version bump.
                 @test occursin("continue-on-error: true", act)
+                # Matched loosely enough to survive a reformat of the
+                # YAML, while still pinning that both operands reach the
+                # same condition rather than two separate ones.
                 @test occursin(
-                    "inputs.create-pr == 'false' || " *
-                        "steps.create-pr.outcome == 'failure'",
+                    r"inputs\.create-pr == 'false'\s*\|\|\s*" *
+                        r"steps\.create-pr\.outcome == 'failure'",
                     act
                 )
                 # A `gh pr create` output that cannot be parsed for a PR
