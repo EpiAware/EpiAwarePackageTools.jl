@@ -1,8 +1,8 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 # Normalise line endings so checkouts are byte-identical across platforms.
 # Without this, a Windows runner with core.autocrlf can check out CRLF
-# source, and JuliaFormatter's `overwrite = false` check (and other
-# line-sensitive tooling) reports spurious differences.
+# source, and Runic's `--check` mode (and other line-sensitive tooling)
+# reports spurious differences.
 * text=auto eol=lf
 
 # Binary files: never normalise.

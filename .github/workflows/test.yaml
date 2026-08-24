@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    uses: EpiAware/.github/.github/workflows/tests.yml@8c1e09003b9cf0d2eb3cbec7aa726855bb365ac5
+    uses: EpiAware/.github/.github/workflows/tests.yml@491d0d9979bb59b0f82fc508ca55fb31698eb840
     with:
       # The matrix this package tests on. Seeded, not managed: name your own
       # value here and a resync keeps it (#73, #117). The lts leg runs
@@ -24,6 +24,13 @@ jobs:
       # jobs on the current release. A package pinning an unregistered
       # dependency by git [sources] is seeded without lts instead (#410).
       julia_versions: '["1", "lts", "pre"]'
+      # Collect coverage on the ubuntu leg that already runs the whole
+      # suite and upload it, rather than running a second full suite just
+      # for coverage. The reusable's `fail_ci_if_error` defaults to true,
+      # so a repo with no CODECOV_TOKEN still goes red rather than green
+      # with silently missing coverage; that is org policy and is left at
+      # the default rather than restated here.
+      upload_coverage: true
     secrets: inherit  # pragma: allowlist secret
 
   downgrade-compat:
