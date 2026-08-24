@@ -151,9 +151,17 @@ jobs:
 
             echo "Closing PR #$NUMBER ($PROPOSED <= $CURRENT_VERSION," \
               "Project.toml only) and deleting $BRANCH."
-            gh pr close "$NUMBER" --comment \
-              "Superseded: the package is already at $CURRENT_VERSION."
-            git push origin --delete "$BRANCH"
+            # A human may have closed the PR or deleted the branch since
+            # the listing above, and either call can fail transiently.
+            # Under `set -e` an unguarded failure would abandon every
+            # remaining PR in this run, so a failure only skips its own.
+            if ! gh pr close "$NUMBER" --comment \
+              "Superseded: the package is already at $CURRENT_VERSION."; then
+              echo "Could not close PR #$NUMBER. Leaving $BRANCH in place."
+              continue
+            fi
+            git push origin --delete "$BRANCH" \
+              || echo "Closed PR #$NUMBER but could not delete $BRANCH."
           done
 
       - name: Reap orphaned auto-increment branches
@@ -235,5 +243,6 @@ jobs:
 
             echo "Deleting orphaned branch $BRANCH ($PROPOSED <=" \
               "$CURRENT_VERSION, $REASON)."
-            git push origin --delete "$BRANCH"
+            git push origin --delete "$BRANCH" \
+              || echo "Could not delete orphaned branch $BRANCH."
           done

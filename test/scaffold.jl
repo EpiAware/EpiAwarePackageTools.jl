@@ -4372,6 +4372,22 @@
                 @test occursin("gh pr close", wf)
                 @test occursin("git push origin --delete", wf)
 
+                # Both loops run under `set -euo pipefail`, so an
+                # unguarded close or delete failure for one PR would
+                # abandon every PR the run had left to process. Each
+                # call absorbs its own failure instead.
+                @test occursin("if ! gh pr close", wf)
+                @test occursin(
+                    "Could not close PR #\$NUMBER. Leaving \$BRANCH in place.",
+                    wf
+                )
+                @test occursin(
+                    "Closed PR #\$NUMBER but could not delete \$BRANCH.", wf
+                )
+                @test occursin(
+                    "Could not delete orphaned branch \$BRANCH.", wf
+                )
+
                 # Branches with no open PR (closed by hand, or never
                 # created) are swept too, fetched under the same exact
                 # prefix rather than the whole repository.
