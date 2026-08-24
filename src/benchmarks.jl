@@ -42,7 +42,7 @@ export git_sources, unregistered_sources, bootstrap_sources_registry
 
 # Resolve JSON3 / BenchmarkTools at call time so they are not hard
 # dependencies. Calls go through `invokelatest` (newer world age); shared
-# `_require_pkg` is defined once in the parent module (#58).
+# `_require_pkg` is defined once in the parent module.
 function _json3()
     return _require_pkg("0f8b85d8-7281-11e9-16c2-39a750bddbf1", "JSON3")
 end
@@ -579,12 +579,12 @@ end
 
 # benchpkg installs the benchmarked package into its own temp project, and
 # Pkg only honours `[sources]` of the *active* project — so a git-pinned,
-# unregistered dependency fails there with "<Dep> has no known versions!"
-# (#216). Registries are depot-level (visible everywhere), so the fix is a
+# unregistered dependency fails there with "<Dep> has no known versions!".
+# Registries are depot-level (visible everywhere), so the fix is a
 # throwaway registry of the pinned revisions, built by
 # [`bootstrap_sources_registry`] via `LocalRegistry` (lazily loaded). Path
-# sources resolve relative to the environment or are staged in place
-# (#125), and are not registered. No-op when `[sources]` has only those.
+# sources resolve relative to the environment or are staged in place, and
+# are not registered. No-op when `[sources]` has only those.
 
 """
 The scratch registry the benchmark CI bootstraps into the runner's depot.
@@ -709,7 +709,7 @@ function bootstrap_sources_registry(
     # (not real absence) is what keeps a stale entry from masking a moved
     # pin as already registered.
     sources = unregistered_sources(project; ignore_registry = registry_name)
-    # A pin a real registry already knows can't be honoured (#216); warn
+    # A pin a real registry already knows can't be honoured; warn
     # rather than silently pretend it took effect.
     for s in git_sources(project)
         any(u -> u.name == s.name, sources) && continue

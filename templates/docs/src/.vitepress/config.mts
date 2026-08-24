@@ -110,7 +110,7 @@ export default defineConfig({
     ],
     // Rendered as HTML: the standard DocumenterVitepress credit, preceded
     // by the EpiAware logo + org links when `ORG_BRANDING` is on in
-    // docs/docs_config.jl (#242), otherwise just the credit. The logo
+    // docs/docs_config.jl, otherwise just the credit. The logo
     // resolves through the site `base` so a versioned deploy still finds it.
     footer: {
       message: `{{ORG_FOOTER_MESSAGE}}`,

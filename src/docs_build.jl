@@ -36,7 +36,7 @@ export ADBenchmarkResults, load_ad_benchmarks, ad_benchmark_note,
 # ---- lazy dependency loading ----------------------------------------------
 
 # Resolve the heavy docs dependencies at call time via the shared
-# `_require_pkg` (#58) so they stay out of the kit's own Project.toml.
+# `_require_pkg` so they stay out of the kit's own Project.toml.
 function _documenter()
     return _require_pkg("e30172f5-a6a5-5a46-863b-614d45cd2de4", "Documenter")
 end
@@ -49,7 +49,7 @@ end
 function _literate()
     return _require_pkg("98b081ad-f1c9-55d3-8b20-4c87d4299306", "Literate")
 end
-# `Plots` (GR backend) draws the overall trend plot (#202).
+# `Plots` (GR backend) draws the overall trend plot.
 function _plots()
     return _require_pkg("91a5bcdd-55d7-5caf-9e0b-520d859cae80", "Plots")
 end
@@ -67,13 +67,13 @@ end
 # Documenter coupling.
 include("ad_benchmarks.jl")
 
-# ---- empty-anchor inventory guard (#232) ----------------------------------
+# ---- empty-anchor inventory guard ----------------------------------
 
 # Shim for DocumenterVitepress 0.3.x: its inventory writer pushes an
 # `InventoryItem` per anchored header, and that constructor rejects an empty
 # `name`, so one header with an empty anchor id aborts the whole docs build.
-# The kit's own markdown no longer emits one (#204/#211), but a third-party
-# docstring rendered via the widened `modules` list (#175) can.
+# The kit's own markdown no longer emits one, but a third-party
+# docstring rendered via the widened `modules` list can.
 #
 # The guard swaps in a writer that warns (naming page + heading) and skips the
 # entry instead of throwing. Self-retiring: applied only when the installed
@@ -106,7 +106,7 @@ function _empty_anchor_writer()
             print(io, " {#$(id)}")
             if haskey(kwargs, :inventory)
                 if isempty(anchor.id)
-                    # Patched by EpiAwarePackageTools (kit #232).
+                    # Patched by EpiAwarePackageTools.
                     @warn "Skipping inventory entry: anchored header has " *
                         "an empty anchor id" page = page.source heading = heading_text
                 else
@@ -282,7 +282,7 @@ function _strip_line_comments(line::AbstractString, in_comment::Bool)
 end
 
 # Inline code spans (`` `...` ``) must survive verbatim even where they show
-# literal `<!--`/`-->` text (#306). They open and close on one line, so a
+# literal `<!--`/`-->` text. They open and close on one line, so a
 # line-level regex finds each span and `_strip_line_comments` runs only on the
 # text between spans, threading `in_comment` across those gaps.
 const _INLINE_CODE_SPAN = r"`[^`]*`"
@@ -352,7 +352,7 @@ function build_index(;
         in_badges && continue
         if in_comment
             # Comment state wins over fence state: a fence delimiter falling
-            # inside a still-open comment does not toggle `in_fence` (#301).
+            # inside a still-open comment does not toggle `in_fence`.
             rest, in_comment = _strip_line_comments(line, true)
             println(buf, rest)
             continue
@@ -372,8 +372,7 @@ function build_index(;
         end
         strip_level > 0 && continue
         # `was_in_fence` is captured before the toggle so the delimiter line
-        # itself, and everything up to the matching close, is left alone
-        # (#301).
+        # itself, and everything up to the matching close, is left alone.
         was_in_fence = in_fence
         _is_fence_delimiter(line) && (in_fence = !in_fence)
         in_indented_code = !was_in_fence && _is_indented_code_line(line)
@@ -494,7 +493,7 @@ end
 # doesn't repeat the heading just above it. HTML comments are stripped for
 # the same reason `build_index` strips them: DocumenterVitepress' typographic
 # pass turns a surviving `--` into an en-dash, rendering the marker as
-# literal text on the built page (#297).
+# literal text on the built page.
 #
 # Fenced code is left verbatim -- a release note may show a `#` comment or
 # `<!-- -->` as an example. A body left with an open fence is closed at the
@@ -621,7 +620,7 @@ function _write_release_fallback(io, repo::AbstractString, fetched::Bool)
 end
 
 # The header used when a package has none, or when its header still
-# describes the retired NEWS.md convention (#286) -- honouring that would
+# describes the retired NEWS.md convention -- honouring that would
 # caption the page with a description of a file that is no longer rendered.
 function _default_release_notes_header(repo::AbstractString)
     return """
@@ -792,7 +791,7 @@ end
 # best-effort fetch. The explicit refspec matters: a bare
 # `git fetch origin benchmarks` lands only in `FETCH_HEAD` and never creates
 # the tracking ref the lookup below checks, so on a shallow CI checkout the
-# page rendered empty (#192). Fetch failures are expected and non-fatal.
+# page rendered empty. Fetch failures are expected and non-fatal.
 function _benchmarks_ref(project_root::AbstractString; fetch::Bool = true)
     if fetch
         try
@@ -839,7 +838,7 @@ function _history_files(project_root::AbstractString, ref::AbstractString)
     end
 end
 
-# ---- benchmark history: table reshaping (#193) -----------------------------
+# ---- benchmark history: table reshaping -----------------------------
 
 # Parse a GitHub-flavoured pipe table into a vector of cell-rows (the leading
 # and trailing empty cells from the `|...|` delimiters dropped). Non-table
@@ -862,7 +861,7 @@ _is_alignment_row(cells) = !isempty(cells) && all(c -> occursin(r"^:?-+:?$", c),
 
 # Whether row `i` is a table header: a row immediately followed by an
 # alignment row. benchpkgtable's `--mode time,memory` output is two stacked
-# tables, each with its own header, so a header can appear anywhere (#204).
+# tables, each with its own header, so a header can appear anywhere.
 _is_header_row(rows, i) = i < length(rows) && _is_alignment_row(rows[i + 1])
 
 # Split a parsed `table.md` into its revision-column labels and its data rows
@@ -872,7 +871,7 @@ _is_header_row(rows, i) = i < length(rows) && _is_alignment_row(rows[i + 1])
 # Every header and alignment row is skipped, not just the first pair: the
 # stacked second table's header would otherwise land in the data rows as an
 # empty-named entry, which renders as a bare `### ` heading and aborts the
-# deploy build on the empty anchor id (#204). Empty-named rows are dropped for
+# deploy build on the empty anchor id. Empty-named rows are dropped for
 # the same reason, whatever a future benchpkgtable format change produces.
 function _history_table_parts(md::AbstractString)
     all_rows = _parse_pipe_table(md)
@@ -890,7 +889,7 @@ function _history_table_parts(md::AbstractString)
     return (col_labels, entries)
 end
 
-# ---- benchmark history: metric-aware parsing (#231) ------------------------
+# ---- benchmark history: metric-aware parsing ------------------------
 
 # Whether a table cell holds an allocation/memory measurement rather than a
 # timing. The cells are the only durable signal of which stacked block is
@@ -925,11 +924,11 @@ end
 
 # Split a parsed `table.md` into its shared revision-column labels and its
 # stacked table blocks, each tagged with its metric; a new block begins at
-# each header row (#204). Header, alignment, empty and empty-named rows are
+# each header row. Header, alignment, empty and empty-named rows are
 # dropped as in [`_history_table_parts`](@ref). Unlike that flat parse,
 # timings and allocations stay SEPARATE so their duplicate leaf labels never
 # collide and the headline ratio is never a median of times and allocation
-# counts (#231). Same-metric blocks are merged. Returns `(col_labels, blocks)`
+# counts. Same-metric blocks are merged. Returns `(col_labels, blocks)`
 # with `blocks::Vector{metric => entries}` in first-seen metric order.
 function _history_metric_blocks(md::AbstractString)
     all_rows = _parse_pipe_table(md)
@@ -1003,7 +1002,7 @@ end
 # first-seen order; the segment is stripped from the per-row label. A name with
 # no `/` (e.g. `time_to_load`) forms its own single-row suite. Empty names are
 # skipped as a second line of defence: an empty-named suite renders as a bare
-# `### ` heading and aborts the deploy build (#204).
+# `### ` heading and aborts the deploy build.
 function _group_rows_by_suite(entries)
     groups = Pair{String, Vector{Pair{String, Vector{String}}}}[]
     index = Dict{String, Int}()
@@ -1030,7 +1029,7 @@ end
 # Returns `(col_labels, metric_groups)` with
 # `metric_groups::Vector{metric => groups}`, each `groups` the per-suite shape
 # [`_group_rows_by_suite`](@ref) produces; timings and allocations stay
-# separate metric entries (#231). Capping and relabelling are shared across
+# separate metric entries. Capping and relabelling are shared across
 # metrics, which share their revision columns. Empty when `suites` filters
 # everything out; an unparseable `md` is the caller's concern (check
 # `_history_table_parts(md)` first).
@@ -1057,7 +1056,7 @@ end
 
 # The headline (summary/plot) metric's per-suite groups: the `"Time"` block if
 # present, else the first block so a memory-only table still summarises. A
-# single metric keeps the median from mixing timings with allocations (#231).
+# single metric keeps the median from mixing timings with allocations.
 function _headline_groups(metric_groups)
     isempty(metric_groups) &&
         return Pair{String, Vector{Pair{String, Vector{String}}}}[]
@@ -1068,7 +1067,7 @@ end
 # Reorganise metric-first groups into suite-first order for the detail
 # section: `Vector{suite => Vector{metric => subrows}}`, suites in first-seen
 # order, metrics in table order. Keeps a leaf's timing and allocation rows
-# under one suite heading but in separate per-metric sub-tables (#231).
+# under one suite heading but in separate per-metric sub-tables.
 function _suite_metric_detail(metric_groups)
     suites = String[]
     seen = Set{String}()
@@ -1105,7 +1104,7 @@ end
 # `heading_level`, `##` on the page proper so each suite reads as its own
 # section under the summary), or a "no suites matched" note when
 # `history_suites` filtered everything out. Each suite renders separate
-# `Time` / `Memory` sub-tables one level down (#231); a single-metric suite
+# `Time` / `Memory` sub-tables one level down; a single-metric suite
 # skips the sub-heading. `caption` controls whether the revision-window line
 # is emitted here -- the page proper prints it as the closing line of
 # `## Summary` instead. Takes the already reshaped suite-first detail so the
@@ -1155,7 +1154,7 @@ end
 # Give a pipe table's header its benchmark-name label when the first cell is
 # empty. benchpkgtable emits the leaf-name column with a blank header; spliced
 # verbatim by the parse-failure fallback below, that empty cell becomes an
-# anchored header with an empty anchor id and aborts the deploy build (#204).
+# anchored header with an empty anchor id and aborts the deploy build.
 # The reshaped path already labels its tables. Only the header is relabelled.
 function _label_empty_leading_header(
         md::AbstractString; label::AbstractString = "Benchmark"
@@ -1168,7 +1167,7 @@ end
 # tables (see [`_embed_benchmark_history`](@ref)). Falls back to splicing the
 # table verbatim if it cannot be parsed, so a format change never blanks the
 # page — sanitising the header first so the fallback cannot emit an empty
-# anchor (#204).
+# anchor.
 function _render_ratio_table(
         io, md::AbstractString,
         project_root::AbstractString; last_n::Integer = 5,
@@ -1188,7 +1187,7 @@ function _render_ratio_table(
 end
 
 # Collapse the per-benchmark plot wall behind a `<details>` so the page stays
-# skimmable (#193). benchpkgplot names plots with no suite in the filename, so
+# skimmable. benchpkgplot names plots with no suite in the filename, so
 # they cannot be grouped; they are shown as one block of raw-GitHub images.
 function _embed_history_plots(io, repo::AbstractString, pngs)
     println(io, "## Per-benchmark timelines")
@@ -1209,7 +1208,7 @@ function _embed_history_plots(io, repo::AbstractString, pngs)
     return
 end
 
-# ---- benchmark history: overall summary (#202) -----------------------------
+# ---- benchmark history: overall summary -----------------------------
 
 # The leading number in a benchpkgtable cell, e.g. `"0.112 ± 0.0006 ms"` ->
 # `0.112`. `nothing` for a cell with no leading number, so a malformed cell
@@ -1224,7 +1223,7 @@ end
 # One value per (already capped) revision column: the median of a suite's
 # per-benchmark values there, `missing` when none parse. A row whose width
 # does not match `ncol` is skipped rather than read positionally: `_cap_columns`
-# leaves a malformed row uncapped (#193), so indexing it would pair stale
+# leaves a malformed row uncapped, so indexing it would pair stale
 # values with the newest columns and feed that into the headline summary.
 function _suite_column_medians(subrows, ncol::Integer)
     out = Vector{Union{Float64, Missing}}(missing, ncol)
@@ -1334,7 +1333,7 @@ function _write_benchmark_summary(io, rows)
         return
     end
     # A single-revision package has a `missing` ratio for every suite, so the
-    # table would be all-`n/a` and read as broken (#282).
+    # table would be all-`n/a` and read as broken.
     if all(r -> ismissing(r.ratio), rows)
         println(
             io,
@@ -1488,7 +1487,7 @@ function _render_benchmark_overview(
         md, project_root;
         last_n = last_n, suites = suites
     )
-    # A single metric, never a median mixing timings with allocations (#231).
+    # A single metric, never a median mixing timings with allocations.
     headline = _headline_groups(metric_groups)
     series_by_suite = _suite_ratio_series_by_group(headline, length(col_labels))
     _write_benchmark_summary(
@@ -1520,7 +1519,7 @@ function _render_benchmark_overview(
 end
 
 # The package-owned seed files open with an HTML authoring-guidance comment.
-# Strip it so Documenter never renders it as literal text (#145). Done on the
+# Strip it so Documenter never renders it as literal text. Done on the
 # splice side because sync never rewrites a package-owned seed.
 function _strip_seed_comment(s::AbstractString)
     return lstrip(replace(s, r"^\s*<!--.*?-->"s => ""))
@@ -1634,7 +1633,7 @@ function _is_public(mod::Module, sym::Symbol)
 end
 
 # Whether `mod.sym` resolves to a documented binding, following re-export
-# aliases to the owning module (#160). A re-exported binding keeps its
+# aliases to the owning module. A re-exported binding keeps its
 # docstring in the module that defines it, not in `Base.Docs.meta(mod)`, so a
 # scan of `mod`'s own meta alone would omit it from the `@docs` block and
 # leave every `@ref` to that name broken.
@@ -1666,7 +1665,7 @@ function api_bindings(mod::Module)
     for v in candidates
         # The module's own docstring would render mid-list here without
         # introducing the package, so `build_api_pages` prepends it to
-        # `public.md` separately (#313).
+        # `public.md` separately.
         v === nameof(mod) && continue
         # An undocumented re-export is dropped to keep the `@docs` block
         # render-safe; `mod`'s own meta entries are documented by construction.
@@ -1679,7 +1678,7 @@ end
 # Whether `mod` itself carries a docstring. `api_bindings` excludes this one
 # binding from its split, so `build_api_pages` uses this to decide whether to
 # prepend a `@docs` block for `mod` to `public.md` — without which a
-# `checkdocs = :all` scan always flags it as missing from the manual (#313).
+# `checkdocs = :all` scan always flags it as missing from the manual.
 function _has_own_docstring(mod::Module)
     return haskey(Base.Docs.meta(mod), Base.Docs.Binding(mod, nameof(mod)))
 end
@@ -1728,7 +1727,7 @@ end
 # `@docs mod.name` entry resolves with an implicit `typesig = Union{}`, and
 # since `Union{} <: anything` Documenter's fallback subtype search matches
 # every signature registered under the aliased binding, pulling in the owning
-# package's unrelated docstrings (#290).
+# package's unrelated docstrings.
 function _owns_binding(mod::Module, name::Symbol)
     b = Base.Docs.aliasof(Base.Docs.Binding(mod, name))
     return _within(b.mod, mod)
@@ -1736,7 +1735,7 @@ end
 
 # Construct a signature-qualified `@docs` entry (e.g.
 # `Pkg.mean(::Pkg.SomeType)`) for one method `mod` documents, so Documenter
-# resolves an exact typesig match instead of the bleed-prone bare form (#290).
+# resolves an exact typesig match instead of the bleed-prone bare form.
 # Parameters render via `string`, which Base module-qualifies for anything not
 # a well-known Base/Core name, so the entry resolves whichever module
 # Documenter evaluates the signature expression in.
@@ -1769,7 +1768,7 @@ end
 # The `@docs` entry/entries for `name`: the bare `mod.name` form when `mod`
 # owns the binding outright, else one signature-qualified entry per method
 # `mod` documents, so an extended generic never pulls in the owning package's
-# docstrings (#290). Falls back to the bare form with a warning if the
+# docstrings. Falls back to the bare form with a warning if the
 # `MultiDoc` is missing or a signature fails the round-trip check: that
 # re-risks the bleed, but an unresolvable `@docs` block is worse.
 function _docs_entries(mod::Module, name::Symbol)
@@ -1812,7 +1811,7 @@ function _write_api_page(
         println(io)
         # `mod`'s own module docstring goes ahead of Contents/Index rather
         # than into the alphabetical `@docs` block, so it reads as the page's
-        # introduction (#313).
+        # introduction.
         if own_docstring_entry !== nothing
             println(io, "```@docs")
             println(io, own_docstring_entry)
@@ -2383,7 +2382,7 @@ end
 # extension (or predates the kit seeding these pages) would otherwise build a
 # nav with a dangling link. Judged on the page rather than on the current
 # `[extensions]` table, so an authored page that outlives its extension is
-# kept: what the package committed wins (#319).
+# kept: what the package committed wins.
 function _strip_extensions_nav(pages, src_dir::AbstractString)
     kept = Any[]
     for entry in pages
@@ -2448,7 +2447,7 @@ function _strip_benchmark_nav(pages, src_dir::AbstractString)
 end
 
 # Verify the Documenter-processed home page was not silently truncated by the
-# npm/vitepress pipeline (#91): depending on `docs/node_modules` ordering,
+# npm/vitepress pipeline: depending on `docs/node_modules` ordering,
 # `docs/make.jl` can exit 0 having copied only a partial `index.md` into
 # `docs/build/.documenter/`, with no error or warning. A complete Documenter
 # pass never drops prose lines, so a line-count comparison against the
@@ -2605,9 +2604,9 @@ function build_docs(
 
     # --- docs/src/benchmarks/ (e.g. the AD-comparison report) --------------
     # Same pipeline, its own directory, so a benchmark report renders under
-    # its own top-level "Benchmarks" nav group rather than under Tutorials
-    # (#299/#305). Heavy-only: nothing currently needs a light benchmark
-    # page, but `_render_tutorials` costs nothing extra to call generically.
+    # its own top-level "Benchmarks" nav group rather than under Tutorials.
+    # Heavy-only: nothing currently needs a light benchmark page, but
+    # `_render_tutorials` costs nothing extra to call generically.
     # Shares `force_stub_tutorials` with the tutorials pipeline above -- it
     # is matched against whichever `heavy` list is passed at each call site,
     # so one config list parks a heavy page in either directory by name.
@@ -2667,7 +2666,7 @@ function build_docs(
     Documenter = _documenter()
     DocumenterVitepress = _vitepress()
     # A third-party docstring can carry an empty anchor id: warn and skip that
-    # inventory entry rather than abort (#232). No-op once upstream fixes it.
+    # inventory entry rather than abort. No-op once upstream fixes it.
     _guard_empty_anchors()
     Base.invokelatest(
         Documenter.DocMeta.setdocmeta!, mod, :DocTestSetup,
@@ -2696,7 +2695,7 @@ function build_docs(
 
     # The modules Documenter's `@docs` resolver searches: `mod` leads, then
     # the owners of its re-exported docstrings so those entries resolve
-    # instead of raising "no docs found" (#175).
+    # instead of raising "no docs found".
     owning_modules = union(Set{Module}(extra_modules), api_owning_modules(mod))
     delete!(owning_modules, mod)
     doc_modules = Module[mod]
@@ -2706,11 +2705,11 @@ function build_docs(
     # exclude a top-level owner, and there is no allowlist keyword. So
     # widening for re-export resolution disables the check, keeping a package
     # off the hook for its dependencies' hygiene; `build_api_pages` already
-    # renders every docstring `mod` owns (#313). With no re-exports the
+    # renders every docstring `mod` owns. With no re-exports the
     # default `:all` check over `mod` alone is kept.
     checkdocs = length(doc_modules) > 1 ? :none : :all
     # `mod` is left out: its docs build runs in its own checkout, which
-    # Documenter resolves from git (#190).
+    # Documenter resolves from git.
     remotes = api_remotes(owning_modules; extra_remotes = extra_remotes)
     # `root` is pinned explicitly because Documenter otherwise defaults it to
     # the running script's directory, and the thin caller may run from
@@ -2729,7 +2728,7 @@ function build_docs(
         plugins = plugins
     )
 
-    # Fail loudly rather than silently ship a truncated home page (#91).
+    # Fail loudly rather than silently ship a truncated home page.
     _check_index_not_truncated(
         joinpath(src_dir, "index.md"),
         joinpath(docs_dir, "build", ".documenter")

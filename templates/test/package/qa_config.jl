@@ -16,7 +16,7 @@ const QA_CONFIG = (
     # Path to the isolated formatter environment (see
     # test/formatter/Project.toml). Runs the formatting check in a subprocess
     # pinned to the exact Runic version, rather than whatever version the
-    # shared test environment resolves on the CI Julia in use (#321).
+    # shared test environment resolves on the CI Julia in use.
     formatter_env = joinpath(@__DIR__, "..", "formatter"),
 
     # Per-check Aqua relaxations, e.g. (; ambiguities = false). Empty = all on.
@@ -24,7 +24,7 @@ const QA_CONFIG = (
 
     # ExplicitImports `ignore`: symbols the main module legitimately imports
     # non-publicly. Tuple of Symbols, e.g. (:_internal_helper,). Package
-    # extensions are handled automatically (#189), so their import lists do not
+    # extensions are handled automatically, so their import lists do not
     # need listing here.
     ei_ignore = (),
 

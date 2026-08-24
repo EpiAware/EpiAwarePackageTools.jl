@@ -7,7 +7,7 @@
 #
 # Which files are searched is scoped by the managed `JuliaTestItems.toml` at
 # the package root, so a nested worktree checked out under the repo cannot
-# inject test items or shadow a same-named `@testsnippet` (#191).
+# inject test items or shadow a same-named `@testsnippet`.
 #
 # Filters:
 #   skip_quality  — skip the QA testset (fast local iteration)

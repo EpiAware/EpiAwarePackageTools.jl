@@ -86,7 +86,7 @@ import Pkg
 # making it a hard dependency: a package only needs it in the environment
 # that actually runs the check (e.g. JET only in the test env). Shared by
 # every lazy-load site across the kit instead of repeating the
-# `Base.require(Base.PkgId(...))` boilerplate (#58).
+# `Base.require(Base.PkgId(...))` boilerplate.
 #
 # The loaded module's methods live in a world age newer than the caller, so
 # every call must go through `Base.invokelatest` — documented once here
@@ -120,10 +120,10 @@ export on_surface_ambiguities, raw_ambiguity_count
 export test_option_validation
 export scaffold, scaffold_generate, scaffold_inputs, setup_checklist
 
-# `update` is `public`, not `export`ed (#294): a scaffolded `docs/make.jl`
+# `update` is `public`, not `export`ed: a scaffolded `docs/make.jl`
 # does `using EpiAwarePackageTools` alongside `using <ThePackage>`, so a
 # bare `export`ed `update` could collide with a package's own `update`
-# export and leave the name unbound in `Main` (#173). `public` avoids this
+# export and leave the name unbound in `Main`. `public` avoids this
 # — a `public`-not-`export`ed name is never brought into scope by a bare
 # `using`. `scaffold_update` remains a `public` alias
 # (`const scaffold_update = update` in scaffold.jl) for existing callers.

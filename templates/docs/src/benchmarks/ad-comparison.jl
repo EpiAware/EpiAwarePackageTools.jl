@@ -3,16 +3,10 @@
 #src carries the `ad-backends` anchor. Lives under `docs/src/benchmarks/`
 #src with its own top-level "Benchmarks" nav group, alongside the
 #src performance-over-time page (when the package has one) — not nested
-#src inside Tutorials (#305, the shape EpiAwareADTools#28 asked for).
+#src inside Tutorials.
 #src
-#src There was a separate `ad-backends.jl` tutorial under Getting started
-#src carrying a support table and a how-to-choose narrative. It is retired:
-#src the support table duplicated the README's per-backend coverage badge
-#src row and this page's own per-backend scenario coverage, and the generic
-#src advice belongs to the ecosystem rather than to any one package
-#src (epiaware.github.io#28). Package pages across the org link to its
-#src `@ref ad-backends` anchor, so that anchor now lives on the "Choosing a
-#src backend" section below and must stay there.
+#src The `@ref ad-backends` anchor lives on the "Choosing a backend" section
+#src below and must stay there: package pages across the org link to it.
 #src
 #src Where the numbers come from is set by `AD_BENCHMARK_RESULTS`: unset, the
 #src page measures every (backend, scenario) pair itself; set, it reads the
@@ -347,7 +341,7 @@ end
 ## Facet order: time then allocations. Plain CairoMakie rather than
 ## AlgebraOfGraphics -- the grammar-of-graphics `mapping`/`visual` calls pull
 ## in DimensionalData via Makie, which conflicts with FlexiChains' compat
-## range in any package that hard-deps both (kit#283).
+## range in any package that hard-deps both.
 metric_order = ["Relative time", "Relative allocations"]
 
 ## With nothing measured the axes are left off entirely and the figure carries

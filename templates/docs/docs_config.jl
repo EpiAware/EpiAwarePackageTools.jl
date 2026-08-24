@@ -167,7 +167,7 @@ const HISTORY_COMMITS = 5
 # change (or an improvement) would flag.
 const HISTORY_REGRESSION_THRESHOLD = 1.1
 
-# --- docs/pages.jl extension points (#170/#328/#354) ------------------------
+# --- docs/pages.jl extension points ------------------------
 #
 # `docs/pages.jl` is MANAGED: `scaffold`/`update` regenerate it in full on
 # every run, owning group labels, ordering and placement. Add nav content
@@ -179,7 +179,7 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # The package's own Getting-started tutorials, as `"Title" => "page.md"`
 # pairs (relative to `docs/src`), listed right after Overview (and the
 # optional FAQ below) in the generated nav — one placement for the whole
-# ecosystem rather than a per-repo choice (#354). These are the only tutorials
+# ecosystem rather than a per-repo choice. These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = Pair{String, String}[]
 

@@ -5,7 +5,7 @@
 # labels, ordering and placement are the kit's; a package adds its own
 # content through `docs/docs_config.jl` (PACKAGE_TUTORIALS, PACKAGE_SECTIONS,
 # DEVELOPMENT_EXTEND_PAGE, GETTING_STARTED_FAQ) rather than editing this file
-# — any edit made here is overwritten on the next sync (#170/#328/#354).
+# — any edit made here is overwritten on the next sync.
 #
 # The Extensions group is written from whatever `[extensions]` the package
 # declares in Project.toml, one entry per extension pointing at a page under
@@ -20,7 +20,7 @@
 # report.
 #
 # Every entry must resolve to a page the package writes or `make.jl`
-# generates. Docs about the kit itself live on the kit's own site (#194).
+# generates. Docs about the kit itself live on the kit's own site.
 
 pages = [
     "Home" => "index.md",

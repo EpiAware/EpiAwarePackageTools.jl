@@ -159,7 +159,7 @@ function _docstring_content(mod::Module, name::Symbol)
         # docstring in its OWN meta keyed by its self-binding, not in the
         # parent's meta, so look it up there — otherwise the check always
         # reports the submodule as undocumented and records a permanent
-        # `@test_skip` (#124).
+        # `@test_skip`.
         val = try
             getfield(mod, name)
         catch
