@@ -157,7 +157,6 @@
                         ".github/workflows/test.yaml",
                         ".github/workflows/ad.yaml",
                         ".github/workflows/document.yaml",
-                        ".github/workflows/codecoverage.yaml",
                         ".github/workflows/downstream.yaml",
                         ".github/workflows/pre-commit.yaml",
                         ".github/workflows/TagBot.yaml",
@@ -222,13 +221,12 @@
                 @test occursin("workflow_dispatch", rn)
                 @test occursin(r"cron: '\d+ \d+ \* \* \d+'", rn)
                 @test !occursin("{{ORG}}", rn)
-                # Coverage hard-fails on upload error (org policy: red on a
-                # missing CODECOV_TOKEN as a loud reminder to add it).
-                cov_caller = read(
-                    _dest(dir, ".github/workflows/codecoverage.yaml"), String
-                )
-                @test occursin("fail_ci_if_error: true", cov_caller)
-                @test !occursin("fail_ci_if_error: false", cov_caller)
+                # The single test caller collects and uploads coverage from
+                # its own ubuntu leg rather than a separate coverage caller
+                # running the whole suite a second time.
+                @test occursin("upload_coverage: true", test_yaml)
+                @test !occursin("upload_coverage: false", test_yaml)
+                @test !isfile(_dest(dir, ".github/workflows/codecoverage.yaml"))
             end
         end
 
@@ -3383,32 +3381,30 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                # `codecoverage.yaml`'s caller renders its own non-empty `with:`
+                # `test.yaml`'s test caller renders its own non-empty `with:`
                 # block from the template, so a package key added alongside it
-                # (ComposedDistributions' `coverage_directories`, counting the
-                # package extension) used to be replaced wholesale on resync.
-                caller = _dest(dir, ".github/workflows/codecoverage.yaml")
+                # used to be replaced wholesale on resync.
+                caller = _dest(dir, ".github/workflows/test.yaml")
                 before = read(caller, String)
                 @test occursin("with:", before)
+                # Also flip the managed `upload_coverage` value itself, so the
+                # assertion below is on the VALUE the merge restores, not
+                # merely a key the edit never touched.
                 overridden = replace(
                     before,
-                    r"([ \t]+)(julia_version:[^\r\n]*\r?\n)" =>
-                        s"\1\2\1coverage_directories: 'src,ext'\n"
+                    r"([ \t]+)upload_coverage: true\r?\n" =>
+                        s"\1upload_coverage: false\n\1coverage_flags: 'x'\n"
                 )
                 @test overridden != before
                 write(caller, overridden)
                 update(dir)
                 after = read(caller, String)
                 # The package key survives ...
-                @test occursin("coverage_directories: 'src,ext'", after)
-                # ... and the kit-rendered keys in the same block are still
+                @test occursin("coverage_flags: 'x'", after)
+                # ... and the kit-rendered key in the same block is still
                 # managed (the template's value wins on a key collision).
-                #
-                # Asserted on the VALUE, not merely the key's presence: the
-                # coverage caller's `julia_version` shares its name with the
-                # downgrade caller's seed-default key (#246), and a key-presence
-                # check stays green even if this one were quietly un-managed.
-                @test occursin("julia_version: '1'", after)
+                @test occursin("upload_coverage: true", after)
+                @test !occursin("upload_coverage: false", after)
                 # Idempotent on the merged block.
                 update(dir)
                 @test read(caller, String) == after
@@ -3443,24 +3439,24 @@
                 @test ad_overridden != ad_before
                 write(ad_caller, ad_overridden)
 
-                # Symptom 2 (codecoverage.yaml): a package-owned key inserted
-                # *before* a template-rendered key that itself already carries
-                # a preceding comment (`fail_ci_if_error`). Before #212 the
+                # Symptom 2 (test.yaml): a package-owned key inserted *before*
+                # a template-rendered key that itself already carries a
+                # preceding comment (`upload_coverage`). Before #212 the
                 # package's own preceding comment was captured as a
                 # continuation of the *previous* key instead of attached to
                 # `coverage_directories`, and the template's own
-                # `fail_ci_if_error` comment was then duplicated onto the
+                # `upload_coverage` comment was then duplicated onto the
                 # relocated package key.
-                cov_caller = _dest(dir, ".github/workflows/codecoverage.yaml")
+                cov_caller = _dest(dir, ".github/workflows/test.yaml")
                 cov_before = read(cov_caller, String)
-                @test occursin("fail_ci_if_error:", cov_before)
+                @test occursin("upload_coverage:", cov_before)
                 pkg_comment = string(
                     "      # Package extensions carry real code; count their\n",
                     "      # lines too. Re-added by hand (#88).\n"
                 )
                 cov_overridden = replace(
                     cov_before,
-                    r"([ \t]+)(julia_version:[^\r\n]*\r?\n)" =>
+                    r"([ \t]+)(julia_versions:[^\r\n]*\r?\n)" =>
                         SubstitutionString(
                         "\\1\\2" * pkg_comment *
                             "\\1coverage_directories: 'src,ext'\n"
@@ -3483,8 +3479,9 @@
                 @test count("Package extensions carry real code", cov_after) == 1
                 # ... and the template's own comment/key are neither dropped
                 # nor duplicated by the merge.
-                @test count("Hard-fail the coverage check", cov_after) == 1
-                @test occursin("fail_ci_if_error:", cov_after)
+                @test count("Collect coverage on the ubuntu leg", cov_after) ==
+                    1
+                @test occursin("upload_coverage:", cov_after)
                 @test occursin("backends:", ad_after)
 
                 # Idempotent on the merged block.
@@ -3837,6 +3834,23 @@
                 @test !endswith(d, '/')
                 @test !occursin("//", d)
                 @test !isempty(d)
+            end
+        end
+
+        @testset "update drops the duplicate coverage caller" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # A fresh scaffold never writes the retired caller.
+                @test !isfile(_dest(dir, ".github/workflows/codecoverage.yaml"))
+                # An adopter scaffolded by an older kit still carries it; a
+                # sync must remove it rather than leave it running a second
+                # full test suite alongside `test.yaml`'s own upload.
+                stale = _dest(dir, ".github/workflows/codecoverage.yaml")
+                write(stale, "name: Code coverage\n")
+                res = update(dir)
+                @test !isfile(stale)
+                @test stale in res.removed
             end
         end
 
@@ -5066,47 +5080,26 @@ end # @testitem "scaffold + update (logic)"
     end
 
     @testset "seed-defaults are scoped to their caller, not the key name" begin
-        mktempdir() do dir
-            _fake_pkg(dir)
-            scaffold(dir)
-            # `codecoverage.yaml`'s coverage caller renders a `julia_version` of
-            # its own, and it is MANAGED — the kit moves the whole fleet's
-            # coverage job when it moves. It happens to share a name with the
-            # downgrade caller's seed-default key, so a seed-default set keyed on
-            # the bare name would quietly un-manage it: every adopter frozen at
-            # whatever they carry, and one able to sit on 1.10 — the very version
-            # this floor exists to keep them off — unwarned.
-            cov = _p(dir, ".github/workflows/codecoverage.yaml")
-            @test occursin("julia_version: '1'", read(cov, String))
-            write(
-                cov,
-                replace(
-                    read(cov, String),
-                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.10'"
-                )
-            )
-            res = update(dir)
-            after = read(cov, String)
-            # The kit reclaims its managed value ...
-            @test occursin("julia_version: '1'", after)
-            @test !occursin("julia_version: '1.10'", after)
-            # ... and the downgrade caller's same-named key is still the
-            # package's to override, in the same run.
-            caller = _p(dir, ".github/workflows/test.yaml")
-            write(
-                caller,
-                replace(
-                    read(caller, String),
-                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'"
-                )
-            )
-            update(dir)
-            @test occursin(
-                "julia_version: '1.12'",
-                read(caller, String)
-            )
-            @test occursin("julia_version: '1'", read(cov, String))
-        end
+        using EpiAwarePackageTools: _merge_with_blocks
+        # Two different reusable callers can render a same-named key
+        # (`julia_version`): the kit's stake is only in `downgrade.yml`'s,
+        # which a package may point at a different release. Scoping
+        # seed-defaults to the workflow that renders the key, not the bare
+        # key name, keeps any other reusable rendering a `julia_version` of
+        # its own fully managed even though the name collides.
+        seed = "    with:\n      julia_version: '1'\n"
+        existing = "    with:\n      julia_version: '1.10'\n"
+        # `downgrade.yml` seeds this key: the destination's override wins.
+        @test occursin(
+            "julia_version: '1.10'",
+            _merge_with_blocks(seed, existing, "downgrade.yml")
+        )
+        # A different reusable rendering the same key name does not seed it:
+        # the kit reclaims its managed value even though the bare key
+        # matches.
+        other = _merge_with_blocks(seed, existing, "some-other-reusable.yml")
+        @test occursin("julia_version: '1'", other)
+        @test !occursin("julia_version: '1.10'", other)
     end
 
     @testset "the floor scan reads every workflow, not just test.yaml" begin
