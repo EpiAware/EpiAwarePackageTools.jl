@@ -146,6 +146,7 @@ end
             name = "Wombat"
             uuid = "c2c2c2c2-0191-4191-8191-c2c2c2c2c2c2"
             version = "0.1.0"
+            authors = ["Test Author"]
             """
         )
         mkpath(joinpath(dir, "src"))
