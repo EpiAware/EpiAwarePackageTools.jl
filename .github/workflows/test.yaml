@@ -26,7 +26,10 @@ jobs:
       julia_versions: '["1", "lts", "pre"]'
       # Collect coverage on the ubuntu leg that already runs the whole
       # suite and upload it, rather than running a second full suite just
-      # for coverage.
+      # for coverage. The reusable's `fail_ci_if_error` defaults to true,
+      # so a repo with no CODECOV_TOKEN still goes red rather than green
+      # with silently missing coverage; that is org policy and is left at
+      # the default rather than restated here.
       upload_coverage: true
     secrets: inherit  # pragma: allowlist secret
 
