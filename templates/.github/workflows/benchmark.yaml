@@ -14,6 +14,10 @@ name: Benchmark
 # not. It also keeps a single runner from loading two heavy AD stacks (e.g.
 # Enzyme + Mooncake) at once, which can exhaust it.
 #
+# Every Julia process here runs uninstrumented. Code-coverage counters slow
+# the code they instrument, so a job that publishes timings collects no
+# coverage and calls no action that adds a coverage flag of its own.
+#
 # Uses `pull_request` (not `pull_request_target`), so the comparison runs
 # the PR's own code and the comment-posting token stays scoped to same-repo
 # PRs; fork PRs get a read-only token and will not post a comment.
