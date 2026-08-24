@@ -790,8 +790,36 @@ const KIT_COMPAT = "0.3, 0.4"
 
 # The SPDX licence identifiers a package may select, each backed by a bundled
 # `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.
-const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
+# An explicit set, not any SPDX identifier: adding one is a decision about what
+# the ecosystem carries, and comes with the text to write.
+const SUPPORTED_LICENSES = ("MIT", "Apache-2.0", "GPL-2.0-or-later")
 const DEFAULT_LICENSE = "MIT"
+
+# The names a committed licence file conventionally takes, `COPYING` being the
+# GNU convention. A repo carrying any of them already has its licence text.
+const LICENSE_FILENAMES = (
+    "LICENSE", "LICENSE.md", "LICENSE.txt",
+    "LICENCE", "LICENCE.md", "LICENCE.txt",
+    "COPYING", "COPYING.md", "COPYING.txt",
+)
+
+# The committed licence file, or `nothing` when the repo carries none.
+function _license_file(target_dir::AbstractString)
+    for name in LICENSE_FILENAMES
+        path = joinpath(target_dir, name)
+        isfile(path) && return path
+    end
+    return nothing
+end
+
+# The `SUPPORTED_LICENSES` entry `id` names, in its canonical spelling, or
+# `nothing` when it names none. SPDX identifiers are case-insensitive, so a
+# badge or `Project.toml` field spelling one differently still resolves.
+function _supported_license(id::AbstractString)
+    wanted = lowercase(strip(id))
+    idx = findfirst(l -> lowercase(l) == wanted, SUPPORTED_LICENSES)
+    return idx === nothing ? nothing : SUPPORTED_LICENSES[idx]
+end
 
 # Reject an unsupported `license` eagerly, naming the value and the valid set,
 # rather than letting it propagate into a substitution that fails later with no
@@ -1021,8 +1049,13 @@ so a non-MIT adopter's badge was flipped to MIT on every sync — the same
 failure mode `_detect_doi` fixed for the DOI badge (#161). The value is read
 back from the destination: first the managed License badge, then the
 `Project.toml` `license` field. Returns the SPDX id, or `nothing` when neither
-carries one. Only a `SUPPORTED_LICENSES` id is recovered; an explicit
-`license` keyword still wins.
+carries one.
+
+Only a `SUPPORTED_LICENSES` entry is recovered, matched case-insensitively
+and returned in its canonical spelling, so a differently-spelled declaration
+still resolves and a hand-edited badge cannot introduce a licence the kit does
+not support. Anything else yields `nothing` and the default applies. An
+explicit `license` keyword wins over whatever is recovered.
 """
 function _detect_license(target_dir::AbstractString)
     readme = joinpath(target_dir, "README.md")
@@ -1032,13 +1065,13 @@ function _detect_license(target_dir::AbstractString)
             read(readme, String)
         )
         if m !== nothing
-            spdx = String(something(m.captures[1]))
-            spdx in SUPPORTED_LICENSES && return spdx
+            spdx = _supported_license(String(something(m.captures[1])))
+            spdx === nothing || return spdx
         end
     end
     proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
-    proj !== nothing && proj in SUPPORTED_LICENSES && return proj
-    return nothing
+    proj === nothing && return nothing
+    return _supported_license(proj)
 end
 
 """
@@ -1060,8 +1093,11 @@ into a template:
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
   - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Names the
     package's own repo: badges, docs links, the repo slug, and the Code of
-    Conduct link. The reusable workflows the CI callers `uses:` are not
-    among them: those always come from `$(repr(WORKFLOWS_ORG))/.github`.
+    Conduct link. Pass the owning org for a package hosted elsewhere; the
+    managed `template-sync.yaml` carries it into the scheduled
+    [`update`](@ref) so it survives a resync. The reusable workflows the CI
+    callers `uses:` are not among them: those always come from
+    `$(repr(WORKFLOWS_ORG))/.github`.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1071,13 +1107,12 @@ into a template:
     (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
     so a bare org is never hardcoded.
   - `year` — copyright year (`{{YEAR}}`); default the current year.
-  - `license` — the SPDX licence identifier (one of
-    `$(join(SUPPORTED_LICENSES, ", "))`) selecting which `LICENSE` text
-    [`scaffold`](@ref) writes and which README badge is rendered. Default
-    `nothing`, in which case the licence already committed to the repo is
-    recovered and kept (`#235`), falling back to `$(repr(DEFAULT_LICENSE))`.
-    The `LICENSE` text itself is written once and never overwritten by
-    [`update`](@ref).
+  - `license` — the SPDX licence identifier selecting which README badge is
+    rendered and which bundled text a new `LICENSE` gets. One of
+    `$(join(SUPPORTED_LICENSES, ", "))`. Default `nothing`, in which case the
+    licence already committed to the repo is recovered and kept, falling back
+    to `$(repr(DEFAULT_LICENSE))`. The `LICENSE` text itself is written once
+    and never overwritten by [`update`](@ref).
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
     given a DOI badge is added to the README "License & DOI" cell. Both default
     to `nothing`, in which case any DOI badge already committed to the README is
@@ -1087,6 +1122,13 @@ into a template:
     block so the reusable's own default (45 min) applies. A package-owned
     `with:` block hand-added to `document.yaml` survives a resync (see
     `_preserve_caller_with_inputs`).
+  - `ad_timeout` — an optional per-backend job timeout in minutes for the
+    managed `ad.yaml` caller. Default `nothing`, which passes no
+    `timeout_minutes` so the reusable's own cap applies. Set it when a
+    package's slowest AD backend runs close to that cap. The value written
+    into the caller's `with:` block survives a later resync that does not
+    re-pass it (see `_preserve_caller_with_inputs`). The reusable ref the
+    caller is pinned to must declare a `timeout_minutes` input.
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -1104,7 +1146,8 @@ function scaffold_inputs(
         docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
-        docs_timeout::Union{Nothing, Integer} = nothing
+        docs_timeout::Union{Nothing, Integer} = nothing,
+        ad_timeout::Union{Nothing, Integer} = nothing
     )
     # Recover the committed licence so a bare sync keeps a non-MIT adopter's
     # badge instead of resetting it to the default (#235).
@@ -1221,6 +1264,7 @@ function scaffold_inputs(
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
         DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
+        AD_TIMEOUT_LINE = _ad_timeout_line(ad_timeout),
         DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir),
@@ -1867,12 +1911,15 @@ end
 # once with `{{YEAR}}`/`{{HOLDER}}` filled. `update` never touches it, so a
 # package that deliberately switches licence is not reverted on a sync.
 
-# Write the selected LICENSE to `target_dir` if absent (write-once). `inputs`
-# supplies `LICENSE` (the SPDX id) plus the `{{YEAR}}`/`{{HOLDER}}` values.
+# Write the selected LICENSE to `target_dir` if the repo carries no licence
+# file yet (write-once). Any of `LICENSE_FILENAMES` counts, so a repo
+# following the GNU `COPYING` convention keeps the one it has rather than
+# gaining a second. `inputs` supplies `LICENSE` (the SPDX id) plus the
+# `{{YEAR}}`/`{{HOLDER}}` values.
 # Returns `:created`, `:preserved` (already present), or `:skipped`.
 function _apply_license(target_dir::AbstractString, inputs::NamedTuple)
+    _license_file(target_dir) === nothing || return :preserved
     dest = joinpath(target_dir, "LICENSE")
-    isfile(dest) && return :preserved
     spdx::String = String(inputs.LICENSE)::String
     from = joinpath(_templates_dir(), string("LICENSE.", spdx))
     isfile(from) || error("missing bundled LICENSE template for $spdx at $from")
@@ -3035,6 +3082,20 @@ function _docs_timeout_with(docs_timeout::Union{Nothing, Integer})
             repr(docs_timeout)
     )
     return string("    with:\n      timeout_minutes: ", docs_timeout, "\n")
+end
+
+# The optional `timeout_minutes:` input on the managed `ad.yaml` caller. Empty
+# by default, so the reusable applies its own cap. Unlike `document.yaml` the
+# AD caller always renders a `with:` block for `backends`, so this is the key
+# line alone rather than the block. A package can equally hand-add the key,
+# which `_preserve_caller_with_inputs` keeps across `update()`.
+function _ad_timeout_line(ad_timeout::Union{Nothing, Integer})
+    ad_timeout === nothing && return ""
+    ad_timeout > 0 || error(
+        "ad_timeout must be a positive integer (minutes), got " *
+            repr(ad_timeout)
+    )
+    return string("      timeout_minutes: ", ad_timeout, "\n")
 end
 
 # A license-badge cell for an SPDX identifier (label, shields colour, and the
@@ -4561,11 +4622,13 @@ defaults from the target `Project.toml` or a sensible org default and is
 overridable by keyword (e.g. `scaffold(dir; org = "MyOrg")`). No person, org, or
 repo name is hardcoded in any template.
 
-`LICENSE` is package-owned and write-once: the `license` keyword (an SPDX id,
-one of `$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
+`LICENSE` is package-owned and write-once: the `license` keyword (one of
+`$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
 selects the bundled licence text, written with `{{YEAR}}`/`{{HOLDER}}` filled
-only when no `LICENSE` exists. [`update`](@ref) never rewrites it, so a package
-that deliberately changes its licence is not reverted on a sync.
+only when the repo carries no licence file yet under any of its conventional
+names (`LICENSE`, `LICENCE`, `COPYING`, with or without a `.md`/`.txt`
+suffix). [`update`](@ref) never rewrites it, so a package that deliberately
+changes its licence is not reverted on a sync.
 
 The managed `.github/workflows/Register.yml` triggers General Registry
 registration from a `/register` comment or a `workflow_dispatch` run, gated on
@@ -4754,7 +4817,11 @@ the one exception: it is seeded when absent, because the managed "How to cite"
 section links to it on every sync and an adopter predating citation seeding
 would otherwise carry a link `update` could never make resolve (#322).
 Placeholder inputs resolve exactly as in [`scaffold`](@ref); pass the same
-overrides to keep substitution stable across a sync.
+overrides to keep substitution stable across a sync. `org` is the one that
+cannot be left to its default by a package hosted elsewhere, so the managed
+`template-sync.yaml` writes the scaffolded value into its own `update` call
+and the scheduled sync re-passes it. Scaffold a package outside the EpiAware
+org with `org = "<owner>"` and every later sync keeps that owner.
 
 `ad` must match the value the package was scaffolded with (default `true`).
 `benchmarks`, `downgrade_compat` and `unregistered_sources` all default to

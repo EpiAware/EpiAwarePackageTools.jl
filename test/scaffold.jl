@@ -3655,6 +3655,139 @@
             end
         end
 
+        @testset "_detect_license recovers a supported GPL licence" begin
+            using EpiAwarePackageTools: _detect_license, _license_badge
+            # A GPL adopter (a port of GPL'd code, whose licence is inherited
+            # rather than the kit's to change) keeps its badge instead of
+            # having it reset to the default.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                readme = "# Wombat\n\n" *
+                    _license_badge("GPL-2.0-or-later") * "\n"
+                write(joinpath(dir, "README.md"), readme)
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-2.0-or-later\"\n")
+                end
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+        end
+
+        @testset "_detect_license canonicalises the spelling it finds" begin
+            using EpiAwarePackageTools: _detect_license
+            # SPDX identifiers are case-insensitive, so a declaration in
+            # another case is the same licence and resolves to the canonical
+            # spelling the badge and the bundled text are keyed on.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"gpl-2.0-OR-later\"\n")
+                end
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+        end
+
+        @testset "_detect_license ignores an unsupported licence" begin
+            using EpiAwarePackageTools: _detect_license
+            # Detection is restricted to the supported set: a badge label or
+            # Project.toml field naming anything else cannot introduce a
+            # licence the kit does not support.
+            for label in ("GPL-3.0-only", "not a licence")
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    write(
+                        joinpath(dir, "README.md"),
+                        "# Wombat\n\n[![License: $label]" *
+                            "(https://img.shields.io/badge/License-x-green" *
+                            ".svg)](https://example.com)\n"
+                    )
+                    @test _detect_license(dir) === nothing
+                end
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    open(joinpath(dir, "Project.toml"), "a") do io
+                        write(io, "license = \"$label\"\n")
+                    end
+                    @test _detect_license(dir) === nothing
+                end
+            end
+        end
+
+        @testset "scaffold_inputs accepts only the supported licences" begin
+            using EpiAwarePackageTools: scaffold_inputs, SUPPORTED_LICENSES
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                for good in SUPPORTED_LICENSES
+                    @test scaffold_inputs(dir; license = good).LICENSE == good
+                end
+            end
+            # A committed licence file does not widen the set: an id the kit
+            # does not support is rejected whether or not the text is there.
+            for bad in ("", "GPL-3.0-only", "not a licence")
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    @test_throws ErrorException scaffold_inputs(
+                        dir; license = bad
+                    )
+                    write(joinpath(dir, "LICENSE"), "licence text...\n")
+                    @test_throws ErrorException scaffold_inputs(
+                        dir; license = bad
+                    )
+                end
+            end
+        end
+
+        @testset "scaffold license = GPL-2.0-or-later writes GPL text" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir; license = "GPL-2.0-or-later", ad = false)
+                @test res.license === :created
+                txt = read(joinpath(dir, "LICENSE"), String)
+                @test occursin("GNU GENERAL PUBLIC LICENSE", txt)
+                @test occursin("Version 2, June 1991", txt)
+                @test occursin("any later version", txt)
+                @test !occursin("{{", txt)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme)
+            end
+        end
+
+        @testset "a COPYING repo is not given a second licence file" begin
+            # `COPYING` is the GNU convention, so a GPL adopter's licence text
+            # is already there and the kit must leave it alone.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "COPYING"), "GPL licence text...\n")
+                res = scaffold(dir; license = "GPL-2.0-or-later", ad = false)
+                @test res.license === :preserved
+                @test !isfile(joinpath(dir, "LICENSE"))
+                @test read(joinpath(dir, "COPYING"), String) ==
+                    "GPL licence text...\n"
+            end
+        end
+
+        @testset "update keeps a GPL badge across a sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "LICENSE"), "GPL licence text...\n")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-2.0-or-later\"\n")
+                end
+                scaffold(dir; ad = false)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme)
+                # A bare resync (as the scheduled template-sync runs, with no
+                # `license` kwarg) must not flip the badge to MIT.
+                update(dir; ad = false)
+                readme2 = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme2)
+                @test !occursin("License: MIT", readme2)
+            end
+        end
+
         @testset "update preserves a non-MIT licence badge (#235)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
@@ -3869,6 +4002,32 @@
                 # the package-owned with:-block mechanism (#73).
                 update(dir)
                 @test occursin("timeout_minutes: 120", read(doc, String))
+            end
+        end
+
+        @testset "ad_timeout sets the per-backend AD job timeout" begin
+            using EpiAwarePackageTools: _ad_timeout_line
+            # No timeout -> no key, so the reusable's own cap applies.
+            @test _ad_timeout_line(nothing) == ""
+            @test occursin("timeout_minutes: 90", _ad_timeout_line(90))
+            @test_throws ErrorException _ad_timeout_line(0)
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = true)  # default: no explicit timeout
+                ad = _dest(dir, ".github/workflows/ad.yaml")
+                # The caller's header names the input; what must be absent
+                # is the key itself.
+                @test !occursin(r"^\s*timeout_minutes:"m, read(ad, String))
+                # Setting ad_timeout adds the key to the caller's existing
+                # `with:` block, alongside the managed `backends`.
+                scaffold(dir; force = true, ad = true, ad_timeout = 120)
+                txt = read(ad, String)
+                @test occursin("backends:", txt)
+                @test occursin("timeout_minutes: 120", txt)
+                # A bare resync (never re-passes ad_timeout) keeps it, by
+                # the package-owned with:-block mechanism.
+                update(dir)
+                @test occursin("timeout_minutes: 120", read(ad, String))
             end
         end
 
@@ -4094,20 +4253,23 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `ad` + `benchmarks` + `downgrade_compat` values and is
-                # fully substituted (fresh package keeps downgrade-compat).
+                # own `org` + `ad` + `benchmarks` + `downgrade_compat` values
+                # and is fully substituted (fresh package keeps
+                # downgrade-compat).
                 sync = read(
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String
                 )
                 @test occursin(
-                    "update(\".\"; ad = false, benchmarks = false, " *
+                    "update(\".\"; org = \"EpiAware\", ad = false, " *
+                        "benchmarks = false, " *
                         "downgrade_compat = true, " *
                         "unregistered_sources = false, " *
                         "freshen_reusable_refs = true)", sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
+                @test !occursin("{{ORG}}", sync)
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{BENCHMARKS}}", sync)
                 @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
@@ -4116,6 +4278,32 @@
                 res = update(dir; ad = false)
                 @test _dest(dir, ".github/workflows/template-sync.yaml") in
                     res.updated
+            end
+        end
+
+        @testset "a package outside EpiAware keeps its org on a sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, org = "epiforecasts")
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("epiforecasts/Wombat.jl", readme)
+                @test !occursin("EpiAware/Wombat.jl", readme)
+                # A bare `update(".")` would leave `org` on the kit default
+                # and rewrite every repo URL back to EpiAware on each weekly
+                # run, so the sync states the owner it was scaffolded with.
+                sync = read(
+                    _dest(dir, ".github/workflows/template-sync.yaml"),
+                    String
+                )
+                @test occursin(
+                    "update(\".\"; org = \"epiforecasts\", ad = false,", sync
+                )
+                # The local re-apply the drift issue prints names it too, so
+                # following those steps does not revert the owner either.
+                @test occursin("update(\".\"; org = \"epiforecasts\",\n", sync)
+                # Running what the sync runs leaves the owner untouched.
+                update(dir; org = "epiforecasts", ad = false)
+                @test read(joinpath(dir, "README.md"), String) == readme
             end
         end
 
@@ -4204,7 +4392,8 @@
                 # bare `update(".")` defaults `ad` to true, so on an
                 # `ad = false` package the documented fix would seed AD infra
                 # the package does not want and leave it still drifted.
-                @test occursin("update(\".\"; ad = false,", sync)
+                @test occursin("update(\".\"; org = \"EpiAware\",", sync)
+                @test occursin("ad = false, benchmarks = false,", sync)
                 @test !occursin("update(\".\")'", sync)
                 # A clean run closes the issue again, so a stale tracker never
                 # outlives the drift it reported.
@@ -6393,4 +6582,34 @@ end
             @test isempty(calls)
         end
     end
+end
+
+# `update` reports a retired name found in a package's own prose, but it only
+# reads the package's files. A retired name in one of the kit's templates is
+# written into every adopter on each sync, and the adopter cannot correct it
+# because the next sync reverts the edit, so the templates are held to the
+# same standard here.
+@testitem "templates name no retired tool or path" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: RETIRED_PATHS, RETIRED_PROSE,
+        _PROSE_OK_MARKER, _templates_dir
+
+    terms = vcat(RETIRED_PATHS, [e.term for e in RETIRED_PROSE])
+    root = _templates_dir()
+    hits = String[]
+    for (dir, _, names) in walkdir(root), name in names
+        path = joinpath(dir, name)
+        text = read(path, String)
+        # A template that names a retired tool to explain the retirement
+        # opts out the same way package-owned prose does.
+        (isvalid(text) && !occursin(_PROSE_OK_MARKER, text)) || continue
+        for term in terms
+            occursin(term, text) &&
+                push!(hits, string(relpath(path, root), ": ", term))
+        end
+    end
+    # Compared against the empty vector rather than asserted empty, so a
+    # failure names the file and the term.
+    @test sort(hits) == String[]
 end
