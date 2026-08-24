@@ -34,6 +34,27 @@
         return dir
     end
 
+    # A minimal README carrying the managed License badge for `label`, the
+    # shape a declaration is read back from.
+    function _badge_readme(label)
+        return "# Wombat\n\n" *
+            EpiAwarePackageTools._license_badge(label) * "\n"
+    end
+
+    # Set `dir`'s top-level `license` key, above any table header so it reads
+    # as the package's own declaration rather than a key inside a table.
+    function _declare_license(dir, id)
+        path = joinpath(dir, "Project.toml")
+        lines = readlines(path)
+        at = findfirst(l -> startswith(strip(l), "["), lines)
+        insert!(
+            lines, at === nothing ? length(lines) + 1 : at,
+            "license = \"$id\""
+        )
+        write(path, join(lines, "\n") * "\n")
+        return path
+    end
+
     # Actually `Pkg.instantiate` a generated environment in an isolated
     # subprocess (kit issue #59): file-presence and text-substitution checks
     # never prove an emitted Project.toml/[compat]/[sources] table actually
@@ -157,7 +178,6 @@
                         ".github/workflows/test.yaml",
                         ".github/workflows/ad.yaml",
                         ".github/workflows/document.yaml",
-                        ".github/workflows/codecoverage.yaml",
                         ".github/workflows/downstream.yaml",
                         ".github/workflows/pre-commit.yaml",
                         ".github/workflows/TagBot.yaml",
@@ -222,13 +242,12 @@
                 @test occursin("workflow_dispatch", rn)
                 @test occursin(r"cron: '\d+ \d+ \* \* \d+'", rn)
                 @test !occursin("{{ORG}}", rn)
-                # Coverage hard-fails on upload error (org policy: red on a
-                # missing CODECOV_TOKEN as a loud reminder to add it).
-                cov_caller = read(
-                    _dest(dir, ".github/workflows/codecoverage.yaml"), String
-                )
-                @test occursin("fail_ci_if_error: true", cov_caller)
-                @test !occursin("fail_ci_if_error: false", cov_caller)
+                # The single test caller collects and uploads coverage from
+                # its own ubuntu leg rather than a separate coverage caller
+                # running the whole suite a second time.
+                @test occursin("upload_coverage: true", test_yaml)
+                @test !occursin("upload_coverage: false", test_yaml)
+                @test !isfile(_dest(dir, ".github/workflows/codecoverage.yaml"))
             end
         end
 
@@ -3385,32 +3404,30 @@
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir)
-                # `codecoverage.yaml`'s caller renders its own non-empty `with:`
+                # `test.yaml`'s test caller renders its own non-empty `with:`
                 # block from the template, so a package key added alongside it
-                # (ComposedDistributions' `coverage_directories`, counting the
-                # package extension) used to be replaced wholesale on resync.
-                caller = _dest(dir, ".github/workflows/codecoverage.yaml")
+                # used to be replaced wholesale on resync.
+                caller = _dest(dir, ".github/workflows/test.yaml")
                 before = read(caller, String)
                 @test occursin("with:", before)
+                # Also flip the managed `upload_coverage` value itself, so the
+                # assertion below is on the VALUE the merge restores, not
+                # merely a key the edit never touched.
                 overridden = replace(
                     before,
-                    r"([ \t]+)(julia_version:[^\r\n]*\r?\n)" =>
-                        s"\1\2\1coverage_directories: 'src,ext'\n"
+                    r"([ \t]+)upload_coverage: true\r?\n" =>
+                        s"\1upload_coverage: false\n\1coverage_flags: 'x'\n"
                 )
                 @test overridden != before
                 write(caller, overridden)
                 update(dir)
                 after = read(caller, String)
                 # The package key survives ...
-                @test occursin("coverage_directories: 'src,ext'", after)
-                # ... and the kit-rendered keys in the same block are still
+                @test occursin("coverage_flags: 'x'", after)
+                # ... and the kit-rendered key in the same block is still
                 # managed (the template's value wins on a key collision).
-                #
-                # Asserted on the VALUE, not merely the key's presence: the
-                # coverage caller's `julia_version` shares its name with the
-                # downgrade caller's seed-default key (#246), and a key-presence
-                # check stays green even if this one were quietly un-managed.
-                @test occursin("julia_version: '1'", after)
+                @test occursin("upload_coverage: true", after)
+                @test !occursin("upload_coverage: false", after)
                 # Idempotent on the merged block.
                 update(dir)
                 @test read(caller, String) == after
@@ -3445,24 +3462,24 @@
                 @test ad_overridden != ad_before
                 write(ad_caller, ad_overridden)
 
-                # Symptom 2 (codecoverage.yaml): a package-owned key inserted
-                # *before* a template-rendered key that itself already carries
-                # a preceding comment (`fail_ci_if_error`). Before #212 the
+                # Symptom 2 (test.yaml): a package-owned key inserted *before*
+                # a template-rendered key that itself already carries a
+                # preceding comment (`upload_coverage`). Before #212 the
                 # package's own preceding comment was captured as a
                 # continuation of the *previous* key instead of attached to
                 # `coverage_directories`, and the template's own
-                # `fail_ci_if_error` comment was then duplicated onto the
+                # `upload_coverage` comment was then duplicated onto the
                 # relocated package key.
-                cov_caller = _dest(dir, ".github/workflows/codecoverage.yaml")
+                cov_caller = _dest(dir, ".github/workflows/test.yaml")
                 cov_before = read(cov_caller, String)
-                @test occursin("fail_ci_if_error:", cov_before)
+                @test occursin("upload_coverage:", cov_before)
                 pkg_comment = string(
                     "      # Package extensions carry real code; count their\n",
                     "      # lines too. Re-added by hand (#88).\n"
                 )
                 cov_overridden = replace(
                     cov_before,
-                    r"([ \t]+)(julia_version:[^\r\n]*\r?\n)" =>
+                    r"([ \t]+)(julia_versions:[^\r\n]*\r?\n)" =>
                         SubstitutionString(
                         "\\1\\2" * pkg_comment *
                             "\\1coverage_directories: 'src,ext'\n"
@@ -3485,8 +3502,9 @@
                 @test count("Package extensions carry real code", cov_after) == 1
                 # ... and the template's own comment/key are neither dropped
                 # nor duplicated by the merge.
-                @test count("Hard-fail the coverage check", cov_after) == 1
-                @test occursin("fail_ci_if_error:", cov_after)
+                @test count("Collect coverage on the ubuntu leg", cov_after) ==
+                    1
+                @test occursin("upload_coverage:", cov_after)
                 @test occursin("backends:", ad_after)
 
                 # Idempotent on the merged block.
@@ -3604,7 +3622,8 @@
                 _fake_pkg(dir; name = "Wombat")
                 @test _detect_license(dir) === nothing
             end
-            # The managed README badge is the source of truth ...
+            # The managed README badge carries the value when Project.toml
+            # declares nothing ...
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; license = "Apache-2.0", ad = false)
@@ -3623,6 +3642,268 @@
                     write(io, "license = \"Apache-2.0\"\n")
                 end
                 @test _detect_license(dir) == "Apache-2.0"
+            end
+        end
+
+        @testset "_detect_license recovers a supported GPL licence" begin
+            using EpiAwarePackageTools: _detect_license, _license_badge
+            # A GPL adopter (a port of GPL'd code, whose licence is inherited
+            # rather than the kit's to change) keeps its badge instead of
+            # having it reset to the default.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                readme = "# Wombat\n\n" *
+                    _license_badge("GPL-2.0-or-later") * "\n"
+                write(joinpath(dir, "README.md"), readme)
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-2.0-or-later\"\n")
+                end
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+        end
+
+        @testset "_detect_license canonicalises the spelling it finds" begin
+            using EpiAwarePackageTools: _detect_license
+            # SPDX identifiers are case-insensitive, so a declaration in
+            # another case is the same licence and resolves to the canonical
+            # spelling the badge and the bundled text are keyed on.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"gpl-2.0-OR-later\"\n")
+                end
+                @test _detect_license(dir) == "GPL-2.0-or-later"
+            end
+        end
+
+        @testset "_detect_license rejects an unsupported declaration" begin
+            using EpiAwarePackageTools: _detect_license
+            # A Project.toml licence the kit cannot badge stops the run,
+            # naming the file and the value, rather than being replaced by the
+            # default and published as a badge the package never chose.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-3.0-only\"\n")
+                end
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("Project.toml", err.msg)
+                @test occursin("GPL-3.0-only", err.msg)
+                @test occursin("not one of", err.msg)
+            end
+            # A string naming no licence at all cannot be resolved and cannot
+            # be read as the default either, so it is refused with a message
+            # saying what is wrong with it.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"see the LICENSE file\"\n")
+                end
+                err = try
+                    _detect_license(dir)
+                catch e
+                    e
+                end
+                @test err isa ErrorException
+                @test occursin("not an SPDX identifier", err.msg)
+                @test occursin("see the LICENSE file", err.msg)
+            end
+        end
+
+        @testset "_detect_license reads the field over the badge" begin
+            using EpiAwarePackageTools: _detect_license
+            # The badge is rendered from the resolved licence, so it cannot
+            # also decide it: the Project.toml field is what the package
+            # declares and wins wherever the two disagree.
+            for (badge, field) in
+                (("MIT", "Apache-2.0"), ("Apache-2.0", "MIT"))
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    write(joinpath(dir, "README.md"), _badge_readme(badge))
+                    open(joinpath(dir, "Project.toml"), "a") do io
+                        write(io, "license = \"$field\"\n")
+                    end
+                    @test _detect_license(dir) == field
+                end
+            end
+            # A supported badge does not rescue an unsupported field.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "README.md"), _badge_readme("MIT"))
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-3.0-only\"\n")
+                end
+                @test_throws ErrorException _detect_license(dir)
+            end
+        end
+
+        @testset "_detect_license ignores an unbadgeable badge" begin
+            using EpiAwarePackageTools: _detect_license
+            # The badge is kit output, so a label the kit cannot render is
+            # warned about and dropped, leaving the sync free to rewrite it.
+            # A package with a hand-edited badge can repair itself.
+            for label in ("GPL-3.0-only", "MIT License")
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    write(joinpath(dir, "README.md"), _badge_readme(label))
+                    detected = @test_logs(
+                        (:warn,), match_mode = :any, _detect_license(dir)
+                    )
+                    @test detected === nothing
+                end
+            end
+            # With a supported field to read, the bad badge is not consulted
+            # and nothing is warned about.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(
+                    joinpath(dir, "README.md"), _badge_readme("BSD-3-Clause")
+                )
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"MIT\"\n")
+                end
+                @test (@test_logs _detect_license(dir)) == "MIT"
+            end
+        end
+
+        @testset "_detect_license reads only a top-level license key" begin
+            using EpiAwarePackageTools: _detect_license, scaffold_inputs
+            # A `license` key under a table belongs to that table. Only the
+            # top-level key is the package's own declaration.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "\n[extras]\nlicense = \"GPL-3.0-only\"\n")
+                end
+                @test _detect_license(dir) === nothing
+                @test scaffold_inputs(dir).LICENSE == "MIT"
+            end
+        end
+
+        @testset "update stops on an unsupported declared licence" begin
+            # A bare resync of a package declaring a licence the kit cannot
+            # write stops rather than publishing a badge that contradicts the
+            # package's own LICENSE file.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; license = "Apache-2.0", ad = false)
+                _declare_license(dir, "GPL-3.0-only")
+                @test_throws ErrorException update(dir; ad = false)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: Apache-2.0", readme)
+                @test !occursin("License: MIT", readme)
+            end
+        end
+
+        @testset "update rewrites a badge naming another licence" begin
+            # The badge the sync would repair cannot be what blocks the sync,
+            # or a package carrying a hand-edited one has no way back.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false)
+                _declare_license(dir, "MIT")
+                readme_path = joinpath(dir, "README.md")
+                write(
+                    readme_path,
+                    replace(
+                        read(readme_path, String),
+                        "License: MIT" => "License: BSD-3-Clause",
+                        "License-MIT" => "License-BSD--3--Clause"
+                    )
+                )
+                update(dir; ad = false)
+                readme = read(readme_path, String)
+                @test occursin("License: MIT", readme)
+                @test !occursin("BSD-3-Clause", readme)
+            end
+        end
+
+        @testset "scaffold_inputs accepts only the supported licences" begin
+            using EpiAwarePackageTools: scaffold_inputs, SUPPORTED_LICENSES
+            # Named here rather than read from the constant, so dropping an
+            # entry from it fails this test instead of shrinking what the
+            # test checks.
+            supported = ("MIT", "Apache-2.0", "GPL-2.0-or-later")
+            @test Set(SUPPORTED_LICENSES) == Set(supported)
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                for good in supported
+                    @test scaffold_inputs(dir; license = good).LICENSE == good
+                    @test isfile(
+                        joinpath(_templates_dir(), "LICENSE.$good")
+                    )
+                end
+            end
+            # A committed licence file does not widen the set: an id the kit
+            # does not support is rejected whether or not the text is there.
+            for bad in ("", "GPL-3.0-only", "not a licence")
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "Wombat")
+                    @test_throws ErrorException scaffold_inputs(
+                        dir; license = bad
+                    )
+                    write(joinpath(dir, "LICENSE"), "licence text...\n")
+                    @test_throws ErrorException scaffold_inputs(
+                        dir; license = bad
+                    )
+                end
+            end
+        end
+
+        @testset "scaffold license = GPL-2.0-or-later writes GPL text" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                res = scaffold(dir; license = "GPL-2.0-or-later", ad = false)
+                @test res.license === :created
+                txt = read(joinpath(dir, "LICENSE"), String)
+                @test occursin("GNU GENERAL PUBLIC LICENSE", txt)
+                @test occursin("Version 2, June 1991", txt)
+                @test occursin("any later version", txt)
+                @test !occursin("{{", txt)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme)
+            end
+        end
+
+        @testset "a COPYING repo is not given a second licence file" begin
+            # `COPYING` is the GNU convention, so a GPL adopter's licence text
+            # is already there and the kit must leave it alone.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "COPYING"), "GPL licence text...\n")
+                res = scaffold(dir; license = "GPL-2.0-or-later", ad = false)
+                @test res.license === :preserved
+                @test !isfile(joinpath(dir, "LICENSE"))
+                @test read(joinpath(dir, "COPYING"), String) ==
+                    "GPL licence text...\n"
+            end
+        end
+
+        @testset "update keeps a GPL badge across a sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                write(joinpath(dir, "LICENSE"), "GPL licence text...\n")
+                open(joinpath(dir, "Project.toml"), "a") do io
+                    write(io, "license = \"GPL-2.0-or-later\"\n")
+                end
+                scaffold(dir; ad = false)
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme)
+                # A bare resync (as the scheduled template-sync runs, with no
+                # `license` kwarg) must not flip the badge to MIT.
+                update(dir; ad = false)
+                readme2 = read(joinpath(dir, "README.md"), String)
+                @test occursin("License: GPL-2.0-or-later", readme2)
+                @test !occursin("License: MIT", readme2)
             end
         end
 
@@ -3706,6 +3987,23 @@
                 @test !endswith(d, '/')
                 @test !occursin("//", d)
                 @test !isempty(d)
+            end
+        end
+
+        @testset "update drops the duplicate coverage caller" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # A fresh scaffold never writes the retired caller.
+                @test !isfile(_dest(dir, ".github/workflows/codecoverage.yaml"))
+                # An adopter scaffolded by an older kit still carries it; a
+                # sync must remove it rather than leave it running a second
+                # full test suite alongside `test.yaml`'s own upload.
+                stale = _dest(dir, ".github/workflows/codecoverage.yaml")
+                write(stale, "name: Code coverage\n")
+                res = update(dir)
+                @test !isfile(stale)
+                @test stale in res.removed
             end
         end
 
@@ -3840,6 +4138,32 @@
                 # the package-owned with:-block mechanism (#73).
                 update(dir)
                 @test occursin("timeout_minutes: 120", read(doc, String))
+            end
+        end
+
+        @testset "ad_timeout sets the per-backend AD job timeout" begin
+            using EpiAwarePackageTools: _ad_timeout_line
+            # No timeout -> no key, so the reusable's own cap applies.
+            @test _ad_timeout_line(nothing) == ""
+            @test occursin("timeout_minutes: 90", _ad_timeout_line(90))
+            @test_throws ErrorException _ad_timeout_line(0)
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = true)  # default: no explicit timeout
+                ad = _dest(dir, ".github/workflows/ad.yaml")
+                # The caller's header names the input; what must be absent
+                # is the key itself.
+                @test !occursin(r"^\s*timeout_minutes:"m, read(ad, String))
+                # Setting ad_timeout adds the key to the caller's existing
+                # `with:` block, alongside the managed `backends`.
+                scaffold(dir; force = true, ad = true, ad_timeout = 120)
+                txt = read(ad, String)
+                @test occursin("backends:", txt)
+                @test occursin("timeout_minutes: 120", txt)
+                # A bare resync (never re-passes ad_timeout) keeps it, by
+                # the package-owned with:-block mechanism.
+                update(dir)
+                @test occursin("timeout_minutes: 120", read(ad, String))
             end
         end
 
@@ -4065,20 +4389,23 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `ad` + `benchmarks` + `downgrade_compat` values and is
-                # fully substituted (fresh package keeps downgrade-compat).
+                # own `org` + `ad` + `benchmarks` + `downgrade_compat` values
+                # and is fully substituted (fresh package keeps
+                # downgrade-compat).
                 sync = read(
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String
                 )
                 @test occursin(
-                    "update(\".\"; ad = false, benchmarks = false, " *
+                    "update(\".\"; org = \"EpiAware\", ad = false, " *
+                        "benchmarks = false, " *
                         "downgrade_compat = true, " *
                         "unregistered_sources = false, " *
                         "freshen_reusable_refs = true)", sync
                 )
                 # The kit placeholders are resolved (GitHub Actions `${{ }}`
                 # expressions legitimately remain).
+                @test !occursin("{{ORG}}", sync)
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{BENCHMARKS}}", sync)
                 @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
@@ -4087,6 +4414,32 @@
                 res = update(dir; ad = false)
                 @test _dest(dir, ".github/workflows/template-sync.yaml") in
                     res.updated
+            end
+        end
+
+        @testset "a package outside EpiAware keeps its org on a sync" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; ad = false, org = "epiforecasts")
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("epiforecasts/Wombat.jl", readme)
+                @test !occursin("EpiAware/Wombat.jl", readme)
+                # A bare `update(".")` would leave `org` on the kit default
+                # and rewrite every repo URL back to EpiAware on each weekly
+                # run, so the sync states the owner it was scaffolded with.
+                sync = read(
+                    _dest(dir, ".github/workflows/template-sync.yaml"),
+                    String
+                )
+                @test occursin(
+                    "update(\".\"; org = \"epiforecasts\", ad = false,", sync
+                )
+                # The local re-apply the drift issue prints names it too, so
+                # following those steps does not revert the owner either.
+                @test occursin("update(\".\"; org = \"epiforecasts\",\n", sync)
+                # Running what the sync runs leaves the owner untouched.
+                update(dir; org = "epiforecasts", ad = false)
+                @test read(joinpath(dir, "README.md"), String) == readme
             end
         end
 
@@ -4175,7 +4528,8 @@
                 # bare `update(".")` defaults `ad` to true, so on an
                 # `ad = false` package the documented fix would seed AD infra
                 # the package does not want and leave it still drifted.
-                @test occursin("update(\".\"; ad = false,", sync)
+                @test occursin("update(\".\"; org = \"EpiAware\",", sync)
+                @test occursin("ad = false, benchmarks = false,", sync)
                 @test !occursin("update(\".\")'", sync)
                 # A clean run closes the issue again, so a stale tracker never
                 # outlives the drift it reported.
@@ -4879,47 +5233,26 @@ end # @testitem "scaffold + update (logic)"
     end
 
     @testset "seed-defaults are scoped to their caller, not the key name" begin
-        mktempdir() do dir
-            _fake_pkg(dir)
-            scaffold(dir)
-            # `codecoverage.yaml`'s coverage caller renders a `julia_version` of
-            # its own, and it is MANAGED — the kit moves the whole fleet's
-            # coverage job when it moves. It happens to share a name with the
-            # downgrade caller's seed-default key, so a seed-default set keyed on
-            # the bare name would quietly un-manage it: every adopter frozen at
-            # whatever they carry, and one able to sit on 1.10 — the very version
-            # this floor exists to keep them off — unwarned.
-            cov = _p(dir, ".github/workflows/codecoverage.yaml")
-            @test occursin("julia_version: '1'", read(cov, String))
-            write(
-                cov,
-                replace(
-                    read(cov, String),
-                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.10'"
-                )
-            )
-            res = update(dir)
-            after = read(cov, String)
-            # The kit reclaims its managed value ...
-            @test occursin("julia_version: '1'", after)
-            @test !occursin("julia_version: '1.10'", after)
-            # ... and the downgrade caller's same-named key is still the
-            # package's to override, in the same run.
-            caller = _p(dir, ".github/workflows/test.yaml")
-            write(
-                caller,
-                replace(
-                    read(caller, String),
-                    r"(?m)^      julia_version: .*$" => "      julia_version: '1.12'"
-                )
-            )
-            update(dir)
-            @test occursin(
-                "julia_version: '1.12'",
-                read(caller, String)
-            )
-            @test occursin("julia_version: '1'", read(cov, String))
-        end
+        using EpiAwarePackageTools: _merge_with_blocks
+        # Two different reusable callers can render a same-named key
+        # (`julia_version`): the kit's stake is only in `downgrade.yml`'s,
+        # which a package may point at a different release. Scoping
+        # seed-defaults to the workflow that renders the key, not the bare
+        # key name, keeps any other reusable rendering a `julia_version` of
+        # its own fully managed even though the name collides.
+        seed = "    with:\n      julia_version: '1'\n"
+        existing = "    with:\n      julia_version: '1.10'\n"
+        # `downgrade.yml` seeds this key: the destination's override wins.
+        @test occursin(
+            "julia_version: '1.10'",
+            _merge_with_blocks(seed, existing, "downgrade.yml")
+        )
+        # A different reusable rendering the same key name does not seed it:
+        # the kit reclaims its managed value even though the bare key
+        # matches.
+        other = _merge_with_blocks(seed, existing, "some-other-reusable.yml")
+        @test occursin("julia_version: '1'", other)
+        @test !occursin("julia_version: '1.10'", other)
     end
 
     @testset "the floor scan reads every workflow, not just test.yaml" begin
@@ -5144,7 +5477,8 @@ end
     using EpiAwarePackageTools
     using EpiAwarePackageTools: _undeclared_test_stdlibs, _used_module_names,
         _declared_deps, _julia_stdlibs,
-        _manifest_packages, update
+        _manifest_packages, update, _workspace_projects,
+        _workspace_manifest_path, _workspace_member
     _p(dir, rel) = joinpath(dir, split(rel, '/')...)
     # A minimal resolved test manifest naming `pkgs` — the availability oracle
     # the scan reads (a real Manifest lists the full transitive set). Only the
@@ -5297,6 +5631,142 @@ end
         end
     end
 
+    @testset "the workspace projects list is bounded by its table" begin
+        mktempdir() do dir
+            proj = joinpath(dir, "Project.toml")
+            write(
+                proj,
+                "name = \"Foo\"\n\n[workspace]\n" *
+                    "projects = [\"test\", \"docs\"]\n"
+            )
+            @test _workspace_projects(proj) == ["test", "docs"]
+            # A `projects` key belonging to a later table is not the
+            # workspace's, and an empty `[workspace]` declares no members.
+            write(
+                proj,
+                "name = \"Foo\"\n\n[workspace]\n\n[extras]\n" *
+                    "projects = [\"docs\"]\n"
+            )
+            @test _workspace_projects(proj) == String[]
+            write(proj, "name = \"Foo\"\n")
+            @test _workspace_projects(proj) == String[]
+            @test _workspace_projects(joinpath(dir, "none.toml")) == String[]
+        end
+    end
+
+    @testset "workspace members match the way Pkg matches" begin
+        # Pkg joins each `projects` entry to the workspace root and compares
+        # it with `samefile`, so every spelling of one directory is a member.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            mkpath(joinpath(dir, "docs"))
+            for entry in ("test", "./test", "test/", "./test/")
+                write(
+                    joinpath(dir, "Project.toml"),
+                    "name = \"Foo\"\n\n[workspace]\nprojects = [\"" *
+                        entry * "\"]\n"
+                )
+                @test _workspace_member(dir, "test")
+                @test !_workspace_member(dir, "docs")
+            end
+            # A listed directory that is not on disk answers no member, and
+            # so does a subdirectory the table never names.
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\n" *
+                    "projects = [\"bench\", \"docs\"]\n"
+            )
+            @test !_workspace_member(dir, "bench")
+            @test !_workspace_member(dir, "test")
+        end
+    end
+
+    @testset "the resolved manifest follows Pkg's workspace rule" begin
+        # A subdirectory listed in the root `[workspace] projects` shares the
+        # root resolve from 1.12. Both sides of that boundary are asked for
+        # by version, so one run pins the rule in either direction.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\nprojects = [\"test\"]\n"
+            )
+            @test _workspace_manifest_path(
+                dir, "test"; version = v"1.12.0"
+            ) == joinpath(dir, "Manifest.toml")
+            @test _workspace_manifest_path(
+                dir, "test"; version = v"1.11.6"
+            ) == _p(dir, "test/Manifest.toml")
+        end
+        # A subdirectory the workspace does not list keeps its own resolve.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            mkpath(joinpath(dir, "docs"))
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Foo\"\n\n[workspace]\nprojects = [\"docs\"]\n"
+            )
+            @test _workspace_manifest_path(
+                dir, "test"; version = v"1.12.0"
+            ) == _p(dir, "test/Manifest.toml")
+        end
+    end
+
+    @testset "workspace layout: the shared root manifest is the oracle" begin
+        # The managed shape lists `test` in the root `[workspace] projects`,
+        # so from 1.12 Pkg resolves it into the root Manifest.toml. Each case
+        # asks for both sides of that boundary in the same run.
+        _ws(dir) = write(
+            joinpath(dir, "Project.toml"),
+            "name = \"Foo\"\n\n[workspace]\n" *
+                "projects = [\"test\", \"docs\"]\n"
+        )
+        # A stdlib the root resolve does not carry is flagged.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            _ws(dir)
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir; version = v"1.12.0") ==
+                ["LinearAlgebra"]
+            # Below the boundary the absent `test/Manifest.toml` is the
+            # resolve, and no manifest means no verdict.
+            @test _undeclared_test_stdlibs(dir; version = v"1.11.6") ==
+                String[]
+        end
+        # One the root resolve does carry is not flagged, even with a
+        # `test/Manifest.toml` that lacks it sitting alongside.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            _ws(dir)
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["LinearAlgebra"]))
+            write(_p(dir, "test/Manifest.toml"), _manifest(["Test"]))
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir; version = v"1.12.0") ==
+                String[]
+            @test _undeclared_test_stdlibs(dir; version = v"1.11.6") ==
+                ["LinearAlgebra"]
+        end
+        # A `test/Manifest.toml` carrying the stdlib is not the resolve from
+        # 1.12, so the root's verdict stands and the stdlib stays flagged.
+        mktempdir() do dir
+            mkpath(joinpath(dir, "test"))
+            _ws(dir)
+            write(_p(dir, "test/Project.toml"), "[deps]\n")
+            write(joinpath(dir, "Manifest.toml"), _manifest(["Test"]))
+            write(
+                _p(dir, "test/Manifest.toml"), _manifest(["LinearAlgebra"])
+            )
+            write(_p(dir, "test/runtests.jl"), "using LinearAlgebra\n")
+            @test _undeclared_test_stdlibs(dir; version = v"1.12.0") ==
+                ["LinearAlgebra"]
+            @test _undeclared_test_stdlibs(dir; version = v"1.11.6") ==
+                String[]
+        end
+    end
+
     @testset "update warns on an adopter's undeclared stdlib" begin
         mktempdir() do dir
             write(
@@ -5312,9 +5782,16 @@ end
             @test !any(w -> occursin("#263", w), res.warnings)
             # A contributor adds `using LinearAlgebra` without declaring it, in
             # an instantiated env (manifest present) that does not resolve it.
+            # `scaffold` writes the `[workspace]` shape, so the resolve lands
+            # at the root from 1.12 and in `test/` before it; both are seeded
+            # so the warning is checked whichever one is read.
             write(
                 _p(dir, "test/renewal_tests.jl"),
                 "using LinearAlgebra: dot\n"
+            )
+            write(
+                joinpath(dir, "Manifest.toml"),
+                _manifest(["Test", "Aqua", "JET"])
             )
             write(
                 _p(dir, "test/Manifest.toml"),
@@ -5329,6 +5806,49 @@ end
                 "LinearAlgebra",
                 read(_p(dir, "test/Project.toml"), String)
             )
+        end
+    end
+
+    @testset "update reads the manifests under the layout they hold" begin
+        mktempdir() do dir
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"Wombat\"\n" *
+                    "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                    "authors = [\"Ada Lovelace\"]\n"
+            )
+            scaffold(dir)
+            proj = joinpath(dir, "Project.toml")
+            # An adopter without the `[workspace]` stanza: its test env
+            # resolved into `test/Manifest.toml`, and the root manifest holds
+            # only the package's own deps.
+            write(
+                proj,
+                replace(
+                    read(proj, String),
+                    r"(?ms)^\[workspace\]\n.*?(?=^\[|\z)" => ""
+                )
+            )
+            @test !occursin("[workspace]", read(proj, String))
+            write(
+                _p(dir, "test/renewal_tests.jl"),
+                "using LinearAlgebra: dot\n"
+            )
+            write(
+                _p(dir, "test/Manifest.toml"),
+                _manifest(["Test", "Aqua", "JET", "LinearAlgebra"])
+            )
+            write(
+                joinpath(dir, "Manifest.toml"),
+                _manifest(["Test", "Aqua", "JET"])
+            )
+            res = update(dir)
+            # LinearAlgebra is resolved in the env that is actually read, so
+            # nothing is flagged.
+            @test !any(w -> occursin("LinearAlgebra", w), res.warnings)
+            # The same call injects the stanza, so the next resolve moves to
+            # the root and a later sync judges against that.
+            @test occursin("[workspace]", read(proj, String))
         end
     end
 end
@@ -6318,4 +6838,34 @@ end
             @test isempty(calls)
         end
     end
+end
+
+# `update` reports a retired name found in a package's own prose, but it only
+# reads the package's files. A retired name in one of the kit's templates is
+# written into every adopter on each sync, and the adopter cannot correct it
+# because the next sync reverts the edit, so the templates are held to the
+# same standard here.
+@testitem "templates name no retired tool or path" begin
+    using Test
+    using EpiAwarePackageTools
+    using EpiAwarePackageTools: RETIRED_PATHS, RETIRED_PROSE,
+        _PROSE_OK_MARKER, _templates_dir
+
+    terms = vcat(RETIRED_PATHS, [e.term for e in RETIRED_PROSE])
+    root = _templates_dir()
+    hits = String[]
+    for (dir, _, names) in walkdir(root), name in names
+        path = joinpath(dir, name)
+        text = read(path, String)
+        # A template that names a retired tool to explain the retirement
+        # opts out the same way package-owned prose does.
+        (isvalid(text) && !occursin(_PROSE_OK_MARKER, text)) || continue
+        for term in terms
+            occursin(term, text) &&
+                push!(hits, string(relpath(path, root), ": ", term))
+        end
+    end
+    # Compared against the empty vector rather than asserted empty, so a
+    # failure names the file and the term.
+    @test sort(hits) == String[]
 end

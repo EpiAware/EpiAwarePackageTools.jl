@@ -4,6 +4,10 @@
 # committed infra has drifted from the kit, opens (or refreshes) a PR with
 # the refresh, so a repo never silently falls behind.
 #
+# The `update` call carries the arguments this package was scaffolded with,
+# including its org, so a sync re-applies the standard with the package's own
+# choices rather than the kit defaults.
+#
 # Refs only move forwards: `update` keeps whatever reusable-workflow SHA
 # Dependabot has pinned, so a sync never reverts a Dependabot bump, and
 # `freshen_reusable_refs` (below) advances a pin that has fallen behind the
@@ -93,7 +97,7 @@ jobs:
               using Pkg
               {{SYNC_INSTALL}}
               using EpiAwarePackageTools
-              res = EpiAwarePackageTools.update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}}, unregistered_sources = {{UNREGISTERED_SOURCES}}, freshen_reusable_refs = true)
+              res = EpiAwarePackageTools.update("."; org = "{{ORG}}", ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}}, unregistered_sources = {{UNREGISTERED_SOURCES}}, freshen_reusable_refs = true)
               println("re-applied ", length(res.updated), " managed files")
               # Gaps a sync cannot close itself: write-once seeds it cannot
               # extend, and package-owned prose describing a retired standard.
@@ -135,7 +139,7 @@ jobs:
             ci
           body: |
             Automated re-apply of the managed EpiAwarePackageTools standard
-            (`update("."; ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}}, unregistered_sources = {{UNREGISTERED_SOURCES}}, freshen_reusable_refs = true)`).
+            (`update("."; org = "{{ORG}}", ad = {{AD}}, benchmarks = {{BENCHMARKS}}, downgrade_compat = {{DOWNGRADE_COMPAT}}, unregistered_sources = {{UNREGISTERED_SOURCES}}, freshen_reusable_refs = true)`).
 
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,
@@ -200,8 +204,8 @@ jobs:
              the result:
 
                  julia -e 'using EpiAwarePackageTools;
-                 EpiAwarePackageTools.update("."; ad = {{AD}},
-                 benchmarks = {{BENCHMARKS}},
+                 EpiAwarePackageTools.update("."; org = "{{ORG}}",
+                 ad = {{AD}}, benchmarks = {{BENCHMARKS}},
                  downgrade_compat = {{DOWNGRADE_COMPAT}},
                  unregistered_sources = {{UNREGISTERED_SOURCES}})'
 

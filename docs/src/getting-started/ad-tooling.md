@@ -227,6 +227,25 @@ workflows, so the README carries a single AD status badge for the whole matrix.
 The per-backend detail lives in the coverage-flag table below that badge, where
 each backend has its own coverage badge.
 
+### Giving a slow backend more time
+
+Each backend job runs under the reusable workflow's own timeout.
+A package whose slowest backend approaches that cap can raise it with the
+`ad_timeout` input, in minutes.
+
+```julia
+using EpiAwarePackageTools
+update("."; ad_timeout = 120)
+```
+
+The value is written as `timeout_minutes` in the caller's `with:` block and
+kept by later syncs that do not re-pass it, so the input only has to be given
+once.
+Leaving `ad_timeout` unset passes no `timeout_minutes` at all, which is what
+every package that fits inside the reusable's default should do.
+Raising the cap only stops a job being killed part way; it is worth checking
+first whether the leg is genuinely slow or is hanging.
+
 ## Running AD tests locally
 
 The scaffolded `Taskfile.yml` wraps the AD runs.

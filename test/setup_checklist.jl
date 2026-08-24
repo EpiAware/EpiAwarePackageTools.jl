@@ -75,6 +75,24 @@
         end
     end
 
+    @testset "prints for a repo the kit cannot licence" begin
+        # The checklist is a diagnostic and needs no licence, so a repo
+        # declaring one the kit cannot write still gets its steps printed.
+        mktempdir() do dir
+            write(
+                joinpath(dir, "Project.toml"),
+                "name = \"FakePkg\"\n" *
+                    "uuid = \"00000000-0000-0000-0000-000000000000\"\n" *
+                    "license = \"GPL-3.0-only\"\n"
+            )
+            buf = IOBuffer()
+            @test setup_checklist(dir; io = buf) === nothing
+            text = String(take!(buf))
+            @test occursin("EpiAware/FakePkg.jl", text)
+            @test occursin("Manual setup for FakePkg", text)
+        end
+    end
+
     @testset "default target_dir/io do not throw" begin
         # Smoke test: the zero-argument call used from a package root prints
         # to stdout without erroring, whatever the current directory is.
