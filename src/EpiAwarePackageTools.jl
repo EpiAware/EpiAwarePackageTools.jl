@@ -82,11 +82,6 @@ import UUIDs
 # the `[extensions]` table's values are strings or arrays of strings (see
 # `_package_extensions`). Pkg is already a hard dependency of the kit.
 import Pkg
-# `Test` (the module) is needed for the test-runner machinery in
-# `run_tests.jl` (`Test.push_testset`/`get_testset`/`record`/`finish`); the
-# selective `using Test: ...` above only pulls in the assertion macros.
-import Test
-
 # Resolve a heavy dependency at call time via `Base.require`, rather than
 # making it a hard dependency: a package only needs it in the environment
 # that actually runs the check (e.g. JET only in the test env). Shared by
