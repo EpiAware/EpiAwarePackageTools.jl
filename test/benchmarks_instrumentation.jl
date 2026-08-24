@@ -7,11 +7,9 @@
 
 @testitem "benchmark workflows measure uninstrumented" begin
     using Test
-    using EpiAwarePackageTools
+    using EpiAwarePackageTools: _templates_dir
 
-    workflows = joinpath(
-        pkgdir(EpiAwarePackageTools), "templates", ".github", "workflows"
-    )
+    workflows = joinpath(_templates_dir(), ".github", "workflows")
     template(name) = read(joinpath(workflows, name), String)
 
     # The managed workflows that run a benchmark suite and publish what it
@@ -21,7 +19,7 @@
     @testset "$name runs no instrumented step" for name in measuring
         body = template(name)
         @test !occursin("--code-coverage", body)
-        @test !occursin("Pkg.test(coverage", body)
+        @test !occursin(r"Pkg\.test\([^)]*coverage", body)
     end
 
     @testset "$name uploads no coverage" for name in measuring
