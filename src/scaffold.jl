@@ -90,10 +90,6 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/pre-commit.yaml", true, true
     ),
     Template(
-        ".github/workflows/codecoverage.yaml",
-        ".github/workflows/codecoverage.yaml", true, true
-    ),
-    Template(
         ".github/workflows/docpreviewcleanup.yaml",
         ".github/workflows/docpreviewcleanup.yaml", true, true
     ),
@@ -396,6 +392,11 @@ const RETIRED_PATHS = String[
     # content on any package whose docs build does not clean `docs/src` first.
     "docs/src/getting-started/tutorials/ad-backends.jl",
     "docs/src/getting-started/tutorials/ad-backends.md",
+    # The separate coverage caller duplicated a whole second run of the test
+    # suite to collect coverage that `tests.yml`'s own ubuntu leg now
+    # collects and uploads via its `upload_coverage` input. Retired rather
+    # than left behind running an unnecessary suite alongside it.
+    ".github/workflows/codecoverage.yaml",
 ]
 
 # --- stale package-owned prose (#328) ---------------------------------------
@@ -711,11 +712,9 @@ end
 # here, so refresh both together.
 const _REUSABLE_SEED_REFS = Dict{String, String}(
     "ad.yml" =>
-        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
+        "00d30434df0edff7bbcc0b488d505a0a9ac1c36b",  # pragma: allowlist secret
     "cancel-on-close.yml" =>
         "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret
-    "coverage.yml" =>
-        "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "docs-preview-cleanup.yml" =>
         "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "documentation.yml" =>
@@ -738,7 +737,7 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
     "tagbot.yml" =>
         "9692b37b9127099d9c1a51db5034a084edaeb56e",  # pragma: allowlist secret
     "tests.yml" =>
-        "155fc902a533f8dc33b9928322f5d46add789f75",  # pragma: allowlist secret
+        "491d0d9979bb59b0f82fc508ca55fb31698eb840",  # pragma: allowlist secret
 )
 
 # The seed ref for `workflow`, erroring rather than inventing one: a caller
@@ -785,8 +784,43 @@ const KIT_COMPAT = "0.3, 0.4"
 
 # The SPDX licence identifiers a package may select, each backed by a bundled
 # `templates/LICENSE.<spdx>` file carrying `{{YEAR}}`/`{{HOLDER}}` placeholders.
-const SUPPORTED_LICENSES = ("MIT", "Apache-2.0")
+# An explicit set, not any SPDX identifier: adding one is a decision about what
+# the ecosystem carries, and comes with the text to write.
+const SUPPORTED_LICENSES = ("MIT", "Apache-2.0", "GPL-2.0-or-later")
 const DEFAULT_LICENSE = "MIT"
+
+# The names a committed licence file conventionally takes, `COPYING` being the
+# GNU convention. A repo carrying any of them already has its licence text.
+const LICENSE_FILENAMES = (
+    "LICENSE", "LICENSE.md", "LICENSE.txt",
+    "LICENCE", "LICENCE.md", "LICENCE.txt",
+    "COPYING", "COPYING.md", "COPYING.txt",
+)
+
+# The committed licence file, or `nothing` when the repo carries none.
+function _license_file(target_dir::AbstractString)
+    for name in LICENSE_FILENAMES
+        path = joinpath(target_dir, name)
+        isfile(path) && return path
+    end
+    return nothing
+end
+
+# The `SUPPORTED_LICENSES` entry `id` names, in its canonical spelling, or
+# `nothing` when it names none. SPDX identifiers are case-insensitive, so a
+# badge or `Project.toml` field spelling one differently still resolves.
+function _supported_license(id::AbstractString)
+    wanted = lowercase(strip(id))
+    idx = findfirst(l -> lowercase(l) == wanted, SUPPORTED_LICENSES)
+    return idx === nothing ? nothing : SUPPORTED_LICENSES[idx]
+end
+
+# Whether `id` is shaped like an SPDX identifier: an alphanumeric start, then
+# alphanumerics separated by `.`, `-` or `+`. A shape check only, separating a
+# licence the kit does not carry from a string naming no licence at all.
+function _is_spdx_id(id::AbstractString)
+    return occursin(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$", strip(id))
+end
 
 # Reject an unsupported `license` eagerly, naming the value and the valid set,
 # rather than letting it propagate into a substitution that fails later with no
@@ -808,11 +842,14 @@ function _templates_dir()
     return joinpath(dir, "templates")
 end
 
-# Read a scalar `key = "..."` from a Project.toml line; `nothing` if absent.
+# Read a top-level scalar `key = "..."` from a Project.toml; `nothing` if
+# absent. Scanning stops at the first table header, so a key of the same name
+# under `[extras]` or `[compat]` is not read as the package's own.
 function _project_string(proj::AbstractString, key::AbstractString)
     isfile(proj) || return nothing
     pat = Regex("^\\s*" * key * "\\s*=\\s*\"([^\"]+)\"")
     for line in eachline(proj)
+        occursin(r"^\s*\[", line) && break
         m = match(pat, line)
         m === nothing || return m.captures[1]
     end
@@ -1003,37 +1040,81 @@ function _detect_doi(target_dir::AbstractString)
     return (String(something(m.captures[2])), String(something(m.captures[1])))
 end
 
+# The label of the managed README License badge, or `nothing` when the README
+# carries none.
+function _badge_license(target_dir::AbstractString)
+    readme = joinpath(target_dir, "README.md")
+    isfile(readme) || return nothing
+    m = match(
+        r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
+        read(readme, String)
+    )
+    m === nothing && return nothing
+    return String(strip(String(something(m.captures[1]))))
+end
+
 """
     _detect_license(target_dir)
 
-Recover an already-scaffolded repo's licence so a resync (`update`
-with no `license` kwarg) keeps it instead of resetting the README badge to
-`$(repr(DEFAULT_LICENSE))` (#235).
+The SPDX licence identifier `target_dir` declares, in the canonical spelling
+of its `SUPPORTED_LICENSES` entry, or `nothing` when it declares none.
 
-The README badge cell is managed, but `license` defaults to
-`$(repr(DEFAULT_LICENSE))` and the scheduled template-sync never re-passes it,
-so a non-MIT adopter's badge was flipped to MIT on every sync — the same
-failure mode `_detect_doi` fixed for the DOI badge (#161). The value is read
-back from the destination: first the managed License badge, then the
-`Project.toml` `license` field. Returns the SPDX id, or `nothing` when neither
-carries one. Only a `SUPPORTED_LICENSES` id is recovered; an explicit
-`license` keyword still wins.
+The scheduled sync runs [`update`](@ref) with no `license` keyword, so the
+value has to be read back from the destination or the managed README badge
+would be rewritten to `$(repr(DEFAULT_LICENSE))` on every run. Matching is
+case-insensitive, so a differently-spelled declaration still resolves.
+
+The declaration is the top-level `Project.toml` `license` field. A value
+outside `SUPPORTED_LICENSES` throws, since the badge is rendered from it and
+the default would publish a licence claim the package never made. Pass
+`license` explicitly to relabel a package on purpose.
+
+With no field to read, the managed README badge supplies the value. The badge
+is kit output rather than a declaration, so a label naming no supported
+licence is warned about and ignored, leaving the sync free to rewrite it.
 """
 function _detect_license(target_dir::AbstractString)
-    readme = joinpath(target_dir, "README.md")
-    if isfile(readme)
-        m = match(
-            r"\[!\[License: ([^\]]+)\]\(https://img\.shields\.io/badge/",
-            read(readme, String)
-        )
-        if m !== nothing
-            spdx = String(something(m.captures[1]))
-            spdx in SUPPORTED_LICENSES && return spdx
-        end
-    end
     proj = _project_string(joinpath(target_dir, "Project.toml"), "license")
-    proj !== nothing && proj in SUPPORTED_LICENSES && return proj
+    if proj !== nothing
+        declared = String(strip(proj))
+        spdx = _supported_license(declared)
+        spdx === nothing || return spdx
+        supported = join(repr.(SUPPORTED_LICENSES), ", ")
+        detail = _is_spdx_id(declared) ?
+            "which is not one of $supported. Add it to SUPPORTED_LICENSES " *
+            "with a bundled licence text" :
+            "which is not an SPDX identifier. Correct it to one of $supported"
+        error(
+            "Project.toml declares license $(repr(declared)), $detail, or " *
+                "pass `license` explicitly to relabel the package."
+        )
+    end
+    badge = _badge_license(target_dir)
+    badge === nothing && return nothing
+    spdx = _supported_license(badge)
+    spdx === nothing || return spdx
+    @warn(
+        "README License badge names an unsupported licence and is " *
+            "ignored. Set the Project.toml `license` field or pass " *
+            "`license` to keep it.",
+        badge
+    )
     return nothing
+end
+
+# The package name and `org/repo` slug for `target_dir`, each `nothing` when
+# it is neither passed nor readable from `Project.toml`.
+function _package_and_repo(
+        target_dir::AbstractString,
+        package::Union{Nothing, AbstractString},
+        repo::Union{Nothing, AbstractString},
+        org::AbstractString
+    )
+    pkg = package === nothing ?
+        _project_string(joinpath(target_dir, "Project.toml"), "name") : package
+    rp = repo === nothing ?
+        (pkg === nothing ? nothing : string(org, "/", pkg, ".jl")) : repo
+    return (pkg, rp)
 end
 
 """
@@ -1053,7 +1134,9 @@ into a template:
     `name`. The package UUID (`{{UUID}}`) is read from `Project.toml` `uuid`.
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
-  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`.
+  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Pass the
+    owning org for a package hosted elsewhere; the managed `template-sync.yaml`
+    carries it into the scheduled [`update`](@ref) so it survives a resync.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1063,12 +1146,14 @@ into a template:
     (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
     so a bare org is never hardcoded.
   - `year` — copyright year (`{{YEAR}}`); default the current year.
-  - `license` — the SPDX licence identifier (one of
-    `$(join(SUPPORTED_LICENSES, ", "))`) selecting which `LICENSE` text
-    [`scaffold`](@ref) writes and which README badge is rendered. Default
-    `nothing`, in which case the licence already committed to the repo is
-    recovered and kept (`#235`), falling back to `$(repr(DEFAULT_LICENSE))`.
-    The `LICENSE` text itself is written once and never overwritten by
+  - `license` — the SPDX licence identifier selecting which README badge is
+    rendered and which bundled text a new `LICENSE` gets. One of
+    `$(join(SUPPORTED_LICENSES, ", "))`. Default `nothing`, in which case the
+    licence the repo declares is recovered and kept, falling back to
+    `$(repr(DEFAULT_LICENSE))` when it declares none. A `Project.toml`
+    `license` field outside the supported set is an error rather than a
+    relabelling, so a sync cannot badge a package with a licence it did not
+    choose. The `LICENSE` text itself is written once and never overwritten by
     [`update`](@ref).
   - `doi` / `zenodo_badge` — an optional Zenodo DOI and badge id; when both are
     given a DOI badge is added to the README "License & DOI" cell. Both default
@@ -1079,6 +1164,13 @@ into a template:
     block so the reusable's own default (45 min) applies. A package-owned
     `with:` block hand-added to `document.yaml` survives a resync (see
     `_preserve_caller_with_inputs`).
+  - `ad_timeout` — an optional per-backend job timeout in minutes for the
+    managed `ad.yaml` caller. Default `nothing`, which passes no
+    `timeout_minutes` so the reusable's own cap applies. Set it when a
+    package's slowest AD backend runs close to that cap. The value written
+    into the caller's `with:` block survives a later resync that does not
+    re-pass it (see `_preserve_caller_with_inputs`). The reusable ref the
+    caller is pinned to must declare a `timeout_minutes` input.
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
 resolved SPDX identifier).
@@ -1096,22 +1188,21 @@ function scaffold_inputs(
         docs_subdomain::Union{Nothing, Bool, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
-        docs_timeout::Union{Nothing, Integer} = nothing
+        docs_timeout::Union{Nothing, Integer} = nothing,
+        ad_timeout::Union{Nothing, Integer} = nothing
     )
-    # Recover the committed licence so a bare sync keeps a non-MIT adopter's
-    # badge instead of resetting it to the default (#235).
+    # Keep whatever licence the repo declares, so a bare sync cannot reset a
+    # non-MIT adopter's badge to the default.
     license = license === nothing ?
         something(_detect_license(target_dir), DEFAULT_LICENSE) : license
     _validate_license(license)
     proj = joinpath(target_dir, "Project.toml")
-    pkg = package === nothing ? _project_string(proj, "name") : package
+    pkg, rp = _package_and_repo(target_dir, package, repo, org)
     auth_vec = _project_authors(proj)
     auth = authors === nothing ?
         (isempty(auth_vec) ? nothing : join(_author_name.(auth_vec), ", ")) :
         authors
     hold = holder === nothing ? auth : holder
-    rp = repo === nothing ?
-        (pkg === nothing ? nothing : string(org, "/", pkg, ".jl")) : repo
     # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
     # `reviewers`, the version bump's assignee and the Claude bot's actor gate.
     # It must be a username or `org/team` slug: GitHub cannot assign a bare
@@ -1213,6 +1304,7 @@ function scaffold_inputs(
         REVIEWER = rev, YEAR = string(yr), LICENSE = license,
         DOCS_DEPLOY_URL = docs_deploy_url, DOCS_URL = docs_url,
         DOCS_TIMEOUT_WITH = _docs_timeout_with(docs_timeout),
+        AD_TIMEOUT_LINE = _ad_timeout_line(ad_timeout),
         DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
         AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir),
@@ -1637,9 +1729,9 @@ end
 # `_julia_versions_below_floor` warns when such a package's override reaches
 # back below the floor.
 #
-# Scoped to the reusable that renders the key, not global by name:
-# `codecoverage.yaml`'s caller renders a `julia_version` of its own which IS
-# managed, and a bare-name set would un-manage that too.
+# Scoped to the reusable that renders the key, not global by name: another
+# caller rendering a same-named key stays fully managed, since a bare-name
+# set would un-manage that too.
 const _WITH_SEED_DEFAULT_KEYS = Dict(
     "tests.yml" => Set(["julia_versions"]),
     "downgrade.yml" => Set(["julia_version"])
@@ -1861,12 +1953,15 @@ end
 # once with `{{YEAR}}`/`{{HOLDER}}` filled. `update` never touches it, so a
 # package that deliberately switches licence is not reverted on a sync.
 
-# Write the selected LICENSE to `target_dir` if absent (write-once). `inputs`
-# supplies `LICENSE` (the SPDX id) plus the `{{YEAR}}`/`{{HOLDER}}` values.
+# Write the selected LICENSE to `target_dir` if the repo carries no licence
+# file yet (write-once). Any of `LICENSE_FILENAMES` counts, so a repo
+# following the GNU `COPYING` convention keeps the one it has rather than
+# gaining a second. `inputs` supplies `LICENSE` (the SPDX id) plus the
+# `{{YEAR}}`/`{{HOLDER}}` values.
 # Returns `:created`, `:preserved` (already present), or `:skipped`.
 function _apply_license(target_dir::AbstractString, inputs::NamedTuple)
+    _license_file(target_dir) === nothing || return :preserved
     dest = joinpath(target_dir, "LICENSE")
-    isfile(dest) && return :preserved
     spdx::String = String(inputs.LICENSE)::String
     from = joinpath(_templates_dir(), string("LICENSE.", spdx))
     isfile(from) || error("missing bundled LICENSE template for $spdx at $from")
@@ -3029,6 +3124,20 @@ function _docs_timeout_with(docs_timeout::Union{Nothing, Integer})
             repr(docs_timeout)
     )
     return string("    with:\n      timeout_minutes: ", docs_timeout, "\n")
+end
+
+# The optional `timeout_minutes:` input on the managed `ad.yaml` caller. Empty
+# by default, so the reusable applies its own cap. Unlike `document.yaml` the
+# AD caller always renders a `with:` block for `backends`, so this is the key
+# line alone rather than the block. A package can equally hand-add the key,
+# which `_preserve_caller_with_inputs` keeps across `update()`.
+function _ad_timeout_line(ad_timeout::Union{Nothing, Integer})
+    ad_timeout === nothing && return ""
+    ad_timeout > 0 || error(
+        "ad_timeout must be a positive integer (minutes), got " *
+            repr(ad_timeout)
+    )
+    return string("      timeout_minutes: ", ad_timeout, "\n")
 end
 
 # A license-badge cell for an SPDX identifier (label, shields colour, and the
@@ -4256,8 +4365,29 @@ function _apply(
     # LICENSE is package-owned and write-once: `update` never touches it, so a
     # deliberate licence stands.
     license_action = managed_only ? :skipped : _apply_license(target_dir, inputs)
+    # A Julia stdlib is not implicitly available in a test environment: it
+    # needs declaring as a dep, or reaching transitively. A `using <stdlib>`
+    # added without one makes the whole env fail to resolve with an opaque
+    # error, invisible until CI reds (#263). test/Project.toml is
+    # package-owned, so a warning naming the exact stdlib is the durable fix.
+    stdlibs = _undeclared_test_stdlibs(target_dir)
+    isempty(stdlibs) || push!(
+        warnings,
+        string(
+            "test/ uses the standard librar",
+            length(stdlibs) == 1 ? "y " : "ies ", join(stdlibs, ", "),
+            " but ", length(stdlibs) == 1 ? "it is" : "they are",
+            " declared in neither test/Project.toml nor Project.toml. A Julia ",
+            "stdlib must be an explicit dep to load in the test environment, ",
+            "so the whole env fails to resolve on every platform with an ",
+            "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
+            " to test/Project.toml `[deps]` (#263)."
+        )
+    )
     # Injected into the package-owned root Project.toml when absent, on both
-    # scaffold and update, and preserved thereafter.
+    # scaffold and update, and preserved thereafter. Any manifest on disk was
+    # resolved under the layout the root Project.toml declared before this
+    # call, so the stdlib scan above reads it under that same layout.
     workspace_action = _apply_workspace(target_dir)
     # A package's `[compat] julia` is package-owned, and the managed standard
     # no longer needs 1.11 of its own accord (#410) — so this fires only for a
@@ -4288,8 +4418,8 @@ function _apply(
     # A package may pick its own Julia matrix (#73) and the kit does not
     # overwrite it, but under `unregistered_sources` a leg below the floor
     # ignores the pins the package depends on. Scanned across every managed
-    # caller, not just `test.yaml`: `codecoverage.yaml` names a version of its
-    # own.
+    # caller, not just `test.yaml`, so a future workflow naming its own
+    # version stays covered too.
     wf_dir = joinpath(target_dir, ".github", "workflows")
     if unregistered_sources && isdir(wf_dir)
         for f in sort(readdir(wf_dir))
@@ -4316,25 +4446,6 @@ function _apply(
         push!(warnings, kit_pin)
         @warn kit_pin
     end
-    # A Julia stdlib is not implicitly available in a test environment: it
-    # needs declaring as a dep, or reaching transitively. A `using <stdlib>`
-    # added without one makes the whole env fail to resolve with an opaque
-    # error, invisible until CI reds (#263). test/Project.toml is
-    # package-owned, so a warning naming the exact stdlib is the durable fix.
-    stdlibs = _undeclared_test_stdlibs(target_dir)
-    isempty(stdlibs) || push!(
-        warnings,
-        string(
-            "test/ uses the standard librar",
-            length(stdlibs) == 1 ? "y " : "ies ", join(stdlibs, ", "),
-            " but ", length(stdlibs) == 1 ? "it is" : "they are",
-            " declared in neither test/Project.toml nor Project.toml. A Julia ",
-            "stdlib must be an explicit dep to load in the test environment, ",
-            "so the whole env fails to resolve on every platform with an ",
-            "opaque error. Add ", length(stdlibs) == 1 ? "it" : "them",
-            " to test/Project.toml `[deps]` (#263)."
-        )
-    )
     # An existing `ad = true` adopter's package-owned `docs/docs_config.jl`
     # may predate the `ad-comparison.jl` split (#299/#305): `update` cannot
     # add the missing HEAVY_BENCHMARKS/BENCHMARK_STUBS registration itself,
@@ -4483,22 +4594,91 @@ function _manifest_packages(path::AbstractString)
     return names
 end
 
+# The `projects = [...]` array from a root Project.toml's `[workspace]`
+# table, or an empty vector when there is no such table (or no file). The
+# table body is sliced out at the next header first, so a `projects` key
+# belonging to a later table is not read as the workspace's.
+function _workspace_projects(proj::AbstractString)
+    isfile(proj) || return String[]
+    text = read(proj, String)
+    tbl = match(r"(?ms)^\[workspace\][^\n]*\n(.*?)(?=^\[|\z)", text)
+    tbl === nothing && return String[]
+    body = something(tbl.captures[1], "")
+    m = match(r"(?ms)^projects\s*=\s*\[(.*?)\]", body)
+    m === nothing && return String[]
+    return [
+        String(something(x.captures[1], ""))
+            for x in eachmatch(r"\"([^\"]*)\"", something(m.captures[1], ""))
+    ]
+end
+
+# The first Julia version whose code loading reads `[workspace]`.
+const _WORKSPACE_JULIA = v"1.12"
+
+# Whether `<target_dir>/<subdir>` is a member of the root `[workspace]`.
+# Pkg joins each `projects` entry to the workspace root and compares it with
+# `samefile`, so `"test"`, `"./test"` and `"test/"` all name one member, and a
+# listed directory absent from disk names none.
+function _workspace_member(
+        target_dir::AbstractString, subdir::AbstractString
+    )
+    dir = joinpath(target_dir, subdir)
+    isdir(dir) || return false
+    proj = joinpath(target_dir, "Project.toml")
+    for entry in _workspace_projects(proj)
+        path = joinpath(target_dir, entry)
+        isdir(path) && samefile(path, dir) && return true
+    end
+    return false
+end
+
+"""
+    _workspace_manifest_path(target_dir, subdir; version = VERSION)
+
+The Manifest.toml path Pkg resolves for the `<subdir>/Project.toml`
+environment, whether or not that file exists. `version` is the Julia version
+the answer is wanted for.
+
+From Julia 1.12 a subdirectory named in the root `Project.toml`'s
+`[workspace] projects` shares the root resolve, so the root `Manifest.toml`
+is where Pkg writes and reads that environment's dependencies and
+`<subdir>/Manifest.toml` plays no part in it. Base's code loading falls back
+to `<subdir>/Manifest.toml` only when the root `Manifest.toml` is absent, so
+the shared root manifest is the oracle wherever one exists. This is the
+managed shape `_apply_workspace` writes, sharing one resolve across `test`
+and `docs`. Earlier Julia versions have no `[workspace]` support and always
+read `<subdir>/Manifest.toml`.
+"""
+function _workspace_manifest_path(
+        target_dir::AbstractString, subdir::AbstractString;
+        version::VersionNumber = VERSION
+    )
+    if version >= _WORKSPACE_JULIA && _workspace_member(target_dir, subdir)
+        return joinpath(target_dir, "Manifest.toml")
+    end
+    return joinpath(target_dir, subdir, "Manifest.toml")
+end
+
 # Standard libraries `using`d in a package's committed test sources but not
 # available in the resolved test environment. Sorted; empty when test/ is
 # absent. Drives the #263 scaffold/sync warning.
 #
-# Availability is judged against the resolved test/Manifest.toml, not the
-# `[deps]` lines alone: a stdlib pulled in transitively (e.g. LinearAlgebra via
-# Aqua/JET) is genuinely loadable and must not be flagged. A Manifest is
-# gitignored, so it exists only in an instantiated env, which is where the
-# warning is actionable anyway. Without one, no warning: a missed hint in a
-# bare CI checkout buys zero false positives.
-function _undeclared_test_stdlibs(target_dir::AbstractString)
+# Availability is judged against the resolved manifest, not the `[deps]` lines
+# alone: a stdlib pulled in transitively (e.g. LinearAlgebra via Aqua/JET) is
+# genuinely loadable and must not be flagged. A Manifest is gitignored, so it
+# exists only in an instantiated env. Without one, no warning: a missed hint
+# in a bare CI checkout buys zero false positives.
+function _undeclared_test_stdlibs(
+        target_dir::AbstractString; version::VersionNumber = VERSION
+    )
     test_dir = joinpath(target_dir, "test")
     isdir(test_dir) || return String[]
     stdlibs = _julia_stdlibs()
     isempty(stdlibs) && return String[]
-    available = _manifest_packages(joinpath(test_dir, "Manifest.toml"))
+    manifest = _workspace_manifest_path(
+        target_dir, "test"; version = version
+    )
+    available = _manifest_packages(manifest)
     isempty(available) && return String[]
     # `[deps]` names too, so a declared-but-not-yet-resolved dep is not flagged.
     available = union(
@@ -4557,11 +4737,13 @@ defaults from the target `Project.toml` or a sensible org default and is
 overridable by keyword (e.g. `scaffold(dir; org = "MyOrg")`). No person, org, or
 repo name is hardcoded in any template.
 
-`LICENSE` is package-owned and write-once: the `license` keyword (an SPDX id,
-one of `$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
+`LICENSE` is package-owned and write-once: the `license` keyword (one of
+`$(join(SUPPORTED_LICENSES, ", "))`, default `$(repr(DEFAULT_LICENSE))`)
 selects the bundled licence text, written with `{{YEAR}}`/`{{HOLDER}}` filled
-only when no `LICENSE` exists. [`update`](@ref) never rewrites it, so a package
-that deliberately changes its licence is not reverted on a sync.
+only when the repo carries no licence file yet under any of its conventional
+names (`LICENSE`, `LICENCE`, `COPYING`, with or without a `.md`/`.txt`
+suffix). [`update`](@ref) never rewrites it, so a package that deliberately
+changes its licence is not reverted on a sync.
 
 The managed `.github/workflows/Register.yml` triggers General Registry
 registration from a `/register` comment or a `workflow_dispatch` run, gated on
@@ -4750,7 +4932,11 @@ the one exception: it is seeded when absent, because the managed "How to cite"
 section links to it on every sync and an adopter predating citation seeding
 would otherwise carry a link `update` could never make resolve (#322).
 Placeholder inputs resolve exactly as in [`scaffold`](@ref); pass the same
-overrides to keep substitution stable across a sync.
+overrides to keep substitution stable across a sync. `org` is the one that
+cannot be left to its default by a package hosted elsewhere, so the managed
+`template-sync.yaml` writes the scaffolded value into its own `update` call
+and the scheduled sync re-passes it. Scaffold a package outside the EpiAware
+org with `org = "<owner>"` and every later sync keeps that owner.
 
 `ad` must match the value the package was scaffolded with (default `true`).
 `benchmarks`, `downgrade_compat` and `unregistered_sources` all default to

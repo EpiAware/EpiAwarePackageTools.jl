@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    uses: {{ORG}}/.github/.github/workflows/tests.yml@155fc902a533f8dc33b9928322f5d46add789f75
+    uses: {{ORG}}/.github/.github/workflows/tests.yml@491d0d9979bb59b0f82fc508ca55fb31698eb840
     with:
       # The matrix this package tests on. Seeded, not managed: name your own
       # value here and a resync keeps it (#73, #117). The lts leg runs
@@ -24,4 +24,11 @@ jobs:
       # jobs on the current release. A package pinning an unregistered
       # dependency by git [sources] is seeded without lts instead (#410).
       julia_versions: {{JULIA_TEST_VERSIONS}}
+      # Collect coverage on the ubuntu leg that already runs the whole
+      # suite and upload it, rather than running a second full suite just
+      # for coverage. The reusable's `fail_ci_if_error` defaults to true,
+      # so a repo with no CODECOV_TOKEN still goes red rather than green
+      # with silently missing coverage; that is org policy and is left at
+      # the default rather than restated here.
+      upload_coverage: true
     secrets: inherit  # pragma: allowlist secret{{DOWNGRADE_COMPAT_JOB}}

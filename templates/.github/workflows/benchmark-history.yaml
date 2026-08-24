@@ -7,6 +7,11 @@ name: Benchmark history
 # and on tags, benchmarking the last few tagged releases plus HEAD so a
 # timeline accumulates. Triggers are disjoint from `benchmark.yaml`, so the
 # two never run on the same event.
+#
+# Every Julia process here runs uninstrumented. Code-coverage counters
+# slow the code they instrument, so a job that publishes timings
+# collects no coverage and calls no action that adds a coverage flag of
+# its own.
 on:
 {{BENCHMARK_HISTORY_TRIGGERS}}
 
