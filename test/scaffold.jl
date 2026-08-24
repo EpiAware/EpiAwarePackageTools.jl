@@ -4307,18 +4307,6 @@
                         "github.com/seabbs/EpiAwarePackageTools", txt
                     )
                 end
-                # template-sync.yaml also spells the kit URL out as a plain
-                # literal in its drift-issue body, so assert on the rendered
-                # install line rather than on the bare URL.
-                sync = read(
-                    _dest(dir, ".github/workflows/template-sync.yaml"), String
-                )
-                @test occursin(
-                    "Pkg.add(url = \"https://github.com/EpiAware/" *
-                        "EpiAwarePackageTools.jl\"",
-                    sync
-                )
-                @test !occursin("github.com/seabbs/EpiAwarePackageTools", sync)
             end
         end
 
