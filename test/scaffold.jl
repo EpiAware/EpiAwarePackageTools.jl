@@ -1385,7 +1385,7 @@
                 for f in (
                         ".github/workflows/test.yaml",
                         ".github/workflows/document.yaml",
-                        ".github/workflows/codecoverage.yaml",
+                        ".github/workflows/release-nudge.yaml",
                     )
                     txt = read(_dest(dir, f), String)
                     @test occursin("EpiAware/.github/.github/workflows/", txt)
