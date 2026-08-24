@@ -20,6 +20,14 @@
 # TestItemRunner is a test-environment dep of adopting packages, not a hard
 # dep of the kit, so it is loaded lazily and every call goes through
 # `Base.invokelatest` (see `_require_pkg`).
+#
+# The internals reached for here are not TestItemRunner's API. v1.2 moved
+# test-module creation out of `run_testitem` into its caller and v1.3 renamed
+# `testset` to `default_testset`, so the transcription only holds for v1.1.
+# The kit's own `test/Project.toml` and the scaffolded `templates/test/`
+# projects therefore bound `TestItemRunner` to `"1.1"`, and `test/run_tests.jl`
+# asserts both internals still exist. Re-transcribe and widen the bound
+# together, never one without the other.
 
 const _TESTITEMRUNNER_UUID = "f8b46487-2199-4994-9208-9a1283c18c0a"
 

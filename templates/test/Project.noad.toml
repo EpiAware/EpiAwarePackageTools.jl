@@ -29,7 +29,7 @@ JET = "0.9, 0.10"
 Pkg = "1"
 Runic = "1"
 Test = "1"
-TestItemRunner = "1"
+TestItemRunner = "1.1"
 TestItems = "1"
 
 [sources]

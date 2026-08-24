@@ -139,3 +139,21 @@
         end
     end
 end
+
+@testitem "run_package_tests: the vendored TestItemRunner internals still exist" begin
+    using Test
+    using TestItemRunner: TestItemRunner
+
+    # `run_package_tests` is a transcription of `TestItemRunner.run_tests`
+    # (v1.1.x) and reaches straight into that package's internals. Those are
+    # not API, so a TestItemRunner minor bump can rename or re-sign them and
+    # the managed test entry dies at load with an `UndefVarError` rather than
+    # a resolver error. This pins the contract: if either assertion fails,
+    # re-transcribe `src/run_tests.jl` and widen the `TestItemRunner` compat
+    # bound in `test/Project.toml` and the `templates/test/` projects together.
+    @test isdefined(TestItemRunner, :testset)
+
+    # v1.2 moved test-module creation out to the caller, adding a leading
+    # `mod` argument. The transcription still passes the 9-argument form.
+    @test hasmethod(TestItemRunner.run_testitem, NTuple{9, Any})
+end
