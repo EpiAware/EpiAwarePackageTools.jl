@@ -712,13 +712,13 @@ end
 # here, so refresh both together.
 const _REUSABLE_SEED_REFS = Dict{String, String}(
     "ad.yml" =>
-        "00d30434df0edff7bbcc0b488d505a0a9ac1c36b",  # pragma: allowlist secret
+        "d1950ad06b0ff31caa18f8b5550f12ac9aeda2a1",  # pragma: allowlist secret
     "cancel-on-close.yml" =>
         "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret
     "docs-preview-cleanup.yml" =>
         "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "documentation.yml" =>
-        "a039a6060ed897a8dc4fc724ccb3c9fca2c49a2f",  # pragma: allowlist secret
+        "5a39aa9a129edc837ecd5c59f29885fe4c7da464",  # pragma: allowlist secret
     "downgrade.yml" =>
         "6b91a6c050b9c8483f522e2b246a5f6ef517cda0",  # pragma: allowlist secret
     # `downstream.yaml` tracked `@main` from its first commit, alone among the
@@ -731,7 +731,7 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
     "registrability.yml" =>
         "24c8d984a679b1d46c1c04afc9ea5cdecaa1730d",  # pragma: allowlist secret
     "release-nudge.yml" =>
-        "a4e9e60c0ace848d21b6cf931d6a66414fc3bdd5",  # pragma: allowlist secret
+        "df21fa61dc0f7b0ac9d811f336a1f87512e7aaba",  # pragma: allowlist secret
     "runic-check.yml" =>
         "0cd39d03a53c2561d36256f5cbbd4fd5ce31355b",  # pragma: allowlist secret
     "tagbot.yml" =>

@@ -33,5 +33,5 @@ permissions:
 
 jobs:
   release-nudge:
-    uses: {{ORG}}/.github/.github/workflows/release-nudge.yml@a4e9e60c0ace848d21b6cf931d6a66414fc3bdd5
+    uses: {{ORG}}/.github/.github/workflows/release-nudge.yml@df21fa61dc0f7b0ac9d811f336a1f87512e7aaba
     secrets: inherit  # pragma: allowlist secret

@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   ad:
-    uses: {{ORG}}/.github/.github/workflows/ad.yml@00d30434df0edff7bbcc0b488d505a0a9ac1c36b
+    uses: {{ORG}}/.github/.github/workflows/ad.yml@d1950ad06b0ff31caa18f8b5550f12ac9aeda2a1
     with:
       backends: '{{AD_BACKENDS_JSON}}'
 {{AD_TIMEOUT_LINE}}    secrets: inherit  # pragma: allowlist secret
