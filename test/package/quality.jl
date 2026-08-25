@@ -39,8 +39,8 @@ end
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
     # `readme` is a newer `QA_CONFIG` field; an adopter predating it has none.
-    # Default to the repo-root README with standard sections (#163) rather
-    # than erroring; warn so a typoed key doesn't silently revert (#188).
+    # Default to the repo-root README with standard sections rather
+    # than erroring; warn so a typoed key doesn't silently revert.
     cfg = if hasproperty(QA_CONFIG, :readme)
         QA_CONFIG.readme
     else
@@ -67,7 +67,7 @@ end
     # `formatter_env` is a newer `QA_CONFIG` field; an adopter predating it
     # has none. Fall back to the in-process check, which floats with the
     # shared test environment's resolved Runic, rather than erroring; warn
-    # so a typoed key doesn't silently revert (#188, #321).
+    # so a typoed key doesn't silently revert.
     env = if hasproperty(QA_CONFIG, :formatter_env)
         QA_CONFIG.formatter_env
     else

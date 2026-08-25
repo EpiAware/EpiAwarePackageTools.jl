@@ -30,8 +30,8 @@ updates:
   - package-ecosystem: "julia"
     directory: "/"
     schedule:
-      # Daily, as above. This ecosystem's refresh costs the most CI
-      # (the full test matrix reruns), so a package that would rather trade
+      # Daily, as above. This ecosystem's refresh costs the most CI (the
+      # full test matrix reruns), so a package that would rather trade
       # latency for runner time can set this back to `weekly` — the grouping
       # below is what actually matters.
       interval: "daily"
