@@ -180,10 +180,11 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/actions/increment-version/action.yaml", true, true
     ),
     # Closes an auto-increment PR, and deletes its branch, once the
-    # package version on main reaches or passes what the PR proposes.
+    # package version on main reaches or passes what the PR proposes. A
+    # thin caller of the org reusable, which owns the reaping rules.
     Template(
         ".github/workflows/version-pr-reaper.yaml",
-        ".github/workflows/version-pr-reaper.yaml", true, false
+        ".github/workflows/version-pr-reaper.yaml", true, true
     ),
 
     # NOTE: the org-level community health files are not scaffolded. GitHub
@@ -744,6 +745,8 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
         "9692b37b9127099d9c1a51db5034a084edaeb56e",  # pragma: allowlist secret
     "tests.yml" =>
         "491d0d9979bb59b0f82fc508ca55fb31698eb840",  # pragma: allowlist secret
+    "version-pr-reaper.yml" =>
+        "a6d230a9b2338d2802d8876f9e8b5377489dcdb6",  # pragma: allowlist secret
 )
 
 # The seed ref for `workflow`, erroring rather than inventing one: a caller
