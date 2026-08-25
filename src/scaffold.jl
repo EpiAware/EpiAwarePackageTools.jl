@@ -4464,9 +4464,9 @@ function _apply(
         )
     )
     # CITATION.cff is package-owned and write-once, so a package's real
-    # citation metadata is preserved. Unlike LICENSE, `update` seeds it too
-    #: the managed "How to cite" section links to it on every sync, so
-    # an adopter predating citation seeding would otherwise carry a dangling
+    # citation metadata is preserved. Unlike LICENSE, `update` seeds it too:
+    # the managed "How to cite" section links to it on every sync, so an
+    # adopter predating citation seeding would otherwise carry a dangling
     # link no `update` could ever resolve.
     citation_action = _apply_citation_cff(target_dir, inputs)
     # The per-extension docs pages are package-owned and write-once. Unlike
@@ -5092,7 +5092,7 @@ The README badge block, the managed `.gitignore` block, the
 logo title are all refreshed as in [`scaffold`](@ref), without the
 package-owned parts of those files being touched.
 
-Every managed file written from a template has a package-owned opt-out (#224):
+Every managed file written from a template has a package-owned opt-out:
 `$(_MANAGED_OVERRIDE_MARKER)` in a comment tells `update()` to preserve it
 (reporting it in `preserved`) instead of resyncing. Remove the marker to hand
 management back. Use it sparingly — an overridden file no longer tracks the
@@ -5107,16 +5107,15 @@ standard, which is the point of the kit. Three deliberate limits:
     (`docs/package.json`, `.secrets.baseline`) cannot carry it. The match is
     case-sensitive.
 
-The AD-harness driver `test/ad/setup.jl` is where this began (#162) and still
-honours its original marker `$(_AD_SETUP_OWNED_MARKER)` as well; either
-preserves it. A committed driver that has diverged but carries no marker is
-still overwritten, with a message in `warnings`, rather than clobbered
-silently. That warning is scoped to this one file, whose clobber is silently
+The AD-harness driver `test/ad/setup.jl` also honours
+`$(_AD_SETUP_OWNED_MARKER)`; either marker preserves it. A committed driver
+that has diverged but carries no marker is still overwritten, with a message
+in `warnings`, rather than clobbered silently. That warning is scoped to this one file, whose clobber is silently
 fatal: divergence is the normal state of a managed file on an adopter running
 an older kit, so a generic check would fire on every sync and mean nothing.
 
 Managed files the kit has retired (`RETIRED_PATHS`) are deleted, so a sync
-converges on the current standard instead of leaving dead infra behind (#185).
+converges on the current standard instead of leaving dead infra behind.
 
 `docs/pages.jl` is regenerated here too, in full, from the same managed base
 plus the package's `docs/docs_config.jl` extension points as `scaffold`, so
