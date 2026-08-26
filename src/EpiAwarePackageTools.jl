@@ -26,8 +26,8 @@ Two groups are provided.
     package's reverse/forward AD backends against a ForwardDiff reference. It
     works on any registry satisfying the [`ADRegistry`](@ref) contract, and
     [`ad_backend_support_table`](@ref) renders that registry's broken/skip
-    declarations as the support table the scaffolded AD-backends docs page
-    shows. [`run_selected`](@ref) runs a named subset of scenarios against a
+    declarations as a support table for a package that wants one in its own
+    docs. [`run_selected`](@ref) runs a named subset of scenarios against a
     named subset of backends for fast diagnosis, and backs the scaffolded
     `test/ad/run_selected.jl` driver.
 

@@ -178,10 +178,11 @@ One row per `backends(reg)` entry, with the scenario coverage count
 (`supported/total`) and the sorted names from the optional bookkeeping
 accessors (`broken_scenario_names`, `backend_broken_scenarios`,
 `backend_skip_scenarios`; a missing accessor means none — see
-[`ADRegistry`](@ref)). The scaffolded AD-backends docs page calls this at
-docs-build time, so a package's broken-scenario declarations live only in
-its registry and the published support table can never drift from what the
-gradient tests actually mark broken.
+[`ADRegistry`](@ref)). Call it from a package's own docs page to publish the
+table: reading the registry at docs-build time keeps the broken-scenario
+declarations in one place, so the published table cannot drift from what the
+gradient tests mark broken. No managed page calls it — the kit reports
+per-backend coverage in the README badge row instead.
 
 `scenario_kwargs` is forwarded to the registry's `scenarios` call, as in
 [`test_working_backend`](@ref).

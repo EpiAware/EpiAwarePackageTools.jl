@@ -5,9 +5,9 @@
 # (`docs/make.jl` calls `using EpiAwarePackageTools`), bounded in
 # `[compat]` like any other registered dep.
 #
-# With `ad = true`, also carries what the AD-backends tutorial page
-# executes against: the `ADFixtures` registry (path-pinned) plus the
-# benchmark and plotting stack. With `benchmarks = true`, also carries
+# With `ad = true`, also carries what the AD-comparison page executes
+# against: the `ADFixtures` registry (path-pinned) plus the benchmark and
+# plotting stack. With `benchmarks = true`, also carries
 # `Plots` for the benchmark page's trend plot (lazily loaded; absent here,
 # the plot degrades to an `@info` note rather than failing the build).
 [deps]
