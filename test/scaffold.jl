@@ -2315,6 +2315,39 @@
             end
         end
 
+        @testset "every dep the AD docs env seeds is loaded by the page" begin
+            # A dep seeded for a page the kit has since retired is not inert:
+            # `_ad_docs_deps_gap` requires back every name this fragment
+            # declares, so a leftover makes the sync tell adopters to add
+            # something no managed page loads. Hold the fragment to the page
+            # it exists for.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "SeededDeps")
+                scaffold(dir)
+                page = read(
+                    _dest(dir, "docs/src/benchmarks/ad-comparison.jl"), String
+                )
+                loaded = Set{String}()
+                for line in eachline(IOBuffer(page))
+                    m = match(
+                        r"^\s*(?:using|import)\s+([A-Za-z][A-Za-z0-9_]*)",
+                        line
+                    )
+                    m === nothing ||
+                        push!(loaded, String(something(m.captures[1])))
+                end
+                seeded = EpiAwarePackageTools._declared_dep_names(
+                    EpiAwarePackageTools._ad_docs_deps(
+                        true, "00000000-0000-0000-0000-000000000000"
+                    )
+                )
+                @test !isempty(seeded)
+                for dep in seeded
+                    @test dep in loaded
+                end
+            end
+        end
+
         @testset "update warns when a bespoke pages.jl lacks Benchmarks nav entries (#305)" begin
             # `docs/pages.jl` is now MANAGED: `update` regenerates a fresh
             # `BENCHMARKS_NAV` in full on every sync, so this gap only survives
