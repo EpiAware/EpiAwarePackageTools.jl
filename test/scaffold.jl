@@ -4170,11 +4170,11 @@
                 end
             end
             @test !isempty(seen)
-            # The opt-in downgrade-compat job is rendered, not templated, and
-            # is seeded from the same table.
+            # The downgrade-compat job is rendered, not templated, and is
+            # seeded from the same table.
             @test occursin(
                 "downgrade.yml@" * _seed_ref("downgrade.yml"),
-                _downgrade_compat_job(true)
+                _downgrade_compat_job()
             )
             # No stale entry: every seed recorded is one a caller wraps.
             @test issetequal(
@@ -4271,47 +4271,52 @@
             end
         end
 
-        @testset "downgrade-compat job opt-out survives sync (#121)" begin
-            using EpiAwarePackageTools: _detect_downgrade_compat
-            # Default: a fresh scaffold keeps the downgrade-compat job.
+        @testset "the downgrade-compat job is unconditional" begin
+            # A fresh scaffold carries the job, and it floors the test
+            # environment as well as the root project.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; ad = false)
                 tf = _dest(dir, ".github/workflows/test.yaml")
-                @test occursin("downgrade-compat:", read(tf, String))
-                @test occursin("downgrade.yml", read(tf, String))
-                @test _detect_downgrade_compat(dir)
+                txt = read(tf, String)
+                @test occursin("downgrade-compat:", txt)
+                @test occursin("downgrade.yml", txt)
+                @test occursin("projects: '., test'", txt)
                 # Exactly one trailing newline (pre-commit end-of-file-fixer).
-                @test endswith(read(tf, String), "secret\n")
-                @test !endswith(read(tf, String), "\n\n")
+                @test endswith(txt, "secret\n")
+                @test !endswith(txt, "\n\n")
             end
-            # Opt out: the job is not emitted, and a resync (no kwarg) keeps it
-            # out instead of unconditionally reintroducing a permanently-red job.
+            # The retired opt-out. `downgrade_compat = false` is accepted so an
+            # adopter's committed `template-sync.yaml` still passing it keeps
+            # running, but it decides nothing: the job is emitted regardless,
+            # and the loss of the opt-out is said out loud.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; ad = false, downgrade_compat = false)
+                @test_logs (
+                    :warn, r"downgrade_compat = false.*ignored"is,
+                ) match_mode = :any begin
+                    scaffold(dir; ad = false, downgrade_compat = false)
+                end
                 tf = _dest(dir, ".github/workflows/test.yaml")
                 txt = read(tf, String)
-                @test !occursin("downgrade-compat:", txt)
-                @test !occursin("downgrade.yml", txt)
-                # The test job itself is still present and well-formed.
+                @test occursin("downgrade-compat:", txt)
+                @test occursin("projects: '., test'", txt)
                 @test occursin("tests.yml", txt)
                 @test endswith(txt, "secret\n")
                 @test !endswith(txt, "\n\n")
-                @test !_detect_downgrade_compat(dir)
-                # The common maintenance call: no downgrade_compat kwarg.
+                # A resync with no kwarg keeps it, and is idempotent.
                 update(dir; ad = false)
-                @test !occursin("downgrade-compat:", read(tf, String))
-                # Idempotent.
                 after = read(tf, String)
+                @test occursin("downgrade-compat:", after)
                 update(dir; ad = false)
                 @test read(tf, String) == after
-                # The sync workflow bakes the opt-out into its own update call.
+                # The sync workflow no longer bakes a flag that decides
+                # nothing into its own `update` call.
                 sync = read(
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String
                 )
-                @test occursin("downgrade_compat = false", sync)
+                @test !occursin("downgrade_compat", sync)
             end
         end
 
@@ -4320,7 +4325,7 @@
             # caller job at a repo-local copy of the reusable workflow (so
             # it can pass an input the shared reusable does not expose,
             # e.g. `downgrade-compat` → `./.github/workflows/downgrade.yaml`
-            # with `projects: '., test'`). `_CALLER_JOB` keys only the
+            # with an extra `mode:`). `_CALLER_JOB` keys only the
             # org's shared-reusable shape, so `_preserve_caller_with_inputs`
             # cannot see the job and the next resync silently reverts it,
             # dropping the input with no trace in the sync output. Option 2
@@ -4340,27 +4345,23 @@
                 localised = replace(
                     before,
                     r"uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+" => "uses: ./.github/workflows/downgrade.yaml",
-                    r"(?m)^(      )julia_version: '1'$" => s"\1projects: '., test'"
+                    r"(?m)^(      )julia_version: '1'$" =>
+                        s"\1julia_version: '1'\n\1mode: 'alldeps'"
                 )
                 @test occursin(
                     "uses: ./.github/workflows/downgrade.yaml", localised
                 )
-                @test occursin("projects: '., test'", localised)
+                @test occursin("mode: 'alldeps'", localised)
                 write(caller, localised)
-                # `downgrade_compat = true` explicitly, matching what the
-                # scheduled `template-sync.yaml` actually bakes in and
-                # calls (see the "scheduled sync is managed" testset
-                # below) — the real regression's trigger, rather than
-                # `_detect_downgrade_compat`'s own `occursin("downgrade.yml",
-                # ...)` heuristic, which a `downgrade.yaml`-named local
-                # file (deliberately not `.yml`, to prove path/extension
-                # do not matter to this warning) does not satisfy.
+                # The local file is named `downgrade.yaml`, deliberately
+                # not `.yml`, to prove path and extension do not matter to
+                # this warning.
                 local res
                 @test_logs (
                     :warn,
                     r"downgrade-compat.*local reusable workflow"is,
                 ) match_mode = :any begin
-                    res = scaffold_update(dir; ad = false, downgrade_compat = true)
+                    res = scaffold_update(dir; ad = false)
                 end
                 # The loss is now visible ...
                 @test !isempty(res.warnings)
@@ -4375,7 +4376,7 @@
                     "uses: EpiAware/.github/.github/workflows/downgrade.yml",
                     after
                 )
-                @test !occursin("projects:", after)
+                @test !occursin("mode:", after)
                 @test caller in res.updated
             end
             # A local caller with no `with:` block (nothing package-owned
@@ -4387,7 +4388,7 @@
                 before = read(caller, String)
                 localised = replace(
                     before,
-                    r"(?m)^  downgrade-compat:\n    uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+\n    with:\n      julia_version: '1'\n    secrets: inherit  # pragma: allowlist secret$" => "  downgrade-compat:\n    uses: ./.github/workflows/downgrade.yaml\n    secrets: inherit  # pragma: allowlist secret"
+                    r"(?m)^  downgrade-compat:\n    uses: EpiAware/\.github/\.github/workflows/downgrade\.yml@\S+\n    with:\n      julia_version: '1'\n      projects: '\., test'\n    secrets: inherit  # pragma: allowlist secret$" => "  downgrade-compat:\n    uses: ./.github/workflows/downgrade.yaml\n    secrets: inherit  # pragma: allowlist secret"
                 )
                 @test occursin(
                     "uses: ./.github/workflows/downgrade.yaml", localised
@@ -4453,9 +4454,9 @@
                     @test !ispath(joinpath(dir, f))
                 end
                 # The sync workflow re-applies the standard with the package's
-                # own `org` + `ad` + `benchmarks` + `downgrade_compat` values
-                # and is fully substituted (fresh package keeps
-                # downgrade-compat).
+                # own `org` + `ad` + `benchmarks` values and is fully
+                # substituted. The downgrade-compat job takes no flag: it is
+                # part of the standard for every managed package.
                 sync = read(
                     _dest(dir, ".github/workflows/template-sync.yaml"),
                     String
@@ -4463,7 +4464,6 @@
                 @test occursin(
                     "update(\".\"; org = \"EpiAware\", ad = false, " *
                         "benchmarks = false, " *
-                        "downgrade_compat = true, " *
                         "unregistered_sources = false, " *
                         "freshen_reusable_refs = true)", sync
                 )
@@ -4472,7 +4472,7 @@
                 @test !occursin("{{ORG}}", sync)
                 @test !occursin("{{AD}}", sync)
                 @test !occursin("{{BENCHMARKS}}", sync)
-                @test !occursin("{{DOWNGRADE_COMPAT}}", sync)
+                @test !occursin("downgrade_compat", sync)
                 @test !occursin("{{SYNC_INSTALL}}", sync)
                 # It is managed: an update re-applies it.
                 res = update(dir; ad = false)
@@ -5280,7 +5280,7 @@ end # @testitem "scaffold + update (logic)"
     @testset "the downgrade caller is pinned above the floor" begin
         mktempdir() do dir
             _fake_pkg(dir)
-            scaffold(dir; downgrade_compat = true)
+            scaffold(dir)
             wf = read(_p(dir, ".github/workflows/test.yaml"), String)
             @test occursin("downgrade-compat:", wf)
             # downgrade.yml's own default is '1.10', which the managed test env
@@ -5306,10 +5306,11 @@ end # @testitem "scaffold + update (logic)"
                 # the matrix a lie. The bound reaches back to 0.9 in both the
                 # AD and no-AD variants, which had drifted apart.
                 #
-                # This costs the downgrade job nothing: `julia-downgrade-compat`
-                # resolves `projects: '.'` — the root Project.toml — so the
-                # test environment's bounds are never floor-resolved.
-                @test occursin(r"JET = \"0\.9,", compat)
+                # The downgrade job resolves this bound too:
+                # `julia-downgrade-compat` is given `projects: '., test'`, so
+                # the test environment's floors are pinned exactly and have to
+                # load on the version that job runs.
+                @test occursin("JET = \"0.9, 0.10\"", compat)
             end
         end
     end

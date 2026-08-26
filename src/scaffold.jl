@@ -735,8 +735,11 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
         "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "documentation.yml" =>
         "a039a6060ed897a8dc4fc724ccb3c9fca2c49a2f",  # pragma: allowlist secret
+    # Contains the `projects` input the rendered caller passes (EpiAware/.github
+    # #66). An older ref does not define the key and the call fails before a
+    # step runs.
     "downgrade.yml" =>
-        "6b91a6c050b9c8483f522e2b246a5f6ef517cda0",  # pragma: allowlist secret
+        "cc63ecb3cfa4bb1c8c40a5decf5e339e729c5f30",  # pragma: allowlist secret
     # `downstream.yaml` tracked `@main` from its first commit, alone among the
     # callers and with nothing recording why (#425). Pinned here for the same
     # reason as the rest: a floating ref means an org-side edit reaches every
@@ -4028,25 +4031,6 @@ function _detect_benchmarks(target_dir::AbstractString)
         isfile(joinpath(wf, "benchmark-history.yaml"))
 end
 
-"""
-    _detect_downgrade_compat(target_dir)
-
-Whether a repo keeps the opt-in `downgrade-compat` CI job, so a resync
-(`update` with no `downgrade_compat` kwarg) does not reintroduce a job the
-package deliberately removed (#121).
-
-A package pinned to a Julia floor, or one adopting an unregistered
-`[sources]`-pinned dependency, can never resolve `julia-downgrade-compat`, so
-it disables the job in its `test.yaml`; regenerating it on every sync would
-reintroduce a permanently-red job. The committed `downgrade.yml` caller is the
-marker. A target with no `test.yaml` defaults to keeping the job.
-"""
-function _detect_downgrade_compat(target_dir::AbstractString)
-    tf = joinpath(target_dir, ".github", "workflows", "test.yaml")
-    isfile(tf) || return true
-    return occursin("downgrade.yml", read(tf, String))
-end
-
 # The managed AD-harness driver (`test/ad/setup.jl`) and the opt-out marker a
 # package writes into its own copy to keep a package-owned driver (#162).
 const _AD_SETUP_DEST = "test/ad/setup.jl"
@@ -4117,14 +4101,40 @@ function _detect_managed_override(
     return dest == _AD_SETUP_DEST && _detect_ad_setup_owned(target_dir)
 end
 
-# The opt-in `downgrade-compat` caller job spliced into `test.yaml` after the
-# `test` job's `secrets:` line (#121), empty when a package opts out. Carries
-# no trailing newline of its own — the template file keeps the single one the
-# pre-commit end-of-file-fixer requires. Built with the seed ref, which
-# `_preserve_reusable_refs` overwrites with the destination's
+# The environments the `downgrade-compat` job floors, as the comma-separated
+# `projects` input `downgrade.yml` takes.
+#
+# `julia-downgrade-compat` rewrites the `[compat]` table of each project it is
+# named and of no others. The root project alone therefore leaves the test
+# environment's own bounds — the QA helpers, Aqua, JET, the AD stack — free to
+# resolve at their newest admissible version, so the suite the job runs is
+# never itself floor-resolved. Naming `test` is what makes the job check the
+# environment it runs in.
+#
+# A `[workspace]` does not change that. Its members share one manifest, so a
+# member sees the root's floored versions, but a member's own `[compat]`
+# entries are untouched by naming `.`. The kit is the worked example: its root
+# declares stdlibs and DocStringExtensions, and every bound the suite depends
+# on lives in `test/Project.toml`.
+#
+# Fixed rather than derived from the target. `test/Project.toml` is part of the
+# standard, seeded by the same `_apply` pass that renders this job, so a check
+# for the file on disk reads the state before the seed and would emit `.` for
+# every fresh scaffold.
+#
+# `docs` is left out deliberately. The job runs the test suite, so a docs-only
+# bound has no bearing on what it checks, and flooring one would only add red
+# from an environment the job never loads.
+const _DOWNGRADE_COMPAT_PROJECTS = "'., test'"
+
+# The `downgrade-compat` caller job spliced into `test.yaml` after the `test`
+# job's `secrets:` line. Emitted for every managed package: floor-resolving the
+# bounds a package declares is part of the standard rather than a per-package
+# choice. Carries no trailing newline of its own — the template file keeps the
+# single one the pre-commit end-of-file-fixer requires. Built with the seed
+# ref, which `_preserve_reusable_refs` overwrites with the destination's
 # Dependabot-bumped ref on every `update`.
-function _downgrade_compat_job(keep::Bool)
-    keep || return ""
+function _downgrade_compat_job()
     return string(
         "\n\n  downgrade-compat:\n",
         "    uses: ", WORKFLOWS_ORG,
@@ -4134,6 +4144,7 @@ function _downgrade_compat_job(keep::Bool)
         # The reusable defaults to '1.10'; see `_JULIA_DOWNGRADE_VERSION` for
         # why this job runs on the current release instead (#246, #115).
         "      julia_version: ", _JULIA_DOWNGRADE_VERSION, "\n",
+        "      projects: ", _DOWNGRADE_COMPAT_PROJECTS, "\n",
         "    secrets: inherit  # pragma: allowlist secret"
     )
 end
@@ -4275,18 +4286,17 @@ end
 
 """
     _apply(target_dir; managed_only, force, ad, benchmarks,
-        downgrade_compat, unregistered_sources, inputs,
-        freshen_reusable_refs, ref_source)
+        unregistered_sources, inputs, freshen_reusable_refs, ref_source)
 
 Shared worker for `scaffold`/`update`.
 
 `managed_only` restricts to managed templates (the `update` path). `force`
 overwrites package-owned files too (only meaningful for `scaffold`). `ad`
 selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
-benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
-`downgrade-compat` CI job; `unregistered_sources` declares that the package
+benchmark CI/suite/docs page; `unregistered_sources` declares that the package
 pins an unregistered dependency by git `[sources]`, which holds it to the Julia
-1.11 floor. `freshen_reusable_refs` opts into moving each managed caller's
+1.11 floor. The `downgrade-compat` CI job is unconditional and takes no flag.
+`freshen_reusable_refs` opts into moving each managed caller's
 reusable-workflow ref forwards (see `_RefFreshener`), with `ref_source` the
 injection point tests stub.
 
@@ -4297,7 +4307,7 @@ diverged-but-unmarked `test/ad/setup.jl` about to be overwritten.
 """
 function _apply(
         target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool, downgrade_compat::Bool,
+        ad::Bool, benchmarks::Bool,
         unregistered_sources::Bool, inputs::NamedTuple,
         freshen_reusable_refs::Bool = false, ref_source = nothing
     )
@@ -4310,10 +4320,10 @@ function _apply(
     # `force` reset the flag underneath.
     org_branding = (force && !managed_only) ? false :
         _detect_org_branding(target_dir)
-    # The AD/benchmarks/downgrade-compat flags are exposed as substitution
-    # values so the scheduled template-sync re-applies the standard with the
-    # same choices the package adopted. `BENCHMARKS_NAV` is the top-level
-    # "Benchmarks" group, present when either `benchmarks` or `ad` is on.
+    # The AD/benchmarks flags are exposed as substitution values so the
+    # scheduled template-sync re-applies the standard with the same choices the
+    # package adopted. `BENCHMARKS_NAV` is the top-level "Benchmarks" group,
+    # present when either `benchmarks` or `ad` is on.
     bench_nav = _benchmarks_nav(benchmarks, ad)
     # The `benchmark-history.yaml` `on:` triggers preserve a package's parked
     # state across a resync (#153), detected from the committed workflow.
@@ -4322,12 +4332,11 @@ function _apply(
         (
             AD = string(ad), BENCHMARKS = string(benchmarks),
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
-            DOWNGRADE_COMPAT = string(downgrade_compat),
             UNREGISTERED_SOURCES = string(unregistered_sources),
             # `scaffold_inputs` seeds the full matrix; only here is it known
             # whether this package's `[sources]` pins hold it above lts (#410).
             JULIA_TEST_VERSIONS = _julia_test_versions(unregistered_sources),
-            DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(downgrade_compat),
+            DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(),
             BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
                 _detect_benchmark_history_parked(target_dir)
             ),
@@ -4818,6 +4827,21 @@ function _undeclared_test_stdlibs(
     return sort!(collect(setdiff(used, available)))
 end
 
+# The retired `downgrade_compat` opt-out. The `downgrade-compat` job is part of
+# the standard, so the kwarg decides nothing. It stays accepted because an
+# adopter's committed `template-sync.yaml` passes it, and that file is only
+# rewritten by the very sync a `MethodError` would stop. Only `false` is worth
+# saying out loud: it is the value whose caller wanted no job and gets one.
+function _warn_retired_downgrade_compat(v::Union{Nothing, Bool})
+    v === false || return nothing
+    @warn string(
+        "`downgrade_compat = false` is ignored: the downgrade-compat job is ",
+        "part of the standard for every managed package. Drop the argument; ",
+        "a resync removes it from `template-sync.yaml`."
+    )
+    return nothing
+end
+
 """
     scaffold(target_dir; force = false, ad = true, benchmarks = nothing,
         freshen_reusable_refs = false, kwargs...)
@@ -4892,14 +4916,17 @@ target's current state from the benchmark workflows so re-scaffolding
 preserves an opt-in; a fresh package has none, so the default is opt-out.
 [`update`](@ref) detects and preserves the state.
 
-`downgrade_compat` controls the opt-in `downgrade-compat` CI job in
-`test.yaml`, which resolves the oldest compatible dep versions. A package
-pinned to a Julia floor, or one depending on an unregistered
-`[sources]`-pinned package the downgrade resolver cannot see, can never pass
-it. It defaults to `nothing`, detecting the state from the committed
-`test.yaml` so a resync preserves the choice; a fresh package keeps the job.
-The `julia_versions` inputs are separately preserved as a package-owned
-`with:` override (#121, see `_preserve_caller_with_inputs`).
+The `downgrade-compat` job in `test.yaml` resolves every declared bound at the
+oldest version it admits, and is part of the standard for every managed
+package. It floors the root project and the test environment, so the suite it
+runs is itself floor-resolved (see `_DOWNGRADE_COMPAT_PROJECTS`). The
+`julia_version` input is separately preserved as a package-owned `with:`
+override (#121, see `_preserve_caller_with_inputs`).
+
+`downgrade_compat` is accepted and ignored. It gated the job while that was
+opt-in; a package that passed `false` is warned and gets the job anyway. The
+kwarg stays only so a committed `template-sync.yaml` still passing it keeps
+working until its next resync drops the argument.
 
 `unregistered_sources` declares that the package pins a dependency of its own
 by git `[sources]` — an ecosystem sibling awaiting registration — and so is
@@ -5015,14 +5042,13 @@ function scaffold(
         kwargs...
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
+    _warn_retired_downgrade_compat(downgrade_compat)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
-    dg = downgrade_compat === nothing ?
-        _detect_downgrade_compat(target_dir) : downgrade_compat
     us = unregistered_sources === nothing ?
         _detect_unregistered_sources(target_dir) : unregistered_sources
     return _apply(
         target_dir; managed_only = false, force = force, ad = ad,
-        benchmarks = bench, downgrade_compat = dg,
+        benchmarks = bench,
         unregistered_sources = us, inputs = inputs,
         freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
@@ -5058,13 +5084,13 @@ and the scheduled sync re-passes it. Scaffold a package outside the EpiAware
 org with `org = "<owner>"` and every later sync keeps that owner.
 
 `ad` must match the value the package was scaffolded with (default `true`).
-`benchmarks`, `downgrade_compat` and `unregistered_sources` all default to
-`nothing`, detecting the package's current state from the committed workflows
-and environments so a resync preserves an adopter's opt-in rather than
-stripping it, or reintroducing a job the package deliberately removed (#121).
-Pass `true`/`false` to force any of them. See [`scaffold`](@ref) for what
+`benchmarks` and `unregistered_sources` both default to `nothing`, detecting
+the package's current state from the committed workflows and environments so a
+resync preserves an adopter's opt-in rather than stripping it. Pass
+`true`/`false` to force either. See [`scaffold`](@ref) for what
 `unregistered_sources` holds to the Julia $(_JULIA_FLOOR) floor and why the
-standard itself no longer does (#410).
+standard itself no longer does (#410), and for why `downgrade_compat` is now
+accepted and ignored.
 
 A package whose environments still pin EpiAwarePackageTools by git `[sources]`
 is warned: the kit is registered, so a managed environment depends on the
@@ -5142,14 +5168,13 @@ function update(
         freshen_reusable_refs::Bool = false, ref_source = nothing, kwargs...
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
+    _warn_retired_downgrade_compat(downgrade_compat)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
-    dg = downgrade_compat === nothing ?
-        _detect_downgrade_compat(target_dir) : downgrade_compat
     us = unregistered_sources === nothing ?
         _detect_unregistered_sources(target_dir) : unregistered_sources
     return _apply(
         target_dir; managed_only = true, force = false, ad = ad,
-        benchmarks = bench, downgrade_compat = dg,
+        benchmarks = bench,
         unregistered_sources = us, inputs = inputs,
         freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
