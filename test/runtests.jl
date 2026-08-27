@@ -12,21 +12,22 @@
 # in `ad_harness.jl` with the light backends (ForwardDiff, ReverseDiff) only;
 # heavy backends (Enzyme, Mooncake) are kept out of the kit's required CI.
 #
+# Which files are searched is scoped by the managed `JuliaTestItems.toml` at
+# the repo root. That matters more here than for most packages: the kit keeps
+# dozens of dev worktrees under `worktrees/`, and `templates/` holds `.jl`
+# files carrying `{{PLACEHOLDER}}` tokens that are not valid Julia until
+# substituted.
+#
 # Filters:
 #   skip_quality  — skip the QA testset (fast local iteration)
 #   quality_only  — run only the QA testset
 
-using EpiAwarePackageTools: run_package_tests
-
-# `run_package_tests` roots discovery at this package's own `test/` tree so the
-# kit's ~40 dev worktrees under `worktrees/` are never scanned and cannot inject
-# test items or shadow a same-named `@testsnippet` (kit #191). Drop-in for
-# TestItemRunner's `@run_package_tests`.
+using TestItemRunner
 
 if "skip_quality" in ARGS
-    run_package_tests(@__DIR__; filter = ti -> !(:quality in ti.tags))
+    @run_package_tests filter = ti -> !(:quality in ti.tags)
 elseif "quality_only" in ARGS
-    run_package_tests(@__DIR__; filter = ti -> :quality in ti.tags)
+    @run_package_tests filter = ti -> :quality in ti.tags
 else
-    run_package_tests(@__DIR__)
+    @run_package_tests
 end

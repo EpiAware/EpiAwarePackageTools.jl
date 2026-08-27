@@ -55,6 +55,10 @@ const SCAFFOLD_TEMPLATES = Template[
     # `{{RUNIC_PRE_COMMIT_REV}}` hook `rev`s.
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, true),
     Template(".gitattributes", ".gitattributes", true, false),
+    # Scopes TestItemRunner's discovery to the package's own `test/` tree, so
+    # a nested worktree checked out under the root cannot inject test items or
+    # shadow a same-named `@testsnippet` (#191).
+    Template("JuliaTestItems.toml", "JuliaTestItems.toml", true, false),
     # NOTE: `.gitignore` is not in this list. It is managed between markers
     # (see `_apply_gitignore`) so a package's own ignore-rule additions below
     # the managed block survive `update`, rather than being copied verbatim

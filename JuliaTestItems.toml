@@ -1,0 +1,18 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+#
+# Scopes which files TestItemRunner searches for `@testitem`s and
+# `@testsnippet`s. TestItemRunner walks the whole package root, and snippets
+# register globally by name with last-write-wins, so a nested checkout under
+# the root (the `worktrees/wt-*` convention) would otherwise contribute its own
+# stale copy of a snippet and shadow the real one. An item-level `filter`
+# cannot help: it runs after discovery and never sees snippets.
+#
+# The same file decides which test items the VS Code extension shows, so
+# editor discovery and `Pkg.test` agree on one answer.
+config-version = 1
+
+# Anchored to this directory, so `worktrees/<name>/test/...` does not match and
+# a nested checkout contributes nothing. Scope is the intersection over every
+# enclosing config file, so the copy a nested checkout carries cannot widen
+# this one.
+include = ["/test/**"]
