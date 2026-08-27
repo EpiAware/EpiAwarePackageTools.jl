@@ -1,8 +1,3 @@
-# PACKAGE-OWNED — scaffold writes this once and never overwrites it.
-# The test environment (no-AD variant: the package opted out of the AD harness,
-# so the AD deps are absent). Seeded with the deps the shared QA helpers need;
-# add the package's own test-only deps here. EpiAwarePackageTools supplies the
-# helpers; it is registered, so it is bounded in `[compat]`.
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
@@ -16,16 +11,12 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 {{PACKAGE}} = "{{UUID}}"
 
-# Bounded compat for the seeded QA deps. The package under test is pinned
-# by `[sources]`, so carries no compat entry.
-# Add a bound for each test-only dep you add. No-AD variant: no AD-harness
-# deps appear.
 [compat]
 Aqua = "0.8"
-BenchmarkTools = "1"
+BenchmarkTools = "1.4"
 Documenter = "1"
 {{KIT_COMPAT_LINE}}ExplicitImports = "1.6"
-JET = "0.9, 0.10"
+JET = "0.9, 0.10.2, 0.11, 0.12"
 Pkg = "1"
 Runic = "1"
 Test = "1"

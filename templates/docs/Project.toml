@@ -1,15 +1,3 @@
-# PACKAGE-OWNED — scaffold writes this once and never overwrites it.
-# The documentation environment: Documenter + DocumenterVitepress. Add
-# doc-only deps (e.g. plotting, DocumenterCitations) as the docs grow. The
-# package is pinned by path via `[sources]`; the kit is a docs dep too
-# (`docs/make.jl` calls `using EpiAwarePackageTools`), bounded in
-# `[compat]` like any other registered dep.
-#
-# With `ad = true`, also carries what the AD-backends tutorial page
-# executes against: the `ADFixtures` registry (path-pinned) plus the
-# benchmark and plotting stack. With `benchmarks = true`, also carries
-# `Plots` for the benchmark page's trend plot (lazily loaded; absent here,
-# the plot degrades to an `@info` note rather than failing the build).
 [deps]
 {{AD_DOCS_DEPS}}{{BENCH_DOCS_DEPS}}Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"

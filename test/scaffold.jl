@@ -5109,7 +5109,7 @@ end # @testitem "scaffold + update (logic)"
                 # This costs the downgrade job nothing: `julia-downgrade-compat`
                 # resolves `projects: '.'` — the root Project.toml — so the
                 # test environment's bounds are never floor-resolved.
-                @test occursin("JET = \"0.9, 0.10\"", compat)
+                @test occursin(r"JET = \"0\.9,", compat)
             end
         end
     end
