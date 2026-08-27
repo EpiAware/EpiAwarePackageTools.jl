@@ -17,5 +17,5 @@ concurrency:
 
 jobs:
   Documenter:
-    uses: {{ORG}}/.github/.github/workflows/documentation.yml@a039a6060ed897a8dc4fc724ccb3c9fca2c49a2f
+    uses: EpiAware/.github/.github/workflows/documentation.yml@a039a6060ed897a8dc4fc724ccb3c9fca2c49a2f
 {{DOCS_TIMEOUT_WITH}}    secrets: inherit  # pragma: allowlist secret

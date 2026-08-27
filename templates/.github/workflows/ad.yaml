@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   ad:
-    uses: {{ORG}}/.github/.github/workflows/ad.yml@00d30434df0edff7bbcc0b488d505a0a9ac1c36b
+    uses: EpiAware/.github/.github/workflows/ad.yml@00d30434df0edff7bbcc0b488d505a0a9ac1c36b
     with:
       backends: '{{AD_BACKENDS_JSON}}'
 {{AD_TIMEOUT_LINE}}    secrets: inherit  # pragma: allowlist secret
