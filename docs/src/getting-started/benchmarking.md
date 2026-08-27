@@ -105,6 +105,11 @@ It opens with a summary across the package (one row per suite, its ratio
 against the oldest shown revision, a trend arrow and a regression flag) and a
 combined trend plot, then gives each benchmark suite its own section with the
 timing and allocation tables for that suite.
+The trend plot needs `Plots` in the documentation environment.
+`scaffold` seeds it there when `benchmarks = true`.
+Where it is absent the plot degrades to an `@info` note and the rest of the
+page still builds, so a docs environment without `Plots` loses the plot rather
+than the build.
 Your package-owned prose in `docs/benchmarks.md` is spliced at the foot of the
 page under "About these benchmarks", so what the suite covers and how to run
 it is there without standing between the reader and the numbers.

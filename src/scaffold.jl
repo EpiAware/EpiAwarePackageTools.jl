@@ -55,6 +55,10 @@ const SCAFFOLD_TEMPLATES = Template[
     # `{{RUNIC_PRE_COMMIT_REV}}` hook `rev`s.
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, true),
     Template(".gitattributes", ".gitattributes", true, false),
+    # Scopes TestItemRunner's discovery to the package's own `test/` tree, so
+    # a nested worktree checked out under the root cannot inject test items or
+    # shadow a same-named `@testsnippet` (#191).
+    Template("JuliaTestItems.toml", "JuliaTestItems.toml", true, false),
     # NOTE: `.gitignore` is not in this list. It is managed between markers
     # (see `_apply_gitignore`) so a package's own ignore-rule additions below
     # the managed block survive `update`, rather than being copied verbatim
@@ -562,6 +566,11 @@ end
 # The default org used to derive `{{ORG}}`/`{{REPO}}` when a caller does not
 # pass them. This is the only org default in the kit; it is overridable.
 const DEFAULT_ORG = "EpiAware"
+
+# The org that hosts the shared tooling every managed package points at: the
+# `.github` repo holding the reusable workflows each CI caller `uses:`, and
+# this kit's own repo. Fixed, whatever org an adopting package lives in.
+const WORKFLOWS_ORG = "EpiAware"
 
 # The single source of truth for the pinned Runic version (#114), feeding the
 # `.pre-commit-config.yaml` hook `additional_dependencies` pin and the
@@ -1134,9 +1143,13 @@ into a template:
     `name`. The package UUID (`{{UUID}}`) is read from `Project.toml` `uuid`.
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
-  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Pass the
-    owning org for a package hosted elsewhere; the managed `template-sync.yaml`
-    carries it into the scheduled [`update`](@ref) so it survives a resync.
+  - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Names the
+    package's own repo: badges, docs links, the repo slug, and the Code of
+    Conduct link. Pass the owning org for a package hosted elsewhere; the
+    managed `template-sync.yaml` carries it into the scheduled
+    [`update`](@ref) so it survives a resync. The reusable workflows the CI
+    callers `uses:` are not among them: those always come from
+    `$(repr(WORKFLOWS_ORG))/.github`.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1290,7 +1303,7 @@ function scaffold_inputs(
         "Pkg.activate(\".\"); Pkg.instantiate()" :
         string(
             "Pkg.activate(; temp = true); Pkg.add(url = ",
-            "\"https://github.com/", org, "/", KIT_NAME,
+            "\"https://github.com/", WORKFLOWS_ORG, "/", KIT_NAME,
             ".jl\", rev = \"main\")"
         )
     # The managed `.gitignore` tracks the package's tutorial subdir, and the
@@ -1381,12 +1394,14 @@ _is_sha_ref(ref::AbstractString) = occursin(_SHA_REF, ref)
 """
     ReusableRefSource(latest, is_newer)
 
-Where `update` learns the current ref of a shared reusable workflow.
+Where `update` learns the current ref of a shared reusable workflow. Those
+workflows live in `$(WORKFLOWS_ORG)/.github`, so neither callback is told
+which repository to look in.
 
-  - `latest(org, workflow)` returns the newest commit SHA touching
-    `.github/workflows/<workflow>` in `<org>/.github`, or `nothing` when that
-    cannot be resolved.
-  - `is_newer(org, current, latest)` returns `true` when `latest` is strictly
+  - `latest(workflow)` returns the newest commit SHA touching
+    `.github/workflows/<workflow>` there, or `nothing` when that cannot be
+    resolved.
+  - `is_newer(current, latest)` returns `true` when `latest` is strictly
     ahead of `current` in that repository's history, `false` when it is not
     (identical, behind, or diverged), and `nothing` when the question cannot
     be answered — e.g. either SHA is unknown there, as for one copied from a
@@ -1400,23 +1415,19 @@ struct ReusableRefSource{L, N}
     is_newer::N
 end
 
-# One run's freshening state: the injected `source`, the `org` whose `.github`
-# holds the reusables, a decision cache keyed by the (workflow, committed ref)
-# pair so each is resolved once however many callers share it, and the
-# `warnings` vector `_apply` returns, so an unresolvable ref is reported in
-# the sync PR rather than only in the run log.
+# One run's freshening state: the injected `source`, a decision cache keyed by
+# the (workflow, committed ref) pair so each is resolved once however many
+# callers share it, and the `warnings` vector `_apply` returns, so an
+# unresolvable ref is reported in the sync PR rather than only in the run log.
 mutable struct _RefFreshener{S}
     source::S
-    org::String
     cache::Dict{Tuple{String, String}, String}
     warnings::Vector{String}
 end
 
-function _RefFreshener(
-        source, org::AbstractString, warnings::Vector{String}
-    )
+function _RefFreshener(source, warnings::Vector{String})
     return _RefFreshener(
-        source, String(org), Dict{Tuple{String, String}, String}(), warnings
+        source, Dict{Tuple{String, String}, String}(), warnings
     )
 end
 
@@ -1449,11 +1460,11 @@ function _resolve_fresh_ref(
         f::_RefFreshener, workflow::AbstractString, ref::AbstractString
     )
     _is_sha_ref(ref) || return String(ref)
-    latest = f.source.latest(f.org, workflow)
+    latest = f.source.latest(workflow)
     if latest === nothing || !_is_sha_ref(latest)
         _freshen_warn!(
             f, string(
-                "could not resolve the newest commit for ", f.org,
+                "could not resolve the newest commit for ", WORKFLOWS_ORG,
                 "/.github workflow ", workflow, "; keeping the committed ref ",
                 ref, ". Freshening needs `gh` on PATH and a token that can ",
                 "read that repository."
@@ -1462,14 +1473,15 @@ function _resolve_fresh_ref(
         return String(ref)
     end
     latest == ref && return String(ref)
-    newer = f.source.is_newer(f.org, ref, latest)
+    newer = f.source.is_newer(ref, latest)
     if newer === nothing
         _freshen_warn!(
             f, string(
                 "could not compare the committed ref ", ref, " for ", workflow,
-                " against ", latest, " in ", f.org, "/.github; keeping the ",
-                "committed ref. A ref that repository does not know (e.g. one ",
-                "taken from a fork) cannot be shown to be older."
+                " against ", latest, " in ", WORKFLOWS_ORG,
+                "/.github; keeping the committed ref. A ref that repository ",
+                "does not know (e.g. one taken from a fork) cannot be shown ",
+                "to be older."
             )
         )
         return String(ref)
@@ -1505,21 +1517,20 @@ end
 # repo head would churn every adopter's pin on a change to a workflow they do
 # not call. The name comes out of a committed workflow file, so it is checked
 # to be a plain filename before it is spliced into an API path.
-function _gh_latest_workflow_ref(org::AbstractString, workflow::AbstractString)
+function _gh_latest_workflow_ref(workflow::AbstractString)
     occursin(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", workflow) || return nothing
     path = ".github/workflows/" * workflow
     return _gh_api(
-        "repos/$org/.github/commits?path=$path&per_page=1", ".[0].sha"
+        "repos/$WORKFLOWS_ORG/.github/commits?path=$path&per_page=1",
+        ".[0].sha"
     )
 end
 
 # GitHub's compare reports `head` relative to `base`, so `ahead` is exactly
 # "`latest` is a strict descendant of `current`".
-function _gh_ref_is_newer(
-        org::AbstractString, current::AbstractString, latest::AbstractString
-    )
+function _gh_ref_is_newer(current::AbstractString, latest::AbstractString)
     status = _gh_api(
-        "repos/$org/.github/compare/$current...$latest", ".status"
+        "repos/$WORKFLOWS_ORG/.github/compare/$current...$latest", ".status"
     )
     status === nothing && return nothing
     return status == "ahead"
@@ -4101,14 +4112,15 @@ end
 # The opt-in `downgrade-compat` caller job spliced into `test.yaml` after the
 # `test` job's `secrets:` line (#121), empty when a package opts out. Carries
 # no trailing newline of its own — the template file keeps the single one the
-# pre-commit end-of-file-fixer requires. Built with the org interpolated and
-# the seed ref, which `_preserve_reusable_refs` overwrites with the
-# destination's Dependabot-bumped ref on every `update`.
-function _downgrade_compat_job(org::AbstractString, keep::Bool)
+# pre-commit end-of-file-fixer requires. Built with the seed ref, which
+# `_preserve_reusable_refs` overwrites with the destination's
+# Dependabot-bumped ref on every `update`.
+function _downgrade_compat_job(keep::Bool)
     keep || return ""
     return string(
         "\n\n  downgrade-compat:\n",
-        "    uses: ", org, "/.github/.github/workflows/downgrade.yml@",
+        "    uses: ", WORKFLOWS_ORG,
+        "/.github/.github/workflows/downgrade.yml@",
         _seed_ref("downgrade.yml"), "\n",
         "    with:\n",
         # The reusable defaults to '1.10'; see `_JULIA_DOWNGRADE_VERSION` for
@@ -4308,9 +4320,7 @@ function _apply(
             # `scaffold_inputs` seeds the full matrix; only here is it known
             # whether this package's `[sources]` pins hold it above lts (#410).
             JULIA_TEST_VERSIONS = _julia_test_versions(unregistered_sources),
-            DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(
-                inputs.ORG, downgrade_compat
-            ),
+            DOWNGRADE_COMPAT_JOB = _downgrade_compat_job(downgrade_compat),
             BENCHMARK_HISTORY_TRIGGERS = _benchmark_history_triggers(
                 _detect_benchmark_history_parked(target_dir)
             ),
@@ -4347,8 +4357,7 @@ function _apply(
     # caller and each reusable is resolved at most once (#425).
     freshener = if freshen_reusable_refs
         _RefFreshener(
-            ref_source === nothing ? _gh_ref_source() : ref_source,
-            inputs.ORG, warnings
+            ref_source === nothing ? _gh_ref_source() : ref_source, warnings
         )
     else
         nothing
