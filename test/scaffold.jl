@@ -1363,9 +1363,40 @@
                     _dest(dir, ".github/workflows/test.yaml"),
                     String
                 )
+                # `org` names the package's own repo, never the
+                # reusable-workflow caller: the reusables always come from
+                # EpiAware/.github.
+                @test !occursin("MyOrg/.github", test_yaml)
                 @test occursin(
-                    "MyOrg/.github/.github/workflows/tests.yml",
+                    "EpiAware/.github/.github/workflows/tests.yml",
                     test_yaml
+                )
+            end
+        end
+
+        @testset "reusable callers stay at EpiAware for any org" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                # A package hosted outside EpiAware: `org` names its repo,
+                # badges and community links, while every reusable-workflow
+                # caller resolves to EpiAware/.github, which is where the
+                # reusables are.
+                scaffold(dir; org = "seabbs", ad = false)
+                for f in (
+                        ".github/workflows/test.yaml",
+                        ".github/workflows/document.yaml",
+                        ".github/workflows/release-nudge.yaml",
+                    )
+                    txt = read(_dest(dir, f), String)
+                    @test occursin("EpiAware/.github/.github/workflows/", txt)
+                    @test !occursin("seabbs/.github/.github/", txt)
+                end
+                readme = read(joinpath(dir, "README.md"), String)
+                @test occursin("github.com/seabbs/Wombat.jl", readme)
+                @test occursin(
+                    "https://github.com/seabbs/.github/blob/main/" *
+                        "CODE_OF_CONDUCT.md",
+                    readme
                 )
             end
         end
@@ -1740,21 +1771,23 @@
                 )
 
                 # The summary table is emitted through the wrapper, never as
-                # a bare DataFrame (#305).
-                @test occursin("markdown_table(summary_table)", txt)
-                @test !occursin(r"(?m)^summary_table$", txt)
+                # a bare DataFrame. Neither of the frames behind it is
+                # ever the emitted value of a cell either.
+                @test occursin("markdown_table(summarise(", txt)
+                @test !occursin(r"(?m)^rel$", txt)
+                @test !occursin(r"(?m)^bench_long$", txt)
 
                 # ...and the wrapper behaves: a DataFrame is `showable` as
                 # `text/html`, and Literate and DocumenterVitepress both take
                 # that branch first, so returning one drops DataFrames' own
                 # styled `<table>` into the page as raw HTML, outside
-                # VitePress's table styling. `MarkdownTable` is showable ONLY
+                # VitePress's table styling. `MarkdownOutput` is showable ONLY
                 # as `text/markdown`, so both writers emit a plain pipe table
                 # that VitePress renders natively. Evaluate the substituted
                 # definitions in a sandbox against a stand-in frame, so the
                 # kit's own tests need no DataFrames dependency.
                 helper_start = first(
-                    findfirst("struct MarkdownTable", txt)
+                    findfirst("struct MarkdownOutput", txt)
                 )
                 helper_stop = first(
                     findfirst(
@@ -4141,7 +4174,7 @@
             # is seeded from the same table.
             @test occursin(
                 "downgrade.yml@" * _seed_ref("downgrade.yml"),
-                _downgrade_compat_job("FakeOrg", true)
+                _downgrade_compat_job(true)
             )
             # No stale entry: every seed recorded is one a caller wraps.
             @test issetequal(
@@ -4643,6 +4676,29 @@
             end
         end
 
+        @testset "kit self-install stays at EpiAware for any org" begin
+            # The benchmark workflows and the rendered `SYNC_INSTALL` install
+            # the kit itself, which lives at EpiAware/EpiAwarePackageTools.jl
+            # whatever org the adopting package lives in.
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; org = "seabbs", benchmarks = true)
+                for f in (
+                        ".github/workflows/benchmark.yaml",
+                        ".github/workflows/benchmark-history.yaml",
+                    )
+                    txt = read(_dest(dir, f), String)
+                    @test occursin(
+                        "https://github.com/EpiAware/EpiAwarePackageTools.jl",
+                        txt
+                    )
+                    @test !occursin(
+                        "github.com/seabbs/EpiAwarePackageTools", txt
+                    )
+                end
+            end
+        end
+
         @testset "version automation workflows + action present" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
@@ -4651,6 +4707,7 @@
                         ".github/workflows/auto-version-increment.yaml",
                         ".github/workflows/version-on-demand.yaml",
                         ".github/actions/increment-version/action.yaml",
+                        ".github/workflows/version-pr-reaper.yaml",
                     )
                     @test isfile(joinpath(dir, f))
                 end
@@ -4664,6 +4721,116 @@
                 @test !occursin("seabbs", act)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", act)
+            end
+        end
+
+        @testset "auto-version-increment stays safe under races and blocked PRs" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                wf = read(
+                    _dest(dir, ".github/workflows/auto-version-increment.yaml"),
+                    String
+                )
+                # Concurrent runs queue rather than cancel: a cancelled
+                # queued run would skip observing the version the previous
+                # run just landed.
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                @test occursin("cancel-in-progress: false", wf)
+
+                act = read(
+                    _dest(
+                        dir,
+                        ".github/actions/increment-version/action.yaml"
+                    ), String
+                )
+                # The push is leased against the SHA `git ls-remote` reports
+                # for the branch, rather than blindly forced or gated on a
+                # PR-title search that cannot see a branch whose PR was
+                # closed or never created.
+                @test occursin("git ls-remote origin", act)
+                @test occursin("force-with-lease=", act)
+                @test !occursin("in:title", act)
+                @test occursin("gh pr list --state open --head", act)
+                # The direct-commit fallback is reachable both by the
+                # deliberate create-pr=false configuration and by the
+                # create-pr step's own outcome, so a `gh pr create` failure
+                # (e.g. the org disallows Actions opening PRs) still lands
+                # the version bump.
+                @test occursin("continue-on-error: true", act)
+                # Matched loosely enough to survive a reformat of the
+                # YAML, while still pinning that both operands reach the
+                # same condition rather than two separate ones.
+                @test occursin(
+                    r"inputs\.create-pr == 'false'\s*\|\|\s*" *
+                        r"steps\.create-pr\.outcome == 'failure'",
+                    act
+                )
+                # A `gh pr create` output that cannot be parsed for a PR
+                # number fails loudly rather than silently.
+                @test occursin("Could not parse a PR number", act)
+            end
+        end
+
+        @testset "version PR reaper caller wraps the org reusable" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                path = _dest(
+                    dir, ".github/workflows/version-pr-reaper.yaml"
+                )
+                @test isfile(path)
+                wf = read(path, String)
+
+                # A thin caller: the reaping itself lives in the org
+                # reusable, pinned by SHA like every other caller so
+                # Dependabot can bump it.
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/" *
+                        "version-pr-reaper.yml@",
+                    wf
+                )
+                @test occursin(r"version-pr-reaper\.yml@[0-9a-f]{40}\b", wf)
+                @test occursin("secrets: inherit", wf)
+
+                # Triggered by a landed release (push to main), a schedule
+                # for a version that moved by another route, and an
+                # on-demand run.
+                @test occursin("branches: [main]", wf)
+                @test occursin("cron: '0 5 * * 1'", wf)
+                @test occursin("workflow_dispatch:", wf)
+                @test occursin("dry_run:", wf)
+
+                # The reusable honours `dry_run` on whatever trigger
+                # fires, so the caller decides which runs preview: a
+                # dispatch with the box ticked. Push and schedule pass
+                # `false`, and either way the value is the string the
+                # reusable's input takes.
+                @test occursin(
+                    "dry_run: \${{ inputs.dry_run && 'true' || 'false' }}",
+                    wf
+                )
+
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                # The caller caps what the reusable's own job-level grant
+                # can reach: closing PRs and deleting branches.
+                @test occursin("contents: write", wf)
+                @test occursin("pull-requests: write", wf)
+
+                # None of the reaping script is carried here. It belongs
+                # to the reusable, which is where it is tested.
+                @test !occursin("runs-on:", wf)
+                @test !occursin("semver_key", wf)
+                @test !occursin("gh pr close", wf)
+                @test !occursin("git push origin --delete", wf)
+
+                # No kit placeholder remains (GitHub `${{ }}` expressions
+                # stay).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", wf)
             end
         end
 
@@ -5142,7 +5309,7 @@ end # @testitem "scaffold + update (logic)"
                 # This costs the downgrade job nothing: `julia-downgrade-compat`
                 # resolves `projects: '.'` — the root Project.toml — so the
                 # test environment's bounds are never floor-resolved.
-                @test occursin("JET = \"0.9, 0.10\"", compat)
+                @test occursin(r"JET = \"0\.9,", compat)
             end
         end
     end
@@ -6712,12 +6879,12 @@ end
     # record their calls, so a test can assert none were made.
     function _stub_source(refs::Dict, ahead::Dict = Dict())
         calls = String[]
-        latest = function (_org, workflow)
+        latest = function (workflow)
             push!(calls, "latest:" * workflow)
             return haskey(refs, workflow) ? refs[workflow] :
                 get(_REUSABLE_SEED_REFS, workflow, nothing)
         end
-        is_newer = function (_org, current, candidate)
+        is_newer = function (current, candidate)
             push!(calls, "is_newer:" * current * ":" * candidate)
             return get(ahead, (current, candidate), nothing)
         end
@@ -6764,6 +6931,29 @@ end
                 update(dir; freshen_reusable_refs = true, ref_source = source2)
             end
             @test read(caller, String) == after
+        end
+    end
+
+    @testset "freshening ignores the package's own org" begin
+        # The reusables live at EpiAware/.github whatever org the package
+        # itself sits in, so a custom `org` leaves the caller freshened.
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir; org = "SomeOtherOrg")
+            caller = _pin_tests_caller(dir, committed)
+            source, _ = _stub_source(
+                Dict("tests.yml" => newest), Dict((committed, newest) => true)
+            )
+            with_logger(NullLogger()) do
+                update(
+                    dir; org = "SomeOtherOrg", freshen_reusable_refs = true,
+                    ref_source = source
+                )
+            end
+            txt = read(caller, String)
+            @test occursin(
+                "EpiAware/.github/.github/workflows/tests.yml@" * newest, txt
+            )
         end
     end
 

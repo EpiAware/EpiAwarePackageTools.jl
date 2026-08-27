@@ -30,6 +30,10 @@ concurrency:
 jobs:
   history:
     runs-on: ubuntu-latest
+    # Six revisions in one job, each preparing the whole AD gradient grid
+    # before measuring it, so a grid that outgrows the runner fails here
+    # rather than at GitHub's six-hour default.
+    timeout-minutes: 120
     steps:
       # fetch-depth: 0 so all tags resolve; benchpkg checks out each
       # historical rev from this working tree.
@@ -88,7 +92,7 @@ jobs:
             Pkg.add([
                 Pkg.PackageSpec(name = "LocalRegistry"),
                 Pkg.PackageSpec(
-                    url = "https://github.com/{{ORG}}/EpiAwarePackageTools.jl",
+                    url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
                     rev = "main")])
             using EpiAwarePackageTools.Benchmarks: bootstrap_sources_registry
             done = bootstrap_sources_registry(pwd())
@@ -141,6 +145,31 @@ jobs:
             --input-dir=results --ratio --mode time,memory \
             > public/table.md
 
+      # Publish the raw per-revision result files alongside the plots. The
+      # AD-comparison docs page reads its per-(scenario, backend) gradient
+      # numbers out of these, so it renders measurements this run already took
+      # rather than repeating the whole grid in the docs process.
+      #
+      # `latest.json` copies the file for the revision this run was triggered
+      # for, named by content rather than by modification time, which a git
+      # checkout of the branch flattens. The file is matched on the revision
+      # alone, so benchpkg is free to change how it spells the rest of the
+      # name.
+      - name: Publish raw results
+        run: |
+          cp -r results public/results
+          head_file=""
+          for f in results/*"${GITHUB_SHA}"*.json; do
+            [ -f "$f" ] || continue
+            head_file="$f"
+            break
+          done
+          if [ -n "$head_file" ]; then
+            cp "$head_file" public/results/latest.json
+          else
+            echo "no results for ${GITHUB_SHA}: publishing without latest"
+          fi
+
       # Minimal index so the published folder lists the generated plots.
       - name: Write index page
         run: |
@@ -151,6 +180,9 @@ jobs:
             echo
             echo "See \`table.md\` for the ratio summary and the PNG"
             echo "files in this folder for per-benchmark timelines."
+            echo
+            echo "\`results/\` holds the raw per-revision benchmark data,"
+            echo "with \`latest.json\` the file for the newest revision."
           } > public/README.md
 
       # Deploy to a dedicated `benchmarks` branch, deliberately not

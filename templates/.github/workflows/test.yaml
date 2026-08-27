@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    uses: {{ORG}}/.github/.github/workflows/tests.yml@491d0d9979bb59b0f82fc508ca55fb31698eb840
+    uses: EpiAware/.github/.github/workflows/tests.yml@491d0d9979bb59b0f82fc508ca55fb31698eb840
     with:
       # The matrix this package tests on. Seeded, not managed: name your own
       # value here and a resync keeps it (#73, #117). The lts leg runs

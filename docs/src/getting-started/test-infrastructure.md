@@ -44,8 +44,16 @@ tags.
 - `quality_only` runs only the quality testset.
 - `readme_only` runs only `:readme`-tagged items.
 
-Discovery is restricted to the package's own test tree, so a nested worktree or
-a sibling directory sharing a path prefix is never globbed in.
+Discovery is scoped by the managed `JuliaTestItems.toml` at the package root,
+which selects `test/**` and nothing else.
+A nested worktree checked out under the repo therefore contributes no test
+items, and no `@testsnippet` of its own.
+That matters because snippets register globally by name with last-write-wins, so
+a stale copy would otherwise shadow the real one, and an item-level filter
+cannot help: it runs after discovery and never sees snippets.
+
+The VS Code extension reads the same file, so the tests the editor lists and the
+tests `Pkg.test` runs are the same set.
 
 ## The quality testset
 

@@ -30,6 +30,8 @@ import Statistics
 
 export build_docs, build_index, build_release_notes, build_benchmark_page,
     build_api_pages, api_bindings, api_owning_modules, api_remotes
+export ADBenchmarkResults, load_ad_benchmarks, ad_benchmark_note,
+    ad_benchmark_results_path, published_ad_benchmark_results
 
 # ---- lazy dependency loading ----------------------------------------------
 
@@ -60,6 +62,10 @@ end
 function _json()
     return _require_pkg("682c06a0-de6a-54ab-a142-c8b1cf79cde6", "JSON")
 end
+
+# The AD benchmark page's results reader: a path in, measurements out, no
+# Documenter coupling.
+include("ad_benchmarks.jl")
 
 # ---- empty-anchor inventory guard (#232) ----------------------------------
 
@@ -2477,6 +2483,7 @@ end
                heavy_tutorials=[], tutorial_stubs=[], force_stub_tutorials=[],
                tutorial_environments=[], heavy_tutorial_workers=1,
                heavy_benchmarks=[], benchmark_stubs=[],
+               ad_benchmark_results=nothing,
                linkcheck_ignore=[], index_rewrites=[], readme_execute=true,
                index_strip_sections=[], benchmark_page=true,
                history_suites=[], history_commits=5,
@@ -2522,6 +2529,20 @@ masking the rest.
 `heavy_benchmarks`/`benchmark_stubs` drive the
 same pipeline again over `src/benchmarks/`, so a benchmark report renders
 under its own top-level "Benchmarks" nav group rather than under Tutorials.
+
+`ad_benchmark_results` names where the scaffolded AD-comparison page's gradient
+numbers are, so it renders what the package's benchmark run already measured
+rather than measuring every (backend, scenario) pair again during the build. It
+is a results file or a directory of them; a relative path resolves against
+`docs/`, and the `AD_BENCHMARK_RESULTS` environment variable overrides it so CI
+can name a checkout without the package editing its config. See
+[`ad_benchmark_results_path`](@ref) and [`load_ad_benchmarks`](@ref).
+
+It defaults to `nothing`, which falls back to the results the package's
+benchmark run deploys to its `benchmarks` branch (see
+[`published_ad_benchmark_results`](@ref)), and leaves the page measuring live
+only where that branch carries no gradient numbers.
+
 `deploy=false` builds without deploying and `build_vitepress=false` runs
 Documenter without the final npm pass; both are used by tests and fast local
 builds. On the benchmark page, `history_suites` (when non-empty) restricts the
@@ -2556,6 +2577,7 @@ function build_docs(
         heavy_tutorial_workers::Integer = 1,
         heavy_benchmarks = String[],
         benchmark_stubs = Pair{String, String}[],
+        ad_benchmark_results::Union{Nothing, AbstractString} = nothing,
         linkcheck_ignore = Regex[], index_rewrites = Pair{String, String}[],
         readme_execute::Bool = true, index_strip_sections = String[],
         benchmark_page::Bool = true, history_suites = String[],
@@ -2591,11 +2613,20 @@ function build_docs(
     # so one config list parks a heavy page in either directory by name.
     # `tutorial_environments` and `heavy_tutorial_workers` are shared on the
     # same terms.
-    _render_tutorials(
-        docs_dir, benchmarks_dir, skip_notebooks, String[],
-        heavy_benchmarks, benchmark_stubs; force_stub = force_stub_tutorials,
-        envs = tutorial_environments, workers = heavy_tutorial_workers
-    )
+    #
+    # The AD-comparison page's numbers reach it through the environment, which
+    # the page's subprocess inherits, and are scoped to this render so a later
+    # build in the same process resolves its own.
+    _with_ad_benchmark_results(
+        docs_dir, ad_benchmark_results, project_root
+    ) do
+        _render_tutorials(
+            docs_dir, benchmarks_dir, skip_notebooks, String[],
+            heavy_benchmarks, benchmark_stubs;
+            force_stub = force_stub_tutorials,
+            envs = tutorial_environments, workers = heavy_tutorial_workers
+        )
+    end
 
     # --- generated pages ---------------------------------------------------
     build_index(;

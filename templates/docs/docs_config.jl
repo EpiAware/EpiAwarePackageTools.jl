@@ -90,6 +90,29 @@ const HEAVY_BENCHMARKS = String[{{AD_HEAVY_BENCHMARKS}}]
 # `TUTORIAL_STUBS`.
 const BENCHMARK_STUBS = Pair{String, String}[{{AD_BENCHMARK_STUBS}}]
 
+# Where the AD-comparison page finds the gradient numbers this package's
+# benchmark run published, relative to `docs/` unless absolute. It is a
+# benchmark results file, or a directory of them, in which case `latest.json`
+# wins and otherwise the most recently written file does.
+#
+# `nothing` (the default) needs no change for the usual case. The build then
+# reads the results `benchmark-history.yaml` deploys to the `benchmarks`
+# branch under `history/results/`, and measures every (backend, scenario) pair
+# itself only where that branch carries no gradient numbers. Measuring live is
+# fine for a small registry and stops fitting in a CI job for a large one.
+#
+# The numbers come from the `"AD gradients"` group of `benchmark/benchmarks.jl`,
+# the same group the pull request benchmark comment folds into its AD matrix, so
+# one suite definition feeds both. Set this to name a different location, e.g. a
+# results directory a workflow put on disk. The `AD_BENCHMARK_RESULTS`
+# environment variable overrides it, so CI can name the location without this
+# file changing.
+#
+# Named either way, the page never measures live: a build with no results
+# renders with a note saying the numbers are not available, and a build whose
+# run covered only some backends renders those and names the rest.
+const AD_BENCHMARK_RESULTS = nothing
+
 # Whether this package advertises itself as part of the EpiAware ecosystem: a
 # "Part of the EpiAware ecosystem" README section, and the EpiAware logo + org
 # links in the docs footer. Opt-in, off by default (the kit also scaffolds

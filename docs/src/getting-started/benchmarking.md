@@ -81,6 +81,23 @@ Documenter force-pushes the `gh-pages` branch on every docs build, so writing
 the timeline there would clobber it;
 a dedicated branch keeps the two independent.
 
+The `benchmarks` branch needs no cleanup workflow, unlike the documentation
+previews.
+Nothing pull-request-scoped is written there: `benchmark.yaml` keeps its results
+as job artifacts, which GitHub expires on its own, and only pushes to `main`,
+tags and a manual dispatch reach the branch at all.
+Each deploy replaces the published folder rather than adding to it, so the
+branch holds one run's output and does not grow.
+Concurrent writers are serialised on the `benchmark-history-deploy` concurrency
+group without cancelling, so a tag push and a `main` push queue rather than lose
+each other's commits;
+anything else that writes the branch must join that group.
+
+The raw per-revision result files are published under `history/results/`,
+alongside a `latest.json` copy of the revision the run measured.
+The AD-comparison docs page reads its gradient numbers from there rather than
+measuring the whole backend grid again during the docs build.
+
 The rendered timeline becomes the "Performance over time" page under the
 site's Benchmarks section.
 That page is a presentation of results, not a how-to.
@@ -88,6 +105,11 @@ It opens with a summary across the package (one row per suite, its ratio
 against the oldest shown revision, a trend arrow and a regression flag) and a
 combined trend plot, then gives each benchmark suite its own section with the
 timing and allocation tables for that suite.
+The trend plot needs `Plots` in the documentation environment.
+`scaffold` seeds it there when `benchmarks = true`.
+Where it is absent the plot degrades to an `@info` note and the rest of the
+page still builds, so a docs environment without `Plots` loses the plot rather
+than the build.
 Your package-owned prose in `docs/benchmarks.md` is spliced at the foot of the
 page under "About these benchmarks", so what the suite covers and how to run
 it is there without standing between the reader and the numbers.
