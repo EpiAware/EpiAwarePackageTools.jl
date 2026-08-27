@@ -12,6 +12,4 @@ const SUITE = BenchmarkGroup()
 
 # Example evaluation benchmark — replace with the package's own:
 # SUITE["Evaluation"]["example"] = @benchmarkable sum(rand(100))
-
-# Example AD-gradient group (folded into a matrix by `compare.jl`):
-# SUITE["AD gradients"]["scenario"]["ForwardDiff"] = @benchmarkable ...
+{{AD_BENCH_SUITE}}

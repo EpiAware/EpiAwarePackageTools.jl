@@ -1771,21 +1771,23 @@
                 )
 
                 # The summary table is emitted through the wrapper, never as
-                # a bare DataFrame (#305).
-                @test occursin("markdown_table(summary_table)", txt)
-                @test !occursin(r"(?m)^summary_table$", txt)
+                # a bare DataFrame. Neither of the frames behind it is
+                # ever the emitted value of a cell either.
+                @test occursin("markdown_table(summarise(", txt)
+                @test !occursin(r"(?m)^rel$", txt)
+                @test !occursin(r"(?m)^bench_long$", txt)
 
                 # ...and the wrapper behaves: a DataFrame is `showable` as
                 # `text/html`, and Literate and DocumenterVitepress both take
                 # that branch first, so returning one drops DataFrames' own
                 # styled `<table>` into the page as raw HTML, outside
-                # VitePress's table styling. `MarkdownTable` is showable ONLY
+                # VitePress's table styling. `MarkdownOutput` is showable ONLY
                 # as `text/markdown`, so both writers emit a plain pipe table
                 # that VitePress renders natively. Evaluate the substituted
                 # definitions in a sandbox against a stand-in frame, so the
                 # kit's own tests need no DataFrames dependency.
                 helper_start = first(
-                    findfirst("struct MarkdownTable", txt)
+                    findfirst("struct MarkdownOutput", txt)
                 )
                 helper_stop = first(
                     findfirst(

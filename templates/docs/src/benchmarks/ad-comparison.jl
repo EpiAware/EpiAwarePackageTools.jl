@@ -14,6 +14,17 @@
 #src `@ref ad-backends` anchor, so that anchor now lives on the "Choosing a
 #src backend" section below and must stay there.
 #src
+#src Where the numbers come from is set by `AD_BENCHMARK_RESULTS`: unset, the
+#src page measures every (backend, scenario) pair itself; set, it reads the
+#src `"AD gradients"` group of the benchmark run's published results and never
+#src measures live, because falling back would reinstate the cost pointing at
+#src published numbers exists to avoid. The docs build sets it from the
+#src package-owned const of that name in `docs/docs_config.jl`, else from the
+#src `benchmarks` branch this package's benchmark run deploys to; CI may also
+#src set it directly. Reading, aggregating and reporting gaps in that data is
+#src `EpiAwarePackageTools.load_ad_benchmarks`/`ad_benchmark_note`, so it is
+#src unit tested in the kit rather than only exercised by a docs build.
+#src
 #src The page body is re-applied on every update so it stays kit-current;
 #src everything package-specific it reports (scenarios, backends,
 #src broken/skip declarations) is read at docs-build time from the
@@ -51,6 +62,10 @@ using Chairmarks
 using DataFramesMeta
 using Statistics
 using CairoMakie
+## Reads the published benchmark results when this build has them.
+## Imported qualified rather than `using`: the kit exports a large
+## test/scaffold surface this page has no use for.
+import EpiAwarePackageTools
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 set_theme!(theme_latexfonts(); fontsize = 14)
@@ -62,10 +77,10 @@ set_theme!(theme_latexfonts(); fontsize = 14)
 ## page as raw HTML, outside VitePress's table styling. Wrapping the text in
 ## a type that is showable ONLY as `text/markdown` makes both writers emit a
 ## plain pipe table instead, which VitePress renders as a native table.
-struct MarkdownTable
+struct MarkdownOutput
     text::String
 end
-Base.show(io::IO, ::MIME"text/markdown", t::MarkdownTable) = print(io, t.text)
+Base.show(io::IO, ::MIME"text/markdown", t::MarkdownOutput) = print(io, t.text)
 
 ## Render `df` as a markdown pipe table: first column left-aligned (the
 ## label), the rest right-aligned (the numbers). A `|` inside a cell would
@@ -81,7 +96,7 @@ function markdown_table(df)
     for row in eachrow(df)
         println(io, "| ", join((_cell(row[c]) for c in cols), " | "), " |")
     end
-    return MarkdownTable(String(take!(io)))
+    return MarkdownOutput(String(take!(io)))
 end
 
 backend_entries = ADFixtures.backends()
@@ -109,31 +124,29 @@ md"""
 md"""
 ## Benchmark
 
-`DifferentiationInterfaceTest.benchmark_differentiation` runs every
+`DifferentiationInterfaceTest.benchmark_differentiation` measures every
 (backend, scenario) pair the registry supports.
+Where the package's benchmark suite already measures those pairs, this page
+renders that run's published results; otherwise it measures them itself while
+the docs build runs.
 Combinations declared broken or skipped in the registry are excluded from
 their backend's rows, so they show up as reduced scenario coverage in the
 `Scenarios` column below, rather than as timings of gradients that are
 wrong or crash.
-The figures are the prepared per-call cost.
+The figures are the prepared per-call cost, each the fastest of the
+recorded samples, whether this build measured it or read it from the
+benchmark run.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
 reused operator, so that one-off preparation is excluded.
 This matches repeated use such as an MCMC run, where preparation is
 amortised over many gradient calls.
-Each backend's time and allocations are then divided by the ForwardDiff
-value on the same scenario, so ForwardDiff sits at 1.0 by construction;
-values below 1.0 are faster (or lighter), above 1.0 slower (or heavier).
+Each backend's time and allocations are then divided by the baseline
+backend's value on the same scenario, so the baseline (ForwardDiff wherever
+the registry has it) sits at 1.0 by construction; values below 1.0 are
+faster (or lighter), above 1.0 slower (or heavier).
 Timings use short per-measurement budgets so the page stays cheap to
 build; treat small differences as indicative rather than exact.
-"""
-
-md"""
-### Summary
-
-Geometric mean of the relative cost across the scenarios each backend can
-handle. `Scenarios` reports coverage, since a partial backend averages
-only over the scenarios it differentiates.
 """
 
 md"""
@@ -142,57 +155,100 @@ md"""
 ```
 """
 
-bench_parts = map(backend_entries) do entry
-    excluded = union(
-        global_broken,
-        get(backend_broken, entry.name, Set{String}()),
-        get(backend_skip, entry.name, Set{String}())
+## Where the numbers come from. The docs build sets `AD_BENCHMARK_RESULTS`
+## from the package-owned const of that name in `docs/docs_config.jl`, and CI
+## may set it directly. Unset, the page measures live below. Set, the page
+## reads the benchmark run's published results and never measures live:
+## falling back would mean running the whole AD grid in this one process, the
+## cost reusing those numbers avoids.
+results_path = get(ENV, "AD_BENCHMARK_RESULTS", "")
+published = if isempty(results_path)
+    nothing
+else
+    EpiAwarePackageTools.load_ad_benchmarks(
+        results_path, [e.name for e in backend_entries]
     )
-    scens = filter(s -> !(s.name in excluded), scenario_list)
-    part = DataFrame(
-        DIT.benchmark_differentiation(
-            [entry.backend], scens;
-            logging = false,
-            benchmark_test = false,
-            benchmark_seconds = 0.5
+end
+
+## Measure every (backend, scenario) pair here, one backend at a time.
+function measure_backends()
+    parts = map(backend_entries) do entry
+        excluded = union(
+            global_broken,
+            get(backend_broken, entry.name, Set{String}()),
+            get(backend_skip, entry.name, Set{String}())
         )
+        scens = filter(s -> !(s.name in excluded), scenario_list)
+        part = DataFrame(
+            DIT.benchmark_differentiation(
+                [entry.backend], scens;
+                logging = false,
+                benchmark_test = false,
+                benchmark_seconds = 0.5
+            )
+        )
+        ## Label rows with the registry's backend name, which distinguishes
+        ## configurations (e.g. Enzyme forward vs reverse) sharing a package.
+        part[!, :backend_label] .= entry.name
+        part
+    end
+    return @chain vcat(parts...) begin
+        @rsubset :operator == ^(:gradient)
+        @rtransform begin
+            :backend = :backend_label
+            :scenario = :scenario.name
+            :time_us = :time * 1.0e6
+            :bytes_kb = :bytes / 1024
+        end
+        @rsubset isfinite(:time_us) && isfinite(:bytes_kb)
+        @select :backend :scenario :time_us :bytes_kb
+    end
+end
+
+## Both paths land on the same four columns, so everything below is the same
+## whichever one ran. The published rows are already keyed by scenario and
+## backend and converted to microseconds and kibibytes by the reader.
+bench_long = published === nothing ? measure_backends() :
+    DataFrame(published.rows)
+have_data = nrow(bench_long) > 0
+
+## The baseline every cost is divided by: ForwardDiff (the org standard) when
+## it is among the backends with numbers, otherwise the first that has them.
+## Chosen from the data rather than the registry so a run missing the
+## ForwardDiff numbers still reports the backends it does have, relative to
+## one of them, rather than dividing everything by nothing.
+function pick_baseline(measured)
+    "ForwardDiff" in measured && return "ForwardDiff"
+    isempty(measured) && return "ForwardDiff"
+    return first(measured)
+end
+baseline = pick_baseline(unique(bench_long.backend))
+
+function relative_costs(long, baseline)
+    ref = @chain long begin
+        @rsubset :backend == baseline
+        @select :scenario :ref_time = :time_us :ref_bytes = :bytes_kb
+    end
+    return @chain long begin
+        leftjoin(ref, on = :scenario)
+        @rsubset !ismissing(:ref_time) && !ismissing(:ref_bytes)
+        @rtransform begin
+            :rel_time = :time_us / :ref_time
+            :rel_bytes = :bytes_kb / :ref_bytes
+        end
+    end
+end
+
+## Guarded rather than run on an empty frame: with no rows there is no column
+## for the row-wise transforms to infer types from, and an empty grouping has
+## no columns to order by.
+rel = if have_data
+    relative_costs(bench_long, baseline)
+else
+    DataFrame(
+        backend = String[], scenario = String[], time_us = Float64[],
+        bytes_kb = Float64[], rel_time = Float64[], rel_bytes = Float64[]
     )
-    ## Label rows with the registry's backend name, which distinguishes
-    ## configurations (e.g. Enzyme forward vs reverse) that share a package.
-    part[!, :backend_label] .= entry.name
-    part
-end
-raw_bench = vcat(bench_parts...)
-
-bench_long = @chain raw_bench begin
-    @rsubset :operator == ^(:gradient)
-    @rtransform begin
-        :backend = :backend_label
-        :scenario = :scenario.name
-        :time_us = :time * 1.0e6
-        :bytes_kb = :bytes / 1024
-    end
-    @rsubset isfinite(:time_us) && isfinite(:bytes_kb)
-    @select :backend :scenario :time_us :bytes_kb
-end;
-
-## The baseline every cost is divided by: ForwardDiff when the registry has
-## it (the org standard), otherwise the registry's first backend.
-baseline = any(e -> e.name == "ForwardDiff", backend_entries) ?
-    "ForwardDiff" : first(backend_entries).name
-
-ref = @chain bench_long begin
-    @rsubset :backend == baseline
-    @select :scenario :ref_time = :time_us :ref_bytes = :bytes_kb
-end
-
-rel = @chain bench_long begin
-    leftjoin(ref, on = :scenario)
-    @rsubset !ismissing(:ref_time) && !ismissing(:ref_bytes)
-    @rtransform begin
-        :rel_time = :time_us / :ref_time
-        :rel_bytes = :bytes_kb / :ref_bytes
-    end
 end;
 
 ## Geometric mean over positive values; guards against a zero-allocation
@@ -204,20 +260,30 @@ end
 
 n_total = length(scenario_list)
 
-summary_table = @chain rel begin
-    @by :backend begin
-        :rel_time = round(geomean(:rel_time); digits = 2)
-        :rel_bytes = round(geomean(:rel_bytes); digits = 2)
-        :scenarios = "$(length(:scenario))/$(n_total)"
+function summarise(rel, n_total)
+    return @chain rel begin
+        @by :backend begin
+            :rel_time = round(geomean(:rel_time); digits = 2)
+            :rel_bytes = round(geomean(:rel_bytes); digits = 2)
+            :scenarios = "$(length(:scenario))/$(n_total)"
+        end
+        @orderby :rel_time
+        rename(
+            :backend => "Backend",
+            :rel_time => "Relative time",
+            :rel_bytes => "Relative allocations",
+            :scenarios => "Scenarios"
+        )
     end
-    @orderby :rel_time
-    rename(
-        :backend => "Backend",
-        :rel_time => "Relative time",
-        :rel_bytes => "Relative allocations",
-        :scenarios => "Scenarios"
-    )
-end;
+end
+
+## What this build is missing, as prose: empty when it has every backend the
+## registry declares, or when it measured them here rather than reading them.
+status_note = published === nothing ? "" :
+    EpiAwarePackageTools.ad_benchmark_note(published)
+## Trailing `;` because this is the last statement of the chunk: without it
+## Literate emits the string itself into the page as a stray output block.
+no_data_text = "No measurements are available for this build.";
 
 md"""
 ```@raw html
@@ -225,7 +291,18 @@ md"""
 ```
 """
 
-markdown_table(summary_table)
+MarkdownOutput(status_note)
+
+md"""
+### Summary
+
+Geometric mean of the relative cost across the scenarios each backend can
+handle. `Scenarios` reports coverage, since a partial backend averages
+only over the scenarios it differentiates.
+"""
+
+have_data ? markdown_table(summarise(rel, n_total)) :
+    MarkdownOutput(no_data_text)
 
 md"""
 ### Spread across scenarios
@@ -241,19 +318,30 @@ md"""
 ```
 """
 
-plot_df = @chain rel begin
-    stack(
-        [:rel_time, :rel_bytes],
-        variable_name = :metric, value_name = :value
-    )
-    @rsubset isfinite(:value) && :value > 0
-    @rtransform begin
-        :metric = :metric == "rel_time" ? "Relative time" :
-            "Relative allocations"
-        :family = first(split(:backend))
-        :mode = occursin("reverse", lowercase(:backend)) ? "reverse" :
-            "forward"
+function long_plot_frame(rel)
+    return @chain rel begin
+        stack(
+            [:rel_time, :rel_bytes],
+            variable_name = :metric, value_name = :value
+        )
+        @rsubset isfinite(:value) && :value > 0
+        @rtransform begin
+            :metric = :metric == "rel_time" ? "Relative time" :
+                "Relative allocations"
+            :family = first(split(:backend))
+            :mode = occursin("reverse", lowercase(:backend)) ? "reverse" :
+                "forward"
+        end
     end
+end
+
+plot_df = if have_data
+    long_plot_frame(rel)
+else
+    DataFrame(
+        backend = String[], scenario = String[], metric = String[],
+        value = Float64[], family = String[], mode = String[]
+    )
 end
 
 ## Facet order: time then allocations. Plain CairoMakie rather than
@@ -262,21 +350,28 @@ end
 ## range in any package that hard-deps both (kit#283).
 metric_order = ["Relative time", "Relative allocations"]
 
+## With nothing measured the axes are left off entirely and the figure carries
+## the reason instead: an empty log-scale box plot has no boxes to draw and
+## would read as a rendering fault rather than as missing numbers.
 fig_relative = Figure(size = (1200, 500))
-for (col, metric) in enumerate(metric_order)
-    sub = @rsubset plot_df :metric == metric
-    backend_order = sort(unique(sub.backend))
-    ax = Axis(
-        fig_relative[1, col];
-        title = metric,
-        ylabel = col == 1 ? "Cost relative to $baseline" : "",
-        yscale = log10,
-        xticks = (1:length(backend_order), backend_order),
-        xticklabelrotation = pi / 4
-    )
-    xs = [findfirst(==(b), backend_order) for b in sub.backend]
-    boxplot!(ax, xs, sub.value)
-end
+if have_data
+    for (col, metric) in enumerate(metric_order)
+        sub = @rsubset plot_df :metric == metric
+        backend_order = sort(unique(sub.backend))
+        ax = Axis(
+            fig_relative[1, col];
+            title = metric,
+            ylabel = col == 1 ? "Cost relative to $baseline" : "",
+            yscale = log10,
+            xticks = (1:length(backend_order), backend_order),
+            xticklabelrotation = pi / 4
+        )
+        xs = [findfirst(==(b), backend_order) for b in sub.backend]
+        boxplot!(ax, xs, sub.value)
+    end
+else
+    Label(fig_relative[1, 1], no_data_text; tellwidth = false)
+end;
 
 md"""
 ```@raw html
@@ -301,56 +396,61 @@ md"""
 ```
 """
 
-families = sort(unique(plot_df.family))
-modes = sort(unique(plot_df.mode))
 palette = Makie.wong_colors()
 marker_shapes = [:circle, :utriangle, :rect, :diamond, :star5]
 
-## Axes built up front (one assignment per binding, not mutated in the loop
-## below) so a top-level `@example` block -- which runs each statement in
-## global scope -- can't hit Julia's soft-scope "ambiguous assignment in a
-## for loop" trap.
-scenario_orders = [
-    sort(unique((@rsubset plot_df :metric == m).scenario))
-        for m in metric_order
-]
+## As above, the axes are skipped entirely when nothing was measured -- here a
+## `Legend` built from an axis carrying no series would fail outright.
 fig_scenarios = Figure(size = (1600, 800))
-axes_scenarios = [
-    Axis(
-            fig_scenarios[1, col];
-            title = metric_order[col],
-            ylabel = col == 1 ? "Cost relative to $baseline" : "",
-            yscale = log10,
-            xticks = (
-                1:length(scenario_orders[col]),
-                scenario_orders[col],
-            ),
-            xticklabelrotation = pi / 4
-        )
-        for col in eachindex(metric_order)
-]
-
-for (col, metric) in enumerate(metric_order)
-    sub = @rsubset plot_df :metric == metric
-    scenario_order = scenario_orders[col]
-    ax = axes_scenarios[col]
-    for (fi, fam) in enumerate(families), (mi, mode) in enumerate(modes)
-        grp = @rsubset sub :family == fam && :mode == mode
-        isempty(grp) && continue
-        xs = [findfirst(==(s), scenario_order) for s in grp.scenario]
-        scatter!(
-            ax, xs, grp.value;
-            color = palette[mod1(fi, length(palette))],
-            marker = marker_shapes[mod1(mi, length(marker_shapes))],
-            markersize = 11,
-            label = "$fam ($mode)"
-        )
+if have_data
+    families = sort(unique(plot_df.family))
+    modes = sort(unique(plot_df.mode))
+    ## Axes built up front (one assignment per binding, not mutated in the
+    ## loop below) so a top-level `@example` block -- which runs each
+    ## statement in global scope -- can't hit Julia's soft-scope "ambiguous
+    ## assignment in a for loop" trap.
+    scenario_orders = [
+        sort(unique((@rsubset plot_df :metric == m).scenario))
+            for m in metric_order
+    ]
+    axes_scenarios = [
+        Axis(
+                fig_scenarios[1, col];
+                title = metric_order[col],
+                ylabel = col == 1 ? "Cost relative to $baseline" : "",
+                yscale = log10,
+                xticks = (
+                    1:length(scenario_orders[col]),
+                    scenario_orders[col],
+                ),
+                xticklabelrotation = pi / 4
+            )
+            for col in eachindex(metric_order)
+    ]
+    for (col, metric) in enumerate(metric_order)
+        sub = @rsubset plot_df :metric == metric
+        scenario_order = scenario_orders[col]
+        ax = axes_scenarios[col]
+        for (fi, fam) in enumerate(families), (mi, mode) in enumerate(modes)
+            grp = @rsubset sub :family == fam && :mode == mode
+            isempty(grp) && continue
+            xs = [findfirst(==(s), scenario_order) for s in grp.scenario]
+            scatter!(
+                ax, xs, grp.value;
+                color = palette[mod1(fi, length(palette))],
+                marker = marker_shapes[mod1(mi, length(marker_shapes))],
+                markersize = 11,
+                label = "$fam ($mode)"
+            )
+        end
     end
-end
-Legend(
-    fig_scenarios[1, length(metric_order) + 1], axes_scenarios[1];
-    merge = true, unique = true, title = "Backend family / Mode"
-);
+    Legend(
+        fig_scenarios[1, length(metric_order) + 1], axes_scenarios[1];
+        merge = true, unique = true, title = "Backend family / Mode"
+    )
+else
+    Label(fig_scenarios[1, 1], no_data_text; tellwidth = false)
+end;
 
 md"""
 ```@raw html
@@ -361,9 +461,8 @@ md"""
 fig_scenarios
 
 md"""
-The full long-format result is available as `raw_bench` if you want GC
-fraction, compile fraction, the `value_and_gradient` rows, or absolute
-timings.
+`bench_long` holds the absolute per-scenario timings and allocations behind
+every relative figure above, and `rel` the ratios themselves.
 
 ## [Choosing a backend](@id ad-backends)
 
@@ -413,8 +512,8 @@ the gradient tests rather than leaving the suite red.
 
 ## Reproducing this page
 
-The numbers above are measured on the docs-build machine, so they reflect
-that CPU.
+Every backend on this page is measured in a single run on one machine, so the
+figures compare with each other; they do not compare with another machine's.
 To regenerate locally:
 
 ```
@@ -426,6 +525,22 @@ or, equivalently:
 ```
 julia --project=docs docs/make.jl
 ```
+
+The build reads the gradient numbers this package's benchmark run deployed to
+its `benchmarks` branch, under `history/results/`, whenever it can reach them.
+Where it cannot, it measures every backend in the docs process, which for a
+large registry takes as long as the whole AD test matrix run one job after
+another.
+Point the build at a results file or directory to read a particular run:
+
+```
+AD_BENCHMARK_RESULTS=bench-results julia --project=docs docs/make.jl
+```
+
+`docs/docs_config.jl`'s `AD_BENCHMARK_RESULTS` sets the same location for
+every build. With either set, the page reads those numbers and never measures
+anything itself, so a build whose results are missing or incomplete says so
+above rather than quietly measuring them again.
 
 ## See also
 

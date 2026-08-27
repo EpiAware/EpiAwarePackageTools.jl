@@ -140,7 +140,11 @@ export ADRegistry, check_broken, test_working_backend, test_partial_backend
 export ad_backend_support_table
 export run_selected
 export build_docs
+# Bound here as well as in `DocsBuild` because the scaffolded AD-comparison
+# page calls them directly, and that page says `import EpiAwarePackageTools`
+# and nothing deeper.
+export load_ad_benchmarks, ad_benchmark_note
 
-using .DocsBuild: build_docs
+using .DocsBuild: build_docs, load_ad_benchmarks, ad_benchmark_note
 
 end # module EpiAwarePackageTools

@@ -1,9 +1,9 @@
 [deps]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-{{KIT_DEP_LINE}}{{PACKAGE}} = "{{UUID}}"
+{{AD_BENCH_FIXTURES_DEP}}BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+{{AD_BENCH_DI_DEP}}{{KIT_DEP_LINE}}{{PACKAGE}} = "{{UUID}}"
 
 [sources]
-{{PACKAGE}} = {path = ".."}
+{{AD_BENCH_SOURCES}}{{PACKAGE}} = {path = ".."}
 
 [compat]
-{{KIT_COMPAT_LINE}}BenchmarkTools = "1"
+{{KIT_COMPAT_LINE}}BenchmarkTools = "1"{{AD_BENCH_COMPAT}}
