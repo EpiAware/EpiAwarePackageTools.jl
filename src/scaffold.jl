@@ -2212,8 +2212,8 @@ function _ad_scenario_testitems()
 end
 
 # The per-backend coverage-flag markdown table (header, separator, badge
-# lines) from `_AD_BACKENDS`. Shared by the README badge block and the
-# AD-backends tutorial page, so the two always show the same table.
+# lines) from `_AD_BACKENDS`. Rendered into the README badge block, the
+# one place the kit reports per-backend coverage.
 function _ad_cov_flag_table(repo::AbstractString)
     cov = "https://codecov.io/gh/" * repo
     headers = "| " * join((b.header for b in _AD_BACKENDS), " | ") * " |"
@@ -2270,7 +2270,8 @@ end
 # `ADFixtures` registry (same fresh UUID as the AD test env, path-sourced
 # below), DifferentiationInterfaceTest (the benchmark driver), Chairmarks
 # (DIT 0.11+ needs it loaded explicitly for `benchmark_differentiation`),
-# the DataFrames/plotting stack, and the stdlibs the page loads.
+# the DataFrames/plotting stack, and `Statistics`, the one stdlib the
+# page loads.
 function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
     ad || return ""
     return string(
@@ -2280,7 +2281,6 @@ function _ad_docs_deps(ad::Bool, adfix_uuid::AbstractString)
         "DataFramesMeta = \"1313f7d8-7da2-5740-9ea0-a2ca25f37964\"\n",
         "DifferentiationInterfaceTest = ",
         "\"a82114a7-5aa3-49a8-9643-716bb13727a3\"\n",
-        "Markdown = \"d6f4376e-aef5-505a-96c1-9c027394607a\"\n",
         "Statistics = \"10745b16-79ce-11e8-11f9-7d13ad32a3b2\"\n"
     )
 end
@@ -2622,11 +2622,11 @@ function _extension_pages_unlinked(target_dir::AbstractString)
             ", "
         ),
         ", so ", length(missing_pages) == 1 ? "it is" : "they are",
-        " built but unreachable. `pages.jl` is package-owned and written ",
-        "once, so the kit cannot add ", length(missing_pages) == 1 ? "it" :
-            "them",
-        " on a later run: add ", entries,
-        " to the \"Extensions\" group by hand (#319)."
+        " built but unreachable. This pages.jl carries no ",
+        _MANAGED_PAGES_MARKER, " header, so the sync preserves it instead ",
+        "of regenerating its Extensions group: add ", entries,
+        " to the \"Extensions\" group by hand, or adopt the managed base ",
+        "(#319)."
     )
 end
 
@@ -2645,7 +2645,6 @@ function _ad_docs_compat(ad::Bool)
         "Chairmarks = \"1\"\n",
         "DataFramesMeta = \"0.15\"\n",
         "DifferentiationInterfaceTest = \"0.9, 0.10, 0.11\"\n",
-        "Markdown = \"1\"\n",
         "Statistics = \"1\"\n"
     )
 end
@@ -4276,8 +4275,8 @@ end
 
 """
     _apply(target_dir; managed_only, force, ad, benchmarks,
-        downgrade_compat, unregistered_sources, inputs)
-        downgrade_compat, inputs, freshen_reusable_refs, ref_source)
+        downgrade_compat, unregistered_sources, inputs,
+        freshen_reusable_refs, ref_source)
 
 Shared worker for `scaffold`/`update`.
 
@@ -4287,10 +4286,9 @@ selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
 benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
 `downgrade-compat` CI job; `unregistered_sources` declares that the package
 pins an unregistered dependency by git `[sources]`, which holds it to the Julia
-1.11 floor.
-`downgrade-compat` CI job. `freshen_reusable_refs` opts into moving each
-managed caller's reusable-workflow ref forwards (see `_RefFreshener`), with
-`ref_source` the injection point tests stub.
+1.11 floor. `freshen_reusable_refs` opts into moving each managed caller's
+reusable-workflow ref forwards (see `_RefFreshener`), with `ref_source` the
+injection point tests stub.
 
 Returns a `(created, updated, preserved, removed, warnings)` manifest of
 destination paths. `removed` holds the retired managed paths cleaned up (see
@@ -4874,14 +4872,13 @@ the one-off manual setup a fresh repo needs.
 
 `ad` controls whether the AD CI caller and AD test infrastructure are
 scaffolded, so a numerical package opts in and a tooling package opts out. It
-defaults to `true`. When `ad = true` two managed docs pages are written: the
-AD-backends tutorial page, which reports which backends work and how to
-configure and debug them, and its AD-comparison sibling under
-`docs/src/benchmarks/`, which benchmarks what each backend costs. Both bodies
-stay kit-current across syncs, while the scenarios, backends and broken/skip
-declarations they report are read at docs-build time from the package-owned
-`test/ADFixtures` registry (via [`ad_backend_support_table`](@ref)), and their
-registration plus docs-env deps are seeded into the package-owned docs seeds.
+defaults to `true`. When `ad = true` one managed docs page is written, the
+AD-comparison report under `docs/src/benchmarks/`, which benchmarks what each
+backend costs and carries the choosing/debugging narrative. Its body stays
+kit-current across syncs, while the scenarios, backends and broken/skip
+declarations it reports are read at docs-build time from the package-owned
+`test/ADFixtures` registry, and its registration plus docs-env deps are seeded
+into the package-owned docs seeds.
 When `ad = false` none of the AD infra is written, and the files whose content
 depends on AD (`Taskfile.yml`, `codecov.yml`, `test/Project.toml`, the docs
 seeds) are emitted in their no-AD variants. Pass the same `ad` value to
