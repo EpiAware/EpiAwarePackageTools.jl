@@ -4674,6 +4674,7 @@
                         ".github/workflows/auto-version-increment.yaml",
                         ".github/workflows/version-on-demand.yaml",
                         ".github/actions/increment-version/action.yaml",
+                        ".github/workflows/version-pr-reaper.yaml",
                     )
                     @test isfile(joinpath(dir, f))
                 end
@@ -4687,6 +4688,116 @@
                 @test !occursin("seabbs", act)
                 # No kit placeholder remains (GitHub `${{ }}` expressions stay).
                 @test !occursin(r"\{\{[A-Z_]+\}\}", act)
+            end
+        end
+
+        @testset "auto-version-increment stays safe under races and blocked PRs" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                wf = read(
+                    _dest(dir, ".github/workflows/auto-version-increment.yaml"),
+                    String
+                )
+                # Concurrent runs queue rather than cancel: a cancelled
+                # queued run would skip observing the version the previous
+                # run just landed.
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                @test occursin("cancel-in-progress: false", wf)
+
+                act = read(
+                    _dest(
+                        dir,
+                        ".github/actions/increment-version/action.yaml"
+                    ), String
+                )
+                # The push is leased against the SHA `git ls-remote` reports
+                # for the branch, rather than blindly forced or gated on a
+                # PR-title search that cannot see a branch whose PR was
+                # closed or never created.
+                @test occursin("git ls-remote origin", act)
+                @test occursin("force-with-lease=", act)
+                @test !occursin("in:title", act)
+                @test occursin("gh pr list --state open --head", act)
+                # The direct-commit fallback is reachable both by the
+                # deliberate create-pr=false configuration and by the
+                # create-pr step's own outcome, so a `gh pr create` failure
+                # (e.g. the org disallows Actions opening PRs) still lands
+                # the version bump.
+                @test occursin("continue-on-error: true", act)
+                # Matched loosely enough to survive a reformat of the
+                # YAML, while still pinning that both operands reach the
+                # same condition rather than two separate ones.
+                @test occursin(
+                    r"inputs\.create-pr == 'false'\s*\|\|\s*" *
+                        r"steps\.create-pr\.outcome == 'failure'",
+                    act
+                )
+                # A `gh pr create` output that cannot be parsed for a PR
+                # number fails loudly rather than silently.
+                @test occursin("Could not parse a PR number", act)
+            end
+        end
+
+        @testset "version PR reaper caller wraps the org reusable" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; reviewer = "octocat")
+                path = _dest(
+                    dir, ".github/workflows/version-pr-reaper.yaml"
+                )
+                @test isfile(path)
+                wf = read(path, String)
+
+                # A thin caller: the reaping itself lives in the org
+                # reusable, pinned by SHA like every other caller so
+                # Dependabot can bump it.
+                @test occursin(
+                    "EpiAware/.github/.github/workflows/" *
+                        "version-pr-reaper.yml@",
+                    wf
+                )
+                @test occursin(r"version-pr-reaper\.yml@[0-9a-f]{40}\b", wf)
+                @test occursin("secrets: inherit", wf)
+
+                # Triggered by a landed release (push to main), a schedule
+                # for a version that moved by another route, and an
+                # on-demand run.
+                @test occursin("branches: [main]", wf)
+                @test occursin("cron: '0 5 * * 1'", wf)
+                @test occursin("workflow_dispatch:", wf)
+                @test occursin("dry_run:", wf)
+
+                # The reusable honours `dry_run` on whatever trigger
+                # fires, so the caller decides which runs preview: a
+                # dispatch with the box ticked. Push and schedule pass
+                # `false`, and either way the value is the string the
+                # reusable's input takes.
+                @test occursin(
+                    "dry_run: \${{ inputs.dry_run && 'true' || 'false' }}",
+                    wf
+                )
+
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.ref }}", wf
+                )
+                # The caller caps what the reusable's own job-level grant
+                # can reach: closing PRs and deleting branches.
+                @test occursin("contents: write", wf)
+                @test occursin("pull-requests: write", wf)
+
+                # None of the reaping script is carried here. It belongs
+                # to the reusable, which is where it is tested.
+                @test !occursin("runs-on:", wf)
+                @test !occursin("semver_key", wf)
+                @test !occursin("gh pr close", wf)
+                @test !occursin("git push origin --delete", wf)
+
+                # No kit placeholder remains (GitHub `${{ }}` expressions
+                # stay).
+                @test !occursin(r"\{\{[A-Z_]+\}\}", wf)
             end
         end
 
