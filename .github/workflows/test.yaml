@@ -37,4 +37,5 @@ jobs:
     uses: EpiAware/.github/.github/workflows/downgrade.yml@2c7ce73459772f11dad46ac7f456e35f0d296faf
     with:
       julia_version: '1'
+      projects: '., test'
     secrets: inherit  # pragma: allowlist secret

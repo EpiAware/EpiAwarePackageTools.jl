@@ -97,7 +97,7 @@ jobs:
               using Pkg
               Pkg.activate("."); Pkg.instantiate()
               using EpiAwarePackageTools
-              res = EpiAwarePackageTools.update("."; org = "EpiAware", ad = false, benchmarks = false, downgrade_compat = true, unregistered_sources = false, freshen_reusable_refs = true)
+              res = EpiAwarePackageTools.update("."; org = "EpiAware", ad = false, benchmarks = false, unregistered_sources = false, freshen_reusable_refs = true)
               println("re-applied ", length(res.updated), " managed files")
               # Gaps a sync cannot close itself: write-once seeds it cannot
               # extend, and package-owned prose describing a retired standard.
@@ -139,7 +139,7 @@ jobs:
             ci
           body: |
             Automated re-apply of the managed EpiAwarePackageTools standard
-            (`update("."; org = "EpiAware", ad = false, benchmarks = false, downgrade_compat = true, unregistered_sources = false, freshen_reusable_refs = true)`).
+            (`update("."; org = "EpiAware", ad = false, benchmarks = false, unregistered_sources = false, freshen_reusable_refs = true)`).
 
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,
@@ -206,7 +206,6 @@ jobs:
                  julia -e 'using EpiAwarePackageTools;
                  EpiAwarePackageTools.update("."; org = "EpiAware",
                  ad = false, benchmarks = false,
-                 downgrade_compat = true,
                  unregistered_sources = false)'
 
           2. **Ask the kit for the flexibility.** If \`update\` throws, or it
