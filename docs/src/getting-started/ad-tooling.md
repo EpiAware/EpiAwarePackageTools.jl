@@ -64,11 +64,7 @@ top-level Benchmarks nav group.
 It reports what each backend costs on the package's own scenario set, and
 carries a short section on choosing between them.
 
-There used to be a second page, an `AD backends` tutorial under Getting started.
-It is retired.
-Its support table repeated the README's per-backend coverage badge row and the
-comparison page's own scenario coverage, and the rest was generic advice about
-using AD that belonged to no package in particular.
+There is no `AD backends` tutorial.
 
 Package pages across the org link to that page by its Documenter anchor,
 `@ref ad-backends`, so the anchor moved to the comparison page's
