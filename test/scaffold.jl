@@ -5288,7 +5288,7 @@ end # @testitem "scaffold + update (logic)"
             # floor. The current release, not the floor itself: the
             # standard's test env cannot resolve on 1.11 (JET ships nothing for
             # 1.11 past 0.9.20, and that needs JuliaSyntax 0.4, which the pinned
-            # Runic 1.7.0 rules out), so pinning the job to the floor would
+            # Runic 1.9 rules out), so pinning the job to the floor would
             # only go red on a conflict unrelated to the package.
             @test occursin("julia_version: '1'", wf)
             @test !occursin("julia_version: '1.10'", wf)
