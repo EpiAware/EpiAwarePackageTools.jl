@@ -585,7 +585,7 @@ const WORKFLOWS_ORG = "EpiAware"
 # calling repo's `.pre-commit-config.yaml` for the literal string
 # `Runic@<runic_version>` and fails if absent, so it does not need this value
 # passed as a workflow input the way `format-check.yml` did.
-const _RUNIC_VERSION = "1.7.0"
+const _RUNIC_VERSION = "1.9"
 
 # The single source of truth for the pinned `runic-pre-commit` hook revision,
 # feeding the `.pre-commit-config.yaml` `rev`. Released independently of Runic
@@ -660,7 +660,7 @@ end
 # every dependency at the lowest version its `[compat]` admits, so the version
 # it runs on has to be one where that floor-resolved environment still loads.
 # JET publishes nothing for 1.11 beyond 0.9.19/0.9.20, which need JuliaSyntax
-# 0.4 and cannot coexist with the pinned Runic 1.7.0 (JuliaSyntax 1). Pinning
+# 0.4 and cannot coexist with the pinned Runic 1.9 (JuliaSyntax 1). Pinning
 # this job low would only make CI red on a conflict unrelated to the package
 # under test, so it stays on the current release.
 const _JULIA_DOWNGRADE_VERSION = "'1'"
