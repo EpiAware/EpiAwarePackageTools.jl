@@ -69,7 +69,7 @@ jobs:
       # benchpkg installs the package into its own temp project, where Pkg
       # honours only the *active* project's `[sources]`. A dependency pinned
       # there by git url/rev (not yet registered) cannot resolve in that temp
-      # project and fails with "has no known versions!" (#216). Register each
+      # project and fails with "has no known versions!". Register each
       # such pin into a throwaway registry in this runner's depot instead:
       # registries are depot-level, so the dependency then resolves by name
       # in every environment on the runner. A package with no unregistered
@@ -110,7 +110,7 @@ jobs:
             echo "revs=${TAGS},${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           else
             # No tags yet: emit the bare SHA so revs carries no leading
-            # comma, which benchpkg rejects (#125).
+            # comma, which benchpkg rejects.
             echo "revs=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           fi
 
@@ -119,7 +119,7 @@ jobs:
       # measured with the current suite definition. --tune re-tunes
       # parameters per run to quieten noise on shared runners. --url points
       # benchpkg at this repo directly so it resolves an unregistered
-      # package (#125); harmless once registered.
+      # package; harmless once registered.
       - name: Run benchmarks
         run: |
           mkdir -p results

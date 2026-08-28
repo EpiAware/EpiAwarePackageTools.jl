@@ -2,8 +2,8 @@
 # adopted the kit before the managed `JuliaTestItems.toml`.
 #
 # `run_package_tests` used to be a transcription of `TestItemRunner.run_tests`
-# that reached into that package's internals to root discovery at `test/`
-# (#191). TestItemRunner 1.3 does that declaratively instead: the managed
+# that reached into that package's internals to root discovery at `test/`.
+# TestItemRunner 1.3 does that declaratively instead: the managed
 # `JuliaTestItems.toml` at the package root scopes discovery to `test/**`, and
 # the VS Code extension reads the same file, so editor and `Pkg.test` agree.
 #

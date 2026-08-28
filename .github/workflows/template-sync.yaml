@@ -13,14 +13,14 @@
 # `freshen_reusable_refs` (below) advances a pin that has fallen behind the
 # workflow it wraps.
 #
-# The sync only ever pushes to a branch it opened itself (#215), so it does
+# The sync only ever pushes to a branch it opened itself, so it does
 # no work on a pull request. The `pull_request` trigger is kept only so the
 # `sync` check still reports (clean, green, no-op) on a Dependabot PR rather
-# than red under Dependabot's restricted token (#256). Drift on a Dependabot
+# than red under Dependabot's restricted token. Drift on a Dependabot
 # bump is caught by the next scheduled run.
 #
 # A scheduled run has no audience, so a failure that needs a human is
-# reported as an issue on this repo rather than a red X nobody opens (#352).
+# reported as an issue on this repo rather than a red X nobody opens.
 # One issue, labelled `template-sync`, is edited in place on each failing run
 # and closed again by the first clean run.
 
@@ -32,7 +32,7 @@ on:
     - cron: '0 4 * * 1'
   workflow_dispatch:
   # Present only so `sync` reports green on a Dependabot PR; the job is a
-  # no-op on any pull request (see the skip step below, #256).
+  # no-op on any pull request (see the skip step below).
   pull_request:
 
 concurrency:
@@ -53,8 +53,8 @@ jobs:
       # On a Dependabot PR this job runs under Dependabot's restricted
       # context (read-only token, no Actions secrets), so the real steps
       # below would error and every Dependabot PR carried a spurious red
-      # `sync` (#256). The sync also only ever pushes to a branch it opened
-      # itself (#215), so it can fix nothing from a PR anyway. Hence a clean
+      # `sync`. The sync also only ever pushes to a branch it opened
+      # itself, so it can fix nothing from a PR anyway. Hence a clean
       # no-op here — kept as a running (green) job rather than `if`-skipped
       # so a required-check gate on `sync` stays satisfied.
       - name: Skip on a pull request
@@ -171,7 +171,7 @@ jobs:
             gh issue close "$open" --comment "$msg $run_url" || true
           fi
       # A scheduled run has no audience, so report a failure as an issue
-      # instead of a red X nobody looks at (#352). Edited in place, not
+      # instead of a red X nobody looks at. Edited in place, not
       # duplicated, so a failure repeating every Monday stays one issue.
       - name: Report the drift as an issue when the sync fails
         if: ${{ failure() && github.event_name != 'pull_request' }}

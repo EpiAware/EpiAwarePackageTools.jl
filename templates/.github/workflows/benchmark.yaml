@@ -71,7 +71,7 @@ jobs:
       # (`Pkg.develop` + `Pkg.instantiate` below), and Pkg honours only the
       # *active* project's `[sources]`. A dependency pinned there by git
       # url/rev (not yet registered) cannot resolve, failing with "has no
-      # known versions!" (#216). Register each such pin into a throwaway
+      # known versions!". Register each such pin into a throwaway
       # registry in this runner's depot instead: registries are depot-level,
       # so the dependency resolves by name in every environment on the
       # runner. A package with no unregistered pins is a no-op.
@@ -136,7 +136,7 @@ jobs:
         # always installs both rather than relying on `benchmark/Project.toml`
         # having them pinned — that file is package-owned and scaffold never
         # overwrites an adopter's pre-existing `benchmark/` dir, so either
-        # dependency could otherwise be silently missing (#821).
+        # dependency could otherwise be silently missing.
         run: |
           julia -e '
             using Pkg

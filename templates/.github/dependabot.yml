@@ -10,11 +10,11 @@ updates:
       # Daily, so a fix in shared workflows arrives within a day rather than
       # a week. Grouping (below) makes this affordable: a daily run refreshes
       # the one open grouped PR instead of opening more, at the cost of more
-      # CI runs than a weekly batch — a deliberate trade (#312).
+      # CI runs than a weekly batch — a deliberate trade.
       interval: "daily"
     # Bundle every github-actions bump into a single grouped PR per run, so
     # one EpiAware/.github change doesn't spawn a PR per referencing
-    # workflow file (#249).
+    # workflow file.
     groups:
       github-actions:
         patterns:
@@ -30,13 +30,13 @@ updates:
   - package-ecosystem: "julia"
     directory: "/"
     schedule:
-      # Daily, as above (#312). This ecosystem's refresh costs the most CI
-      # (the full test matrix reruns), so a package that would rather trade
+      # Daily, as above. This ecosystem's refresh costs the most CI (the
+      # full test matrix reruns), so a package that would rather trade
       # latency for runner time can set this back to `weekly` — the grouping
       # below is what actually matters.
       interval: "daily"
     # One grouped PR per run for all Julia dependency bumps across the
-    # workspace environments, rather than a separate PR per package (#249).
+    # workspace environments, rather than a separate PR per package.
     groups:
       julia:
         patterns:

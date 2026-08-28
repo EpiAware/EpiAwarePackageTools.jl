@@ -10,7 +10,7 @@
 # Force-managed: `update()` overwrites it on every sync. A package whose
 # `ADFixtures` registry predates the current `ADRegistry` contract can keep a
 # package-owned driver while it migrates via the opt-out marker described in
-# `EpiAwarePackageTools.update`'s docstring (#162).
+# `EpiAwarePackageTools.update`'s docstring.
 
 @testsnippet ADHelpers begin
     using ADTypes

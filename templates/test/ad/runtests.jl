@@ -15,7 +15,7 @@
 # the managed `ad.yaml` matrix over time, but `scenarios.jl` and `ADFixtures`
 # are package-owned seeds a sync cannot extend, so a package can end up with a
 # CI job for a backend it has no test items for. Left to report green, that job
-# also uploads an empty coverage flag behind a public badge (kit#415).
+# also uploads an empty coverage flag behind a public badge.
 
 using TestItemRunner
 

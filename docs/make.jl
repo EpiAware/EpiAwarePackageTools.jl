@@ -40,9 +40,9 @@ using EpiAwarePackageTools
 # and `docs_config.jl` (tutorial lists, link rewrites, linkcheck ignores,
 # package-owned) can both be absent, e.g. an adopter predating either. Guard
 # the include so a re-applied managed `make.jl` still loads and falls back to
-# defaults (#163); `_cfg` then defaults any key a missing or older config
+# defaults; `_cfg` then defaults any key a missing or older config
 # predates. The fallback warns because a silently-defaulted `pages` publishes
-# a Home-only nav that a green docs run would hide (#188).
+# a Home-only nav that a green docs run would hide.
 for _f in ("pages.jl", "docs_config.jl")
     if isfile(joinpath(@__DIR__, _f))
         include(joinpath(@__DIR__, _f))
@@ -87,10 +87,9 @@ build_docs(
     # const, and for every package that has not opted in.
     heavy_tutorial_workers = _cfg(:HEAVY_TUTORIAL_WORKERS, 1),
     # The `docs/src/benchmarks/` pipeline (e.g. `ad-comparison.jl`), same
-    # convention as the tutorials pipeline above but its own nav group
-    # (#299/#305). `_cfg` defaults both to empty for a `docs_config.jl` that
-    # predates this pipeline, so a package that has not yet added the two
-    # consts still builds -- just without that page rendered.
+    # convention as the tutorials pipeline above but its own nav group.
+    # `_cfg` defaults both to empty for a `docs_config.jl` without these
+    # consts, so such a package still builds, just without that page.
     heavy_benchmarks = _cfg(:HEAVY_BENCHMARKS, String[]),
     benchmark_stubs = _cfg(:BENCHMARK_STUBS, Pair{String, String}[]),
     # Where the AD-comparison page's published gradient numbers are. Left
@@ -103,7 +102,7 @@ build_docs(
     readme_execute = _cfg(:README_EXECUTE, true),
     index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
     benchmark_page = _cfg(:BENCHMARK_PAGE, false),
-    # Performance-history rendering (#193): headline suites + cap on the
+    # Performance-history rendering: headline suites + cap on the
     # summary/detail to the most-recent revisions. Both default to the whole
     # timeline when a package predates these config keys.
     history_suites = _cfg(:HISTORY_SUITES, String[]),
@@ -113,6 +112,6 @@ build_docs(
     history_regression_threshold = _cfg(:HISTORY_REGRESSION_THRESHOLD, 1.1),
     # Extra docstring-owning modules for a re-export the alias walk cannot
     # reach; re-exported API owners are auto-discovered, so most packages
-    # leave this empty (#175).
+    # leave this empty.
     extra_modules = _cfg(:EXTRA_MODULES, Module[])
 )

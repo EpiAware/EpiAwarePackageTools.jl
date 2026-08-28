@@ -5,7 +5,7 @@
 # Validate `env` is a usable isolated project (Project.toml + runtests.jl),
 # returning the runner path. Raises directly (not via @test) so a malformed
 # env fails immediately rather than as a Test.TestSetException. Shared by
-# test_jet's env path and _test_formatting_env in qa.jl (#58).
+# test_jet's env path and _test_formatting_env in qa.jl.
 function _validate_isolated_env(env::AbstractString, label::AbstractString)
     isdir(env) && isfile(joinpath(env, "Project.toml")) ||
         error("$label env $env has no Project.toml")
@@ -16,7 +16,7 @@ end
 
 # Instantiate `env` (already `_validate_isolated_env`-checked) and run
 # `runner` in a subprocess, returning whether it exited zero. Isolates a
-# heavy QA dependency (JET / Runic) from the test environment (#58);
+# heavy QA dependency (JET / Runic) from the test environment;
 # callers wrap the result in their own labelled @testset/@test.
 function _run_isolated_env(env::AbstractString, runner::AbstractString)
     Pkg = _require_pkg("44cfe95a-1eb2-52ea-b672-e2afdf69b78f", "Pkg")
@@ -100,7 +100,7 @@ end
 # Names any loaded extension of `mod` imports in a way ExplicitImports would
 # flag. `find_submodules` only sees an extension when it happens to be
 # loaded, so folding these names into every check's `ignore` removes that
-# load-order dependence (#189); the actual pass/fail verdict still comes
+# load-order dependence; the actual pass/fail verdict still comes
 # from the `check_*` functions below.
 function _extension_ignore_names(EI, mod::Module)
     names = Symbol[]
@@ -270,7 +270,7 @@ function test_import_centralisation(mod::Module)
     end
 end
 
-# --- Eager option validation (kit#310) --------------------------------------
+# --- Eager option validation ------------------------------------------------
 
 # A name outside `valid`, matching its element flavour (Symbol vs
 # AbstractString) so it round-trips through the caller's own error
@@ -338,7 +338,7 @@ function test_option_validation(
     end
 end
 
-# --- README section structure ----------------------------------------------
+# --- README section structure -----------------------------------------------
 
 """
     STANDARD_README_SECTIONS
@@ -366,7 +366,7 @@ alternatives. Extend or relax it per package via the `required` keyword of
 const STANDARD_README_SECTIONS = [
     ("Why", "Overview", "Features", "About"),
     ("Getting started", "Usage", "Quickstart", "Quick start"),
-    # One bullet per sibling package (#292), placed after Getting started
+    # One bullet per sibling package, placed after Getting started
     # and before Documentation. Replaces "What packages work well with X?",
     # which `STALE_README_HEADINGS` reports as drift.
     ("Related packages",),
@@ -374,7 +374,7 @@ const STANDARD_README_SECTIONS = [
     ("Contributing",),
     # "Cite" accepts the managed `## How to cite` heading
     # (`_render_standard_sections`), so a fresh scaffold passes out of the
-    # box without a hand-authored License/Supporting section (#201).
+    # box without a hand-authored License/Supporting section.
     ("Citing", "Citation", "Cite", "License", "Supporting"),
 ]
 
@@ -437,7 +437,7 @@ end
 # True when the `required` groups appear as an ordered *subsequence* of
 # `headings`. Extra package-owned headings may interleave anywhere, including
 # ones that also match a group — a `## License` above the managed block no
-# longer stands in for `## How to cite` below it (#236). A group absent from
+# longer stands in for `## How to cite` below it. A group absent from
 # `headings` is skipped here (reported by the presence check instead).
 # Greedy earliest-match is optimal for subsequence containment.
 function _sections_in_order(headings::Vector{String}, required)
@@ -582,7 +582,7 @@ function test_readme_sections(
         end
         # Drift against a renamed section: report the retired heading and what
         # replaced it, so the fix is a rename rather than a hunt for what is
-        # missing (#292).
+        # missing.
         @testset "stale headings" begin
             for (pattern, replacement) in stale
                 found = filter(h -> occursin(pattern, h), headings)
@@ -599,7 +599,7 @@ function test_readme_sections(
             # When the managed markers are present, the block's internal order
             # is the kit's to guarantee, so check it directly: a package-owned
             # section outside the markers cannot mask a managed section that is
-            # missing from, or out of order inside, the block (#236).
+            # missing from, or out of order inside, the block.
             managed = _managed_block_headings(body)
             if managed !== nothing
                 @testset "managed section order" begin
@@ -613,7 +613,7 @@ function test_readme_sections(
     end
 end
 
-# --- README placeholders, prose, and Why bullets (#292) ---------------------
+# --- README placeholders, prose, and Why bullets ----------------------------
 #
 # None of these three checks is wired into the scaffolded quality testset:
 # most adopting READMEs don't meet the standard yet, so a package opts in
@@ -1047,8 +1047,8 @@ end
 
 # A bullet in the disfavoured feature-inventory form: a bold label followed by a
 # colon, in either placement of the colon (`**Label**: does X` or
-# `**Label:** does X`). #292's first requirement rules this out for the Why
-# section in favour of a sentence saying why a reader needs the package.
+# `**Label:** does X`). Ruled out for the Why section, which wants a sentence
+# saying why a reader needs the package, not an inventory of features.
 const _BULLET_FEATURE_LABEL = r"""
 ^[-*+]\s+\*\*[^*]+\*\*\s*:   # **Label**: does X
 |

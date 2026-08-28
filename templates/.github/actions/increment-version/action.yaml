@@ -50,7 +50,7 @@ runs:
         # the correct transition is to RELEASE what the number already says,
         # not increment past it. Without this, `IFS='.'` leaves PATCH as
         # "0-DEV" and `$(( PATCH + 1 ))` coerces it to 1, so the maiden
-        # published version would be 0.1.1 and 0.1.0 silently skipped (#255).
+        # published version would be 0.1.1 and 0.1.0 silently skipped.
         BASE_VERSION="${CURRENT_VERSION%%[-+]*}"
 
         # Parse version parts from the released base, so PATCH is clean.
@@ -169,7 +169,7 @@ runs:
 
         # Only assign when a handle was configured. Assigning a bare org (the
         # fallback when no reviewer is set) errors on the update-existing-PR
-        # path, so skip the flag entirely when empty (#122).
+        # path, so skip the flag entirely when empty.
         ASSIGNEE_ARGS=()
         if [ -n "${{ inputs.assignee }}" ]; then
           ASSIGNEE_ARGS=(--assignee "${{ inputs.assignee }}")
