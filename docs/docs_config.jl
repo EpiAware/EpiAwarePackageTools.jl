@@ -66,3 +66,30 @@ const INDEX_STRIP_SECTIONS = String[]
 # it opts out (`benchmarks = false`); set `true` and add a `pages.jl`
 # "Benchmarks" nav entry to enable it.
 const BENCHMARK_PAGE = false
+
+# --- docs/pages.jl extension points (#170/#328/#354) ------------------------
+#
+# `docs/pages.jl` is MANAGED: `update`/`scaffold` regenerate it in full,
+# owning group labels, ordering and placement (the kit's own file carries the
+# EPIAWARE_MANAGED_PAGES marker, so it is re-created fresh on every sync).
+# The kit's nav content lives here instead of in the generated file.
+
+# The kit's own Getting-started tutorial, listed right after Overview (#354).
+const PACKAGE_TUTORIALS = Pair{String, String}[
+    "Customising your docs" => "getting-started/customising.md",
+]
+
+# The kit's "Development" top-level nav group (package-owned content carried
+# across the managed base, which would otherwise reproduce only its own fixed
+# skeleton): the maintainer-facing reference docs, out of Getting started so
+# they are not user-facing noise.
+const PACKAGE_SECTIONS = Pair{String, Any}[
+    "Development" => [
+        "Package standards" => "standards.md",
+        "Infrastructure and template sync" => "getting-started/infrastructure.md",
+        "Test infrastructure" => "getting-started/test-infrastructure.md",
+        "Benchmarking" => "getting-started/benchmarking.md",
+        "AD tooling" => "getting-started/ad-tooling.md",
+        "Release notes convention" => "getting-started/release-notes.md",
+    ],
+]
