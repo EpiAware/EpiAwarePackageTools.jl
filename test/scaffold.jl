@@ -5309,8 +5309,11 @@ end # @testitem "scaffold + update (logic)"
                 # The downgrade job resolves this bound too:
                 # `julia-downgrade-compat` is given `projects: '., test'`, so
                 # the test environment's floors are pinned exactly and have to
-                # load on the version that job runs.
-                @test occursin("JET = \"0.9, 0.10\"", compat)
+                # load on the version that job runs. The min-resolver lands on
+                # the oldest JET the current release can host — 0.10.2, since
+                # 0.9.x needs Julia 1.10/1.11 — so the 0.9 reach stays
+                # load-bearing for the lts leg and is never itself floored.
+                @test occursin(r"JET = \"0\.9,", compat)
             end
         end
     end
