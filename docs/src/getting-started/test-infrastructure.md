@@ -181,6 +181,31 @@ package-owned `test/jet/jet_config.jl` defining a `JET_REPORT_FILTER` predicate
 to suppress the spurious reports the tilde macro produces;
 `dynamicppl_model_filter` is the ready-made filter for that case.
 
+## The downgrade run
+
+Every managed package carries a `downgrade-compat` job in `test.yaml`.
+It resolves each declared bound at the oldest version that bound admits, then
+runs the suite, so a floor nobody has tried is caught rather than assumed.
+
+The job floors two environments, `.` and `test`.
+`julia-downgrade-compat` rewrites the `[compat]` table of each project it is
+named and of no others, so naming the root alone would leave the test
+environment's own bounds resolving at their newest admissible version and the
+suite would never itself be floor-resolved.
+A `[workspace]` does not change this.
+Its members share one manifest, so a member sees the root's floored versions,
+but a member's own `[compat]` entries are untouched by naming `.`.
+
+`docs` is left out.
+The job runs the test suite, so a docs-only bound has no bearing on what it
+checks.
+
+A package adopting this for the first time may go red on a test-environment
+bound.
+That is the floor being checked for the first time, not a new fault.
+Raise the offending lower bound to a version that actually works, or widen the
+range if the old version is genuinely supported.
+
 ## Running the tests
 
 From a Julia session, `Pkg.test()` runs the full suite.

@@ -80,8 +80,8 @@ package always starts fully managed.
 Use this sparingly. An overridden file stops tracking the standard, so kit fixes
 no longer reach it, which is the opposite of what the kit is for. Prefer the
 supported hooks (the package-owned config values, the marker-delimited regions,
-and the `ad`/`benchmarks`/`downgrade_compat`/`unregistered_sources` flags) where
-they cover the need.
+and the `ad`/`benchmarks`/`unregistered_sources` flags) where they cover the
+need.
 
 What the marker does **not** cover:
 
@@ -128,9 +128,9 @@ the kit recovers them from the committed repository on every sync, so the file
 keeps tracking the standard while the customisation survives. No marker is
 needed, and none of these values has to be re-passed to `update`.
 
-- The reviewer handle, the docs-hosting choice, the benchmark and
-  downgrade-compat opt-ins, Dependabot's action and reusable-workflow pins, and
-  any package-owned `with:` input added to a managed CI caller.
+- The reviewer handle, the docs-hosting choice, the benchmark opt-in,
+  Dependabot's action and reusable-workflow pins, and any package-owned `with:`
+  input added to a managed CI caller.
 - The Zenodo DOI badge and the licence badge in the README. A non-MIT package
   keeps its licence badge across a sync; pass `license` explicitly only to
   change it.
