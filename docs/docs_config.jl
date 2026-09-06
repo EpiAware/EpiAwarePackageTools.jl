@@ -82,7 +82,9 @@ const PACKAGE_TUTORIALS = Pair{String, String}[
 # The kit's "Development" top-level nav group (package-owned content carried
 # across the managed base, which would otherwise reproduce only its own fixed
 # skeleton): the maintainer-facing reference docs, out of Getting started so
-# they are not user-facing noise.
+# they are not user-facing noise. The group is named "Development" literally,
+# so `DEVELOPMENT_EXTEND_PAGE` has to stay unset: setting it would render a
+# second sibling "Development" group beside this one.
 const PACKAGE_SECTIONS = Pair{String, Any}[
     "Development" => [
         "Package standards" => "standards.md",
