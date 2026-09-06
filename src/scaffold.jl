@@ -735,9 +735,8 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
         "42a0501ccacefbfc2f2eeca640714a19c50bfe58",  # pragma: allowlist secret
     "documentation.yml" =>
         "a039a6060ed897a8dc4fc724ccb3c9fca2c49a2f",  # pragma: allowlist secret
-    # Contains the `projects` input the rendered caller passes (EpiAware/.github
-    # #66). An older ref does not define the key and the call fails before a
-    # step runs.
+    # Contains the `projects` input the rendered caller passes. An older ref
+    # does not define the key and the call fails before a step runs.
     "downgrade.yml" =>
         "cc63ecb3cfa4bb1c8c40a5decf5e339e729c5f30",  # pragma: allowlist secret
     # `downstream.yaml` tracked `@main` from its first commit, alone among the
