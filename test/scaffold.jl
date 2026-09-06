@@ -257,10 +257,10 @@
                 scaffold(dir; ad = false)
                 ver = EpiAwarePackageTools._RUNIC_VERSION
                 prerev = EpiAwarePackageTools._RUNIC_PRE_COMMIT_REV
-                # The standard holds Runic to a major bound, not an exact
-                # pin: an exact pin has to move in lockstep across three
-                # files in every repo, and drifted apart in practice.
-                @test occursin(r"^\d+$", ver)
+                # The standard holds Runic to a floor, not an exact pin: an
+                # exact pin has to move in lockstep across every file that
+                # names it in every repo, and drifted apart in practice.
+                @test occursin(r"^\d+(\.\d+)?$", ver)
                 # The pre-commit CI caller passes the Runic bound to
                 # `runic-check.yml`, which greps the local
                 # `.pre-commit-config.yaml` for the literal string
@@ -287,9 +287,15 @@
                 @test occursin("forbid-diff3-base-marker", cfg)
                 fmt = read(_dest(dir, "test/formatter/Project.toml"), String)
                 @test occursin("Runic = \"$ver\"", fmt)
-                # A caret bound, so the environment floats within the major.
+                # A caret bound, so the environment floats above the floor.
                 @test !occursin("Runic = \"=", fmt)
                 @test !occursin("{{", fmt)
+                # The test environment carries the same floor: the downgrade
+                # job floors it to exactly this release, which has to format
+                # the managed trees the way they are committed.
+                tp = read(_dest(dir, "test/Project.toml"), String)
+                @test occursin("Runic = \"$ver\"", tp)
+                @test !occursin("{{", tp)
             end
         end
 

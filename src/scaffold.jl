@@ -582,22 +582,26 @@ const WORKFLOWS_ORG = "EpiAware"
 # The single source of truth for the Runic bound, feeding the
 # `.pre-commit-config.yaml` hook `additional_dependencies` spec, the
 # `runic_version` input the `pre-commit.yaml` caller passes to
-# `runic-check.yml`, and the `test/formatter/Project.toml` compat entry.
+# `runic-check.yml`, and the Runic compat entry of the test environment and
+# of the isolated `test/formatter` environment.
 #
-# A major bound, not an exact pin. Both the hook environment and the isolated
-# formatter environment resolve the newest Runic 1.x when they are built, so
-# a Runic release reaches every package without a lockstep bump of three
-# files in every repo, and Dependabot has nothing to move in the formatter
-# environment. The cost is that the two environments can be built at
-# different times and hold different releases, so a formatting change
-# between two 1.x releases shows up as one check disagreeing with the other
-# until the stale environment is rebuilt.
+# A floor, not an exact pin: the release whose style the managed trees carry.
+# Every environment resolves the newest Runic at or above it, so a Runic
+# release reaches every package without a lockstep bump of four files in
+# every repo, and Dependabot has nothing to move in the formatter
+# environment. The downgrade job floors the test environment to exactly this
+# release, so the floor has to be one that formats the trees the way they
+# are committed. A Runic release that changes layout therefore moves the
+# floor here, alongside the reformat that goes with it.
+#
+# The cost is that two environments built at different times around such a
+# release can hold different Runic versions, so one check disagrees with the
+# other until the stale environment is rebuilt.
 #
 # `runic-check.yml` greps the calling repo's `.pre-commit-config.yaml` for the
-# literal string `Runic@<runic_version>` and fails if absent. Under a major
-# bound that checks only that the hook is held to Runic 1, which is the
-# whole of what the standard fixes.
-const _RUNIC_VERSION = "1"
+# literal string `Runic@<runic_version>` and fails if absent, so the hook
+# spec and this value have to agree to the character.
+const _RUNIC_VERSION = "1.10"
 
 # The single source of truth for the pinned `runic-pre-commit` hook revision,
 # feeding the `.pre-commit-config.yaml` `rev`. Released independently of Runic

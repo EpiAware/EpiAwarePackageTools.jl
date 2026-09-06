@@ -21,6 +21,6 @@ jobs:
       # greps this repo's `.pre-commit-config.yaml` for the literal string
       # `Runic@<runic_version>` and fails if absent, so this input and that
       # spec must agree. Both come from one source in the kit, and the value
-      # is a major bound, not an exact pin.
+      # is a floor, not an exact pin.
       runic_version: '{{RUNIC_VERSION}}'
     secrets: inherit  # pragma: allowlist secret
