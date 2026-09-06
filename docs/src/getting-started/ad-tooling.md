@@ -65,10 +65,8 @@ It reports what each backend costs on the package's own scenario set, and
 carries a short section on choosing between them.
 
 There is no `AD backends` tutorial.
-
-Package pages across the org link to that page by its Documenter anchor,
-`@ref ad-backends`, so the anchor moved to the comparison page's
-`Choosing a backend` section rather than disappearing.
+Package pages across the org link to the `@ref ad-backends` anchor, which
+resolves to the comparison page's `Choosing a backend` section.
 A sync deletes the retired source, and warns when a package's own
 `docs/docs_config.jl` still registers it, because that file is package-owned and
 the sync cannot edit it.
