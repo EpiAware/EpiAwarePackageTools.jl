@@ -14,12 +14,13 @@ concurrency:
 jobs:
   pre-commit:
     uses: EpiAware/.github/.github/workflows/runic-check.yml@2c7ce73459772f11dad46ac7f456e35f0d296faf
-    # `runic-check.yml` does not install Runic itself — pre-commit's native
-    # `language: julia` builds the hook's own env from the
-    # `.pre-commit-config.yaml` `additional_dependencies` pin. Instead it
-    # greps this repo's `.pre-commit-config.yaml` for the literal string
-    # `Runic@1.7.0` and fails if absent, so this input and that
-    # pin must agree (single source: `1.7.0`).
     with:
-      runic_version: '1.7.0'
+      # `runic-check.yml` does not install Runic itself: pre-commit's native
+      # `language: julia` builds the hook's own env from the
+      # `.pre-commit-config.yaml` `additional_dependencies` spec. Instead it
+      # greps this repo's `.pre-commit-config.yaml` for the literal string
+      # `Runic@<runic_version>` and fails if absent, so this input and that
+      # spec must agree. Both come from one source in the kit, and the value
+      # is a floor, not an exact pin.
+      runic_version: '1.10'
     secrets: inherit  # pragma: allowlist secret

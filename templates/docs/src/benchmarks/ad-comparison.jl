@@ -415,16 +415,16 @@ if have_data
     ]
     axes_scenarios = [
         Axis(
-                fig_scenarios[1, col];
-                title = metric_order[col],
-                ylabel = col == 1 ? "Cost relative to $baseline" : "",
-                yscale = log10,
-                xticks = (
-                    1:length(scenario_orders[col]),
-                    scenario_orders[col],
-                ),
-                xticklabelrotation = pi / 4
-            )
+            fig_scenarios[1, col];
+            title = metric_order[col],
+            ylabel = col == 1 ? "Cost relative to $baseline" : "",
+            yscale = log10,
+            xticks = (
+                1:length(scenario_orders[col]),
+                scenario_orders[col],
+            ),
+            xticklabelrotation = pi / 4
+        )
             for col in eachindex(metric_order)
     ]
     for (col, metric) in enumerate(metric_order)

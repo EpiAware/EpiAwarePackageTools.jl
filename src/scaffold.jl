@@ -206,7 +206,7 @@ const SCAFFOLD_TEMPLATES = Template[
         "test/formatter/runtests.jl",
         "test/formatter/runtests.jl", true, false
     ),
-    # Substituted for the single-source `{{RUNIC_VERSION}}` compat pin.
+    # Substituted for the single-source `{{RUNIC_VERSION}}` compat bound.
     Template(
         "test/formatter/Project.toml",
         "test/formatter/Project.toml", true, true
@@ -579,13 +579,29 @@ const DEFAULT_ORG = "EpiAware"
 # this kit's own repo. Fixed, whatever org an adopting package lives in.
 const WORKFLOWS_ORG = "EpiAware"
 
-# The single source of truth for the pinned Runic version (#114), feeding the
-# `.pre-commit-config.yaml` hook `additional_dependencies` pin and the
-# `test/formatter/Project.toml` compat pin. `runic-check.yml` greps the
-# calling repo's `.pre-commit-config.yaml` for the literal string
-# `Runic@<runic_version>` and fails if absent, so it does not need this value
-# passed as a workflow input the way `format-check.yml` did.
-const _RUNIC_VERSION = "1.7.0"
+# The single source of truth for the Runic bound, feeding the
+# `.pre-commit-config.yaml` hook `additional_dependencies` spec, the
+# `runic_version` input the `pre-commit.yaml` caller passes to
+# `runic-check.yml`, and the Runic compat entry of the test environment and
+# of the isolated `test/formatter` environment.
+#
+# A floor, not an exact pin: the release whose style the managed trees carry.
+# Every environment resolves the newest Runic at or above it, so a Runic
+# release reaches every package without a lockstep bump of four files in
+# every repo, and Dependabot has nothing to move in the formatter
+# environment. The downgrade job floors the test environment to exactly this
+# release, so the floor has to be one that formats the trees the way they
+# are committed. A Runic release that changes layout therefore moves the
+# floor here, alongside the reformat that goes with it.
+#
+# The cost is that two environments built at different times around such a
+# release can hold different Runic versions, so one check disagrees with the
+# other until the stale environment is rebuilt.
+#
+# `runic-check.yml` greps the calling repo's `.pre-commit-config.yaml` for the
+# literal string `Runic@<runic_version>` and fails if absent, so the hook
+# spec and this value have to agree to the character.
+const _RUNIC_VERSION = "1.10"
 
 # The single source of truth for the pinned `runic-pre-commit` hook revision,
 # feeding the `.pre-commit-config.yaml` `rev`. Released independently of Runic
@@ -660,7 +676,7 @@ end
 # every dependency at the lowest version its `[compat]` admits, so the version
 # it runs on has to be one where that floor-resolved environment still loads.
 # JET publishes nothing for 1.11 beyond 0.9.19/0.9.20, which need JuliaSyntax
-# 0.4 and cannot coexist with the pinned Runic 1.7.0 (JuliaSyntax 1). Pinning
+# 0.4 and cannot coexist with Runic 1 (JuliaSyntax 1). Pinning
 # this job low would only make CI red on a conflict unrelated to the package
 # under test, so it stays on the current release.
 const _JULIA_DOWNGRADE_VERSION = "'1'"
@@ -1792,11 +1808,17 @@ function _merge_with_blocks(
     # package-owned unmatched content, exactly like an extra key — keep it
     # alongside the seed's own trailing lines (if any) rather than dropping it.
     trailing = isempty(e.trailing) ? s.trailing : vcat(s.trailing, e.trailing)
-    # The destination's leading comments are its rationale for the block
-    # (#117). Only the lines the template does not emit itself are kept:
-    # appending the head wholesale would re-append the template's own comments
-    # on every sync, growing the file without bound.
-    extra_head = [l for l in e.head if !(l in s.head)]
+    # The destination's leading comments are its rationale for an override
+    # (#117): a key only the package carries, or a seed-default key it names.
+    # They are kept only when the block holds one. A block of managed keys
+    # alone has nothing of the package's to explain, so its head is the
+    # template's to re-render, and a comment the template has since reworded
+    # does not linger beside the new wording in every adopter. Of a kept head,
+    # only the lines the template does not emit itself survive: appending it
+    # wholesale would re-append the template's own comments on every sync,
+    # growing the file without bound.
+    overrides = !isempty(extra) || !isempty(overridden)
+    extra_head = overrides ? [l for l in e.head if !(l in s.head)] : String[]
     head = vcat(s.head, extra_head)
     isempty(extra) && isempty(e.trailing) && isempty(overridden) &&
         isempty(extra_head) && return seed
@@ -2128,9 +2150,9 @@ end
 function _ad_backends_json()
     entries = [
         string(
-                "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
-                b.slug, "\"}"
-            ) for b in _AD_BACKENDS
+            "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
+            b.slug, "\"}"
+        ) for b in _AD_BACKENDS
     ]
     return "[" * join(entries, ",") * "]"
 end
@@ -2496,9 +2518,9 @@ function _extensions_nav(target_dir::AbstractString)
     isempty(pages) && return ""
     entries = [
         string(
-                "        \"", p.title, "\" => \"extensions/", p.slug,
-                ".md\""
-            ) for p in pages
+            "        \"", p.title, "\" => \"extensions/", p.slug,
+            ".md\""
+        ) for p in pages
     ]
     return string(
         ",\n    \"Extensions\" => [\n", join(entries, ",\n"),
@@ -2609,9 +2631,9 @@ function _extension_pages_unlinked(target_dir::AbstractString)
     entries = join(
         (
             string(
-                    "\"", p.title, "\" => \"extensions/", p.slug,
-                    ".md\""
-                ) for p in missing_pages
+                "\"", p.title, "\" => \"extensions/", p.slug,
+                ".md\""
+            ) for p in missing_pages
         ), ", "
     )
     return string(

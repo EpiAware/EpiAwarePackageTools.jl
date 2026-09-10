@@ -131,6 +131,9 @@ needed, and none of these values has to be re-passed to `update`.
 - The reviewer handle, the docs-hosting choice, the benchmark and
   downgrade-compat opt-ins, Dependabot's action and reusable-workflow pins, and
   any package-owned `with:` input added to a managed CI caller.
+  A comment between `uses:` and `with:` is read as the rationale for such an
+  input, so it is kept while the block carries one of your own and re-rendered
+  from the template otherwise.
 - The Zenodo DOI badge and the licence badge in the README. A non-MIT package
   keeps its licence badge across a sync; pass `license` explicitly only to
   change it.
