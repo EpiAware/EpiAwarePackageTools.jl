@@ -2900,6 +2900,138 @@
             end
         end
 
+        @testset "AD backend subset (#438)" begin
+            # Given out of kit order: every surface renders in
+            # `_AD_BACKENDS` order whatever order the package lists.
+            subset = ["mooncake_reverse", "forwarddiff", "enzyme_reverse"]
+            kit_order = ["forwarddiff", "enzyme_reverse", "mooncake_reverse"]
+            arg = "ad_backends = [\"forwarddiff\", \"enzyme_reverse\", " *
+                "\"mooncake_reverse\"]"
+            dropped = filter(
+                b -> !(b.tag in subset), EpiAwarePackageTools._AD_BACKENDS
+            )
+
+            # Every surface derived from `_AD_BACKENDS` carries the subset
+            # alone.
+            function check_subset(dir)
+                cov = read(joinpath(dir, "codecov.yml"), String)
+                @test count(r"(?m)^  ad-", cov) == 3
+                @test occursin("after_n_builds: 4", cov)
+                adyaml = read(_dest(dir, ".github/workflows/ad.yaml"), String)
+                tags = [m.captures[1] for m in eachmatch(r"\"tag\":\"(\w+)\"", adyaml)]
+                @test tags == kit_order
+                for f in ("test/ad/setup.jl", "test/ad/run_selected.jl")
+                    @test occursin(
+                        "using ForwardDiff, Enzyme, Mooncake\n",
+                        read(_dest(dir, f), String)
+                    )
+                end
+                readme = read(joinpath(dir, "README.md"), String)
+                @test count("graph/badge.svg?flag=ad-", readme) == 3
+                sync = read(
+                    _dest(dir, ".github/workflows/template-sync.yaml"), String
+                )
+                @test count(arg, sync) == 3
+                for b in dropped
+                    @test !occursin(b.slug, cov)
+                    @test !occursin(b.slug, adyaml)
+                    @test !occursin(b.slug, readme)
+                end
+                return nothing
+            end
+
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Subset")
+                scaffold(dir; ad_backends = subset)
+                check_subset(dir)
+                # The package-owned seeds start at the subset too.
+                fixtures = read(
+                    _dest(dir, "test/ADFixtures/src/ADFixtures.jl"), String
+                )
+                @test occursin("import ForwardDiff, Enzyme, Mooncake\n", fixtures)
+                @test count(r"\(name = \"", fixtures) == 3
+                @test !occursin("AutoReverseDiff(compile", fixtures)
+                scenarios = read(_dest(dir, "test/ad/scenarios.jl"), String)
+                @test count(r"(?m)^@testitem", scenarios) == 3
+
+                # A bare `update` recovers the subset from the committed
+                # template-sync call, and the excluded backends raise no
+                # missing-test-item warning.
+                res = update(dir)
+                check_subset(dir)
+                @test !any(w -> occursin("has no @testitem", w), res.warnings)
+                # As does the call the scheduled sync makes.
+                update(dir; ad_backends = subset)
+                check_subset(dir)
+            end
+
+            @testset "a new kit backend is not picked up" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "SubsetDrift")
+                    scaffold(dir; ad_backends = subset)
+                    push!(
+                        EpiAwarePackageTools._AD_BACKENDS,
+                        (
+                            alt = "FakeAD", header = "FakeAD",
+                            slug = "ad-fakead", tag = "fakead",
+                            pkg = "FakeADPkg",
+                        )
+                    )
+                    try
+                        update(dir)
+                        check_subset(dir)
+                        adyaml = read(
+                            _dest(dir, ".github/workflows/ad.yaml"), String
+                        )
+                        @test !occursin("fakead", adyaml)
+                    finally
+                        pop!(EpiAwarePackageTools._AD_BACKENDS)
+                    end
+                end
+            end
+
+            @testset "the full list tracks the kit" begin
+                all_tags = [b.tag for b in EpiAwarePackageTools._AD_BACKENDS]
+                mktempdir() do full
+                    mktempdir() do default
+                        _fake_pkg(full; name = "Same")
+                        _fake_pkg(default; name = "Same")
+                        scaffold(full; ad_backends = reverse(all_tags))
+                        scaffold(default)
+                        for f in (
+                                ".github/workflows/template-sync.yaml",
+                                ".github/workflows/ad.yaml", "codecov.yml",
+                                "README.md", "test/ad/setup.jl",
+                            )
+                            @test read(_dest(full, f), String) ==
+                                read(_dest(default, f), String)
+                        end
+                        sync = read(
+                            _dest(
+                                default, ".github/workflows/template-sync.yaml"
+                            ), String
+                        )
+                        @test !occursin("ad_backends", sync)
+                    end
+                end
+            end
+
+            @testset "invalid selections error" begin
+                mktempdir() do dir
+                    _fake_pkg(dir; name = "SubsetBad")
+                    @test_throws "unknown AD backend" scaffold(
+                        dir; ad_backends = ["forwarddiff", "zygote"]
+                    )
+                    @test_throws "ad = false" scaffold(dir; ad_backends = String[])
+                    # ForwardDiff computes every scenario's reference
+                    # gradient, so it cannot be left out.
+                    @test_throws "reference" scaffold(
+                        dir; ad_backends = ["mooncake_reverse"]
+                    )
+                end
+            end
+        end
+
         @testset "update respects ad = false" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Tooly")
