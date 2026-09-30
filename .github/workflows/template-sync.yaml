@@ -5,8 +5,8 @@
 # the refresh, so a repo never silently falls behind.
 #
 # The `update` call carries the arguments this package was scaffolded with,
-# including its org, so a sync re-applies the standard with the package's own
-# choices rather than the kit defaults.
+# including its org and any AD backend subset, so a sync re-applies the
+# standard with the package's own choices rather than the kit defaults.
 #
 # Refs only move forwards: `update` keeps whatever reusable-workflow SHA
 # Dependabot has pinned, so a sync never reverts a Dependabot bump, and

@@ -148,6 +148,31 @@ coverage flags the same package generates.
 Add, remove, or reorder a backend in `_AD_BACKENDS` and every one of those
 regenerates consistently on the next sync.
 
+### Testing a subset of the backends
+
+A package that does not support a backend at all can test a subset of the list.
+Pass the tags it supports as `ad_backends`, for example:
+
+```julia
+EpiAwarePackageTools.update(
+    "."; ad_backends = ["forwarddiff", "enzyme_reverse", "mooncake_reverse"]
+)
+```
+
+Every surface above then carries the subset alone.
+`forwarddiff` is required, because every scenario's reference gradient is computed with it.
+A backend the package supports with some scenarios broken is not a case for a subset.
+Declare those scenarios in `backend_broken_scenarios` or `backend_skip_scenarios` instead.
+
+The subset is written into the managed `template-sync.yaml` `update` call, as `org` is.
+The scheduled sync therefore keeps it, and a later `update` called without `ad_backends` recovers it from there.
+A subset does not pick up a backend the kit adds later.
+List the new tag once the package supports it.
+Passing every tag records no subset, so the package tracks the kit's list again.
+
+`update` never rewrites the package-owned seeds.
+When a package adopts a subset after it was scaffolded, remove the dropped backends from `test/ad/scenarios.jl`, `ADFixtures.backends()` and the two AD environments by hand.
+
 ## The registry contract
 
 The harness has no knowledge of any particular package's types.

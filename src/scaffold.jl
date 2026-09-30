@@ -1209,9 +1209,23 @@ into a template:
     into the caller's `with:` block survives a later resync that does not
     re-pass it (see `_preserve_caller_with_inputs`). The reusable ref the
     caller is pinned to must declare a `timeout_minutes` input.
+  - `ad_backends` — the AD backend tags the package tests, a subset of the
+    kit's `_AD_BACKENDS` tags (e.g. `["forwarddiff", "enzyme_reverse"]`), for
+    a package that does not support a backend at all (#438). Every surface derived from the kit's backend list carries the
+    subset alone: the README coverage badges, the `codecov.yml` flags and
+    build count, the `ad.yaml` `backends` matrix, the `test/ad` `using` lines,
+    and the `ADFixtures`/`scenarios.jl` seeds. `forwarddiff` is required, as
+    the reference every scenario's gradient is checked against. The subset is
+    written into the managed `template-sync.yaml` `update` call, so the
+    scheduled sync keeps it, and default `nothing` recovers it from there so
+    a bare `update` keeps it too; with none recorded, every backend is tested.
+    A subset does not pick up a backend the kit adds later: list it once the
+    package supports it. Passing every tag records no subset, so the package
+    tracks the kit's list again.
 
 Returns a `NamedTuple` of `placeholder => value` pairs (plus `LICENSE`, the
-resolved SPDX identifier).
+resolved SPDX identifier, and `AD_BACKEND_SELECTION`, the resolved AD backend
+entries).
 """
 function scaffold_inputs(
         target_dir::AbstractString;
@@ -1227,7 +1241,8 @@ function scaffold_inputs(
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing,
         docs_timeout::Union{Nothing, Integer} = nothing,
-        ad_timeout::Union{Nothing, Integer} = nothing
+        ad_timeout::Union{Nothing, Integer} = nothing,
+        ad_backends::Union{Nothing, AbstractVector{<:AbstractString}} = nothing
     )
     # Keep whatever licence the repo declares, so a bare sync cannot reset a
     # non-MIT adopter's badge to the default.
@@ -1335,7 +1350,8 @@ function scaffold_inputs(
     # ad=true `codecov.yml` gate holds the status notification until all flag
     # uploads (unit + one per AD backend) are in.
     tutorials_subdir = _tutorials_subdir(target_dir)
-    ad_build_count = string(length(_AD_BACKENDS) + 1)
+    backends = _resolve_ad_backends(target_dir, ad_backends)
+    ad_build_count = string(length(backends) + 1)
     return (
         PACKAGE = pkg, UUID = uuid, ADFIXTURES_UUID = adfix_uuid,
         AUTHORS = auth, HOLDER = hold, ORG = org, REPO = rp,
@@ -1345,11 +1361,15 @@ function scaffold_inputs(
         AD_TIMEOUT_LINE = _ad_timeout_line(ad_timeout),
         DOI = resolved_doi, ZENODO_BADGE = resolved_zenodo,
         TUTORIALS_SUBDIR = tutorials_subdir, AD_BUILD_COUNT = ad_build_count,
-        AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir),
-        AD_BACKENDS_JSON = _ad_backends_json(),
-        AD_BACKEND_PACKAGES = _ad_backend_packages(),
-        AD_BACKEND_ENTRIES = _ad_backend_entries(),
-        AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(),
+        AD_CODECOV_FLAGS = _ad_codecov_flags(target_dir, backends),
+        AD_BACKENDS_JSON = _ad_backends_json(backends),
+        AD_BACKEND_PACKAGES = _ad_backend_packages(backends),
+        AD_BACKEND_ENTRIES = _ad_backend_entries(backends),
+        AD_SCENARIO_TESTITEMS = _ad_scenario_testitems(backends),
+        AD_BACKENDS_ARG = _ad_backends_arg(backends),
+        # Not a placeholder: the resolved entries, for the README badge table
+        # and the missing-test-item check.
+        AD_BACKEND_SELECTION = backends,
         CODEOWNERS_LINE = codeowners_line,
         DEPENDABOT_REVIEWERS = dependabot_reviewers,
         ASSIGNEE_DEFAULT = assignee_default,
@@ -2069,8 +2089,75 @@ const _AD_BACKENDS = [
     ),
 ]
 
-# The managed `codecov.yml` `flags:` entries for every AD backend, generated
-# from `_AD_BACKENDS` so the list can never drift from `AD_BUILD_COUNT`.
+# A package can test a subset of `_AD_BACKENDS` (#438), leaving a backend it
+# does not support at all out of every surface above. A backend it supports
+# with some scenarios broken is not this: `backend_broken_scenarios` and
+# `backend_skip_scenarios` cover that. The subset is persisted in the managed
+# `template-sync.yaml` `update` call, as `org` is, so a scheduled sync keeps
+# it. A backend the kit adds later is not added to a subset; the package lists
+# it once it supports it.
+
+# The backend every `ADFixtures` scenario's reference gradient comes from, so
+# no subset can leave it out.
+const _AD_REFERENCE_TAG = "forwarddiff"
+
+# The `ad_backends = [...]` argument of a committed template-sync `update`
+# call. Only a subset writes it, so a package that has not synced since a
+# backend was added (#475) is never read as having opted out of it, as it
+# would be if the subset were read back from the `ad.yaml` matrix.
+const _AD_BACKENDS_ARG = r"ad_backends = \[([^\]]*)\]"
+
+# The subset tags persisted in `target_dir`'s template-sync workflow, or
+# `nothing` when it records none.
+function _detect_ad_backends(target_dir::AbstractString)
+    path = joinpath(target_dir, ".github", "workflows", "template-sync.yaml")
+    isfile(path) || return nothing
+    m = match(_AD_BACKENDS_ARG, read(path, String))
+    m === nothing && return nothing
+    return [
+        String(something(t.captures[1]))
+            for t in eachmatch(r"\"([^\"]*)\"", something(m.captures[1]))
+    ]
+end
+
+# The `_AD_BACKENDS` entries a package tests, in the kit's order: the
+# `ad_backends` tags when given, else the subset persisted by an earlier
+# scaffold, else every backend.
+function _resolve_ad_backends(
+        target_dir::AbstractString,
+        ad_backends::Union{Nothing, AbstractVector{<:AbstractString}}
+    )
+    tags = ad_backends === nothing ? _detect_ad_backends(target_dir) :
+        ad_backends
+    tags === nothing && return _AD_BACKENDS
+    isempty(tags) && error(
+        "`ad_backends` is empty; pass `ad = false` to opt out of the AD ",
+        "infra altogether"
+    )
+    known = [b.tag for b in _AD_BACKENDS]
+    unknown = setdiff(tags, known)
+    isempty(unknown) || error(
+        "unknown AD backend tag(s) ", join(repr.(unknown), ", "),
+        " in `ad_backends`; the kit's tags are ", join(repr.(known), ", ")
+    )
+    _AD_REFERENCE_TAG in tags || error(
+        "`ad_backends` must include ", repr(_AD_REFERENCE_TAG),
+        ": every ADFixtures scenario's reference gradient is computed with it"
+    )
+    return filter(b -> b.tag in tags, _AD_BACKENDS)
+end
+
+# The `ad_backends` argument the template-sync `update` calls carry: empty
+# for the full list, so a package that selects every backend keeps tracking
+# the kit.
+function _ad_backends_arg(backends)
+    length(backends) == length(_AD_BACKENDS) && return ""
+    return ", ad_backends = [" *
+        join(("\"" * b.tag * "\"" for b in backends), ", ") * "]"
+end
+
+# The managed `codecov.yml` `flags:` entries for each of the package's AD
+# `backends`, from the same list as `AD_BUILD_COUNT` so the two never drift.
 #
 # `src` only, except for the Enzyme backends: most AD jobs run without the
 # package's weakdeps loaded, so no extension file executes under an `ad-*`
@@ -2093,8 +2180,8 @@ const _AD_BACKENDS = [
 # package with no Enzyme-triggered extension claims `src` alone: there is
 # nothing under `ext/` those jobs can execute, so claiming any of it could
 # only deflate them.
-function _ad_codecov_flags(target_dir::AbstractString)
-    blocks = map(_AD_BACKENDS) do b
+function _ad_codecov_flags(target_dir::AbstractString, backends)
+    blocks = map(backends) do b
         paths = ["      - src\n"]
         for ext in _backend_extension_files(target_dir, b.pkg)
             push!(paths, "      - ", ext, "\n")
@@ -2147,22 +2234,22 @@ end
 # pinning the CI matrix to the same source as the badges and codecov flags.
 # Emitted on one line and single-quoted by the template, so no block scalar
 # can be mis-indented by the substitution.
-function _ad_backends_json()
+function _ad_backends_json(backends)
     entries = [
         string(
             "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
             b.slug, "\"}"
-        ) for b in _AD_BACKENDS
+        ) for b in backends
     ]
     return "[" * join(entries, ",") * "]"
 end
 
 # The packages the scaffolded `test/ad/setup.jl` `using` line loads, derived
-# from `_AD_BACKENDS` (deduplicated, first-seen order) so `setup.jl` can never
-# over- or under-load relative to it.
-function _ad_backend_packages()
+# from the package's `backends` (deduplicated, first-seen order) so `setup.jl`
+# can never over- or under-load relative to them.
+function _ad_backend_packages(backends)
     pkgs = String[]
-    for b in _AD_BACKENDS
+    for b in backends
         b.pkg in pkgs || push!(pkgs, b.pkg)
     end
     return join(pkgs, ", ")
@@ -2180,13 +2267,13 @@ const _AD_BACKEND_CTORS = Dict(
     "mooncake_forward" => "AutoMooncakeForward()"
 )
 
-# The seeded `ADFixtures.backends()` body, one entry per `_AD_BACKENDS` entry,
+# The seeded `ADFixtures.backends()` body, one entry per entry of `backends`,
 # so a fresh package's AD registry matches every backend
 # `test/ad/scenarios.jl` emits a testitem for (#217). A tag with no known
 # constructor gets `nothing` with an inline TODO rather than erroring, so
 # `scaffold`/`update` still succeeds.
-function _ad_backend_entries()
-    entries = map(_AD_BACKENDS) do b
+function _ad_backend_entries(backends)
+    entries = map(backends) do b
         ctor = get(_AD_BACKEND_CTORS, b.tag) do
             "nothing  # TODO: add the ADTypes constructor for \"$(b.header)\""
         end
@@ -2220,9 +2307,9 @@ function _ad_scenario_tags(b)
 end
 
 # The scaffolded `test/ad/scenarios.jl` starter `@testitem` blocks, one per
-# `_AD_BACKENDS` entry, so the seed never falls behind as backends are added.
-function _ad_scenario_testitems()
-    blocks = map(_AD_BACKENDS) do b
+# entry of `backends`, so the seed never falls behind as backends are added.
+function _ad_scenario_testitems(backends)
+    blocks = map(backends) do b
         string(
             "@testitem \"", b.header, " gradients (marginal)\" tags = ",
             _ad_scenario_tags(b), " setup = [ADHelpers] begin\n",
@@ -2234,18 +2321,18 @@ function _ad_scenario_testitems()
 end
 
 # The per-backend coverage-flag markdown table (header, separator, badge
-# lines) from `_AD_BACKENDS`. Rendered into the README badge block, the
+# lines) from `backends`. Rendered into the README badge block, the
 # one place the kit reports per-backend coverage.
-function _ad_cov_flag_table(repo::AbstractString)
+function _ad_cov_flag_table(repo::AbstractString, backends)
     cov = "https://codecov.io/gh/" * repo
-    headers = "| " * join((b.header for b in _AD_BACKENDS), " | ") * " |"
-    sep = "|" * join((":---:" for _ in _AD_BACKENDS), "|") * "|"
+    headers = "| " * join((b.header for b in backends), " | ") * " |"
+    sep = "|" * join((":---:" for _ in backends), "|") * "|"
     badges = "| " *
         join(
         [
             "[![cov $(b.alt)]($cov/graph/badge.svg?flag=$(b.slug))]" *
                 "(https://app.codecov.io/gh/$repo?flags%5B0%5D=" *
-                "$(b.slug))" for b in _AD_BACKENDS
+                "$(b.slug))" for b in backends
         ],
         " | "
     ) * " |"
@@ -2805,7 +2892,7 @@ end
 # the heavy backends as deps, which `update` must not have to load. A tag is
 # matched with a trailing word boundary so `:reversediff` is not satisfied by
 # `:reversediff_compiled`.
-function _ad_backend_tag_gap(target_dir::AbstractString, ad::Bool)
+function _ad_backend_tag_gap(target_dir::AbstractString, ad::Bool, backends)
     ad || return nothing
     dir = joinpath(target_dir, "test", "ad")
     isdir(dir) || return nothing
@@ -2825,7 +2912,7 @@ function _ad_backend_tag_gap(target_dir::AbstractString, ad::Bool)
     # No items at all means the package has not seeded its AD suite yet,
     # which is the scaffold's own starting state rather than drift.
     occursin("@testitem", text) || return nothing
-    gaps = filter(b -> !occursin(Regex(":$(b.tag)\\b"), text), _AD_BACKENDS)
+    gaps = filter(b -> !occursin(Regex(":$(b.tag)\\b"), text), backends)
     isempty(gaps) && return nothing
     example = first(gaps)
     return string(
@@ -3306,21 +3393,23 @@ function _downloads_badges(pkg::AbstractString)
 end
 
 """
-    _render_badges(repo, pkg; ad, license = DEFAULT_LICENSE,
-        docs_url = nothing, doi = nothing, zenodo_badge = nothing)
+    _render_badges(repo, pkg; ad, ad_backends = _AD_BACKENDS,
+        license = DEFAULT_LICENSE, docs_url = nothing, doi = nothing,
+        zenodo_badge = nothing)
 
 Render the standard badge block (without the markers) from resolved
 inputs.
 
 `repo` is the `owner/name.jl` slug; `pkg` the package name; `ad` adds the
-per-backend AD CI + coverage badge table; `license` is the SPDX id whose badge
-is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when both are given. The
+per-backend AD CI + coverage badge table, one column per `ad_backends`
+entry; `license` is the SPDX id whose badge is shown. `doi`/`zenodo_badge` add a Zenodo DOI badge when both are given. The
 layout is a five-column header table (Documentation, Build Status, Code
 Quality, License & DOI, Downloads) plus the per-backend AD table. Every URL is
 built from `repo`/`pkg`, so no owner/repo is hardcoded.
 """
 function _render_badges(
         repo::AbstractString, pkg::AbstractString; ad::Bool,
+        ad_backends = _AD_BACKENDS,
         license::AbstractString = DEFAULT_LICENSE,
         docs_url::Union{Nothing, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
@@ -3367,7 +3456,7 @@ function _render_badges(
     if ad
         # Coverage flags only: per-backend *status* URLs would 404, since only
         # the aggregate `ad.yaml` exists.
-        header_line, sep, cov_line = _ad_cov_flag_table(repo)
+        header_line, sep, cov_line = _ad_cov_flag_table(repo, ad_backends)
         push!(lines, "")
         push!(lines, header_line)
         push!(lines, sep)
@@ -3416,13 +3505,14 @@ end
 # Content outside the markers is never touched. Returns `(action, changed)`.
 function _apply_badges(
         readme::AbstractString, repo, pkg; ad::Bool,
+        ad_backends = _AD_BACKENDS,
         license::AbstractString = DEFAULT_LICENSE,
         docs_url::Union{Nothing, AbstractString} = nothing,
         doi::Union{Nothing, AbstractString} = nothing,
         zenodo_badge::Union{Nothing, AbstractString} = nothing
     )
     badges = _render_badges(
-        repo, pkg; ad = ad, license = license,
+        repo, pkg; ad = ad, ad_backends = ad_backends, license = license,
         docs_url = docs_url, doi = doi, zenodo_badge = zenodo_badge
     )
     block = BADGES_START * "\n" * badges * "\n" * BADGES_END
@@ -4346,6 +4436,9 @@ function _apply(
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
             DOWNGRADE_COMPAT = string(downgrade_compat),
             UNREGISTERED_SOURCES = string(unregistered_sources),
+            # An AD subset means nothing to an `ad = false` package, so none
+            # is recorded for it.
+            AD_BACKENDS_ARG = ad ? inputs.AD_BACKENDS_ARG : "",
             # `scaffold_inputs` seeds the full matrix; only here is it known
             # whether this package's `[sources]` pins hold it above lts (#410).
             JULIA_TEST_VERSIONS = _julia_test_versions(unregistered_sources),
@@ -4468,7 +4561,8 @@ function _apply(
         lic = String(inputs.LICENSE)
         readme_action = first(
             _apply_badges(
-                readme, repo, pkg; ad = ad, license = lic,
+                readme, repo, pkg; ad = ad,
+                ad_backends = inputs.AD_BACKEND_SELECTION, license = lic,
                 docs_url = inputs.DOCS_URL, doi = inputs.DOI,
                 zenodo_badge = inputs.ZENODO_BADGE
             )
@@ -4617,7 +4711,9 @@ function _apply(
     # reaches the managed ad.yaml matrix but not the package-owned test items,
     # so its CI job would report green on zero tests — see
     # `_ad_backend_tag_gap`.
-    tag_gap = _ad_backend_tag_gap(target_dir, ad)
+    tag_gap = _ad_backend_tag_gap(
+        target_dir, ad, inputs.AD_BACKEND_SELECTION
+    )
     if tag_gap !== nothing
         push!(warnings, tag_gap)
         @warn tag_gap
@@ -5077,7 +5173,9 @@ overrides to keep substitution stable across a sync. `org` is the one that
 cannot be left to its default by a package hosted elsewhere, so the managed
 `template-sync.yaml` writes the scaffolded value into its own `update` call
 and the scheduled sync re-passes it. Scaffold a package outside the EpiAware
-org with `org = "<owner>"` and every later sync keeps that owner.
+org with `org = "<owner>"` and every later sync keeps that owner. An AD backend
+subset (`ad_backends`, see [`scaffold_inputs`](@ref)) is written there too,
+and recovered from there when `update` is called without one (#438).
 
 `ad` must match the value the package was scaffolded with (default `true`).
 `benchmarks`, `downgrade_compat` and `unregistered_sources` all default to

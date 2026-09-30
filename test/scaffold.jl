@@ -2933,7 +2933,9 @@
                 )
                 @test count(arg, sync) == 3
                 for b in dropped
-                    @test !occursin(b.slug, cov)
+                    # The flag key: the static header comment names the
+                    # Enzyme flags whichever backends are selected.
+                    @test !occursin("  $(b.slug):", cov)
                     @test !occursin(b.slug, adyaml)
                     @test !occursin(b.slug, readme)
                 end

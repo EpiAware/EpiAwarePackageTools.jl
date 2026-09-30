@@ -6,9 +6,10 @@ name: AD
 # the thin caller.
 #
 # `backends` is passed explicitly (built from `_AD_BACKENDS`, the kit's
-# single source of truth) rather than left to the reusable's own default,
-# so the CI matrix can never drift from the badges/codecov flags this
-# package generates.
+# single source of truth, narrowed to the package's `ad_backends` subset if
+# it has one) rather than left to the reusable's own default, so the CI
+# matrix can never drift from the badges/codecov flags this package
+# generates.
 #
 # `timeout_minutes` is passed only when the package sets `ad_timeout`, so a
 # package whose slowest backend runs close to the reusable's own cap can
@@ -17,7 +18,7 @@ name: AD
 on:
   push:
     branches: [main]
-    # Skip the heavy 7-backend sweep only for changes that cannot alter a
+    # Skip the heavy per-backend sweep only for changes that cannot alter a
     # gradient result (prose docs, markdown); everything else — src/, ext/,
     # test/, Project.toml, benchmark/, the workflow itself — still triggers
     # it. Only skips when EVERY changed file matches.
