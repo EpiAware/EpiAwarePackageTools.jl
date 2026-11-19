@@ -5362,22 +5362,36 @@ end # @testitem "scaffold + update (logic)"
         end
     end
 
-    @testset "the JET bound is one every leg of the matrix can resolve" begin
+    @testset "the seeded test env leaves JET to the isolated environment" begin
+        # DifferentiationInterfaceTest bounds JET below 0.12, which Julia 1.13
+        # needs, so seeding both makes the env unresolvable there. JET runs in
+        # test/jet, so neither variant lists it.
         for ad in (true, false)
             mktempdir() do dir
                 _fake_pkg(dir)
                 scaffold(dir; ad = ad)
-                compat = read(_p(dir, "test/Project.toml"), String)
-                # JET publishes nothing past 0.9.18 for Julia 1.10, so a bound
-                # starting at 0.10 makes the seeded lts leg unresolvable and
-                # the matrix a lie. The bound reaches back to 0.9 in both the
-                # AD and no-AD variants, which had drifted apart.
-                #
-                # This costs the downgrade job nothing: `julia-downgrade-compat`
-                # resolves `projects: '.'` — the root Project.toml — so the
-                # test environment's bounds are never floor-resolved.
-                @test occursin(r"JET = \"0\.9,", compat)
+                proj = read(_p(dir, "test/Project.toml"), String)
+                @test !occursin("JET", proj)
+                @test occursin("JET", read(_p(dir, "test/jet/Project.toml"), String))
             end
+        end
+    end
+
+    @testset "update warns about JET beside DifferentiationInterfaceTest" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            @test !any(w -> occursin("lists JET", w), update(dir).warnings)
+            tp = _p(dir, "test/Project.toml")
+            write(
+                tp, replace(
+                    read(tp, String),
+                    "[deps]\n" => "[deps]\nJET = \"c3a54625-cd67-489e-a8e7-0a5a0ff4e31b\"\n"
+                )
+            )
+            ws = filter(w -> occursin("lists JET", w), update(dir).warnings)
+            @test length(ws) == 1
+            @test occursin("Julia 1.13", only(ws))
         end
     end
 
