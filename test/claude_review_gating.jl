@@ -1,6 +1,6 @@
 # The Claude workflows are opt-in: a fresh scaffold writes neither, and
 # `claude_review = true` writes both. `update` detects an adopter's state from
-# the committed workflows so a resync preserves an opt-in.
+# the committed workflows and preserves an opt-in on resync.
 
 @testitem "claude_review opt-in gating" begin
     using Test

@@ -127,9 +127,8 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/try-this-pr.yaml",
         ".github/workflows/try-this-pr.yaml", true, true
     ),
-    # The Claude Code workflows, emitted only with `claude_review = true` and
-    # gated on the `reviewer` handle so only that user's comments/PRs trigger
-    # them.
+    # The Claude Code workflows, emitted only with `claude_review = true`. They
+    # run only for comments and PRs from the `reviewer` handle.
     Template(
         ".github/workflows/claude.yml",
         ".github/workflows/claude.yml", true, true,
@@ -4040,9 +4039,9 @@ end
 """
     _detect_claude_review(target_dir)
 
-Whether a repo already carries the Claude workflows, so a resync (`update`
-with no `claude_review` kwarg) preserves an adopter's opt-in. The managed
-`claude.yml` and `claude-code-review.yml` are the marker; a target with
+Whether a repo already has the Claude workflows. A resync (`update` with no
+`claude_review` kwarg) uses this to preserve an adopter's opt-in. The managed
+`claude.yml` and `claude-code-review.yml` are the marker, and a target with
 neither defaults to opt-out.
 """
 function _detect_claude_review(target_dir::AbstractString)
@@ -4919,8 +4918,8 @@ preserves an opt-in; a fresh package has none, so the default is opt-out.
 
 `claude_review` controls the opt-in Claude workflows, `claude.yml` and
 `claude-code-review.yml`. It defaults to `nothing`, which detects the target's
-current state from those workflows so re-scaffolding preserves an opt-in; a
-fresh package has none, so the default is opt-out. [`update`](@ref) detects and
+current state from those workflows, so re-scaffolding preserves an opt-in. A
+fresh package has none and therefore opts out. [`update`](@ref) detects and
 preserves the state.
 
 `downgrade_compat` controls the opt-in `downgrade-compat` CI job in
