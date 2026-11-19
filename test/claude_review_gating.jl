@@ -1,7 +1,7 @@
-# The Claude workflows need an API key or OAuth token secret, so they are
-# opt-in: a fresh scaffold writes neither, `claude_review = true` writes both,
-# and `update` detects the committed state so a resync keeps an opt-in and does
-# not restore workflows a package deleted.
+# The Claude workflows need an API key or OAuth token secret and are opt-in.
+# A fresh scaffold writes neither and `claude_review = true` writes both.
+# `update` detects the committed state: a resync keeps an opt-in and does not
+# restore workflows a package deleted.
 
 @testitem "claude_review opt-in gating + idempotence" begin
     using Test

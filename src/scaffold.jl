@@ -4052,10 +4052,10 @@ end
 """
     _detect_claude_review(target_dir)
 
-Whether a repo already ships the Claude workflows, so a resync (`update` with
-no `claude_review` kwarg) preserves an adopter's opt-in, and a package that
-deleted them is not given them back. The committed workflows are the marker. A
-never-scaffolded target has neither, so it defaults to opt-out.
+Whether a repo already ships the Claude workflows. A resync (`update` with no
+`claude_review` kwarg) uses this to preserve an adopter's opt-in, and does not
+give the workflows back to a package that deleted them. The committed workflows
+are the marker. A never-scaffolded target has neither and defaults to opt-out.
 """
 function _detect_claude_review(target_dir::AbstractString)
     wf = joinpath(target_dir, ".github", "workflows")
@@ -4952,11 +4952,11 @@ preserves an opt-in; a fresh package has none, so the default is opt-out.
 
 `claude_review` controls the opt-in Claude workflows, `claude.yml` and
 `claude-code-review.yml`. Both need an `ANTHROPIC_API_KEY` or
-`CLAUDE_CODE_OAUTH_TOKEN` secret, so a package without one would see the review
-job fail on every pull request. It defaults to `nothing`, which detects the
-target's current state from the committed workflows. Re-scaffolding then
-preserves an opt-in, and a package that deleted the workflows does not get them
-back. A fresh package has none, so the default is opt-out.
+`CLAUDE_CODE_OAUTH_TOKEN` secret. Without one, the review job fails on every
+pull request. It defaults to `nothing`, which detects the current state of the
+target from the committed workflows. Re-scaffolding preserves an opt-in and
+does not restore workflows a package deleted. A fresh package has none and
+defaults to opt-out.
 
 `downgrade_compat` controls the opt-in `downgrade-compat` CI job in
 `test.yaml`, which resolves the oldest compatible dep versions. A package
