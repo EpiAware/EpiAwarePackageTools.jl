@@ -50,6 +50,11 @@ The AD harness + AD CI are opt-in: `scaffold`/`scaffold_generate`/`update` take 
 tooling/non-numerical package passes `ad = false` to scaffold none of the AD
 infrastructure. The kit manages its own repo with `ad = false`.
 
+The Claude workflows (`claude.yml`, `claude-code-review.yml`) are opt-in too, through
+`claude_review = true`, because they need an `ANTHROPIC_API_KEY` or
+`CLAUDE_CODE_OAUTH_TOKEN` secret. By default `update` keeps whichever state the repo
+already has.
+
 A [`Benchmarks`](@ref EpiAwarePackageTools.Benchmarks) submodule supplies the
 generic benchmark-reporting harness: turning AirspeedVelocity or BenchmarkTools
 result data into a legible Markdown PR comment. A package keeps its own

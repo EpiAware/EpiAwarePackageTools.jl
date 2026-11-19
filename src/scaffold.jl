@@ -24,7 +24,8 @@
 # the same `dest`, so exactly one is emitted.
 #
 # `bench` mirrors that for the opt-in `benchmarks` flag: `:always` or
-# `:bench_only`.
+# `:bench_only`. `claude` does the same for the opt-in `claude_review` flag:
+# `:always` or `:claude_only`.
 struct Template
     src::String
     dest::String
@@ -32,6 +33,11 @@ struct Template
     substitute::Bool
     ad::Symbol
     bench::Symbol
+    claude::Symbol
+end
+
+function Template(src, dest, managed, substitute, ad::Symbol, bench::Symbol)
+    return Template(src, dest, managed, substitute, ad, bench, :always)
 end
 
 # Convenience constructor: most templates are AD- and benchmark-agnostic.
@@ -137,14 +143,18 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/try-this-pr.yaml", true, true
     ),
     # The Claude Code review bot, gated on the `reviewer` handle so only that
-    # user's comments/PRs trigger it.
+    # user's comments/PRs trigger it. Opt-in via `claude_review = true`: both
+    # workflows need an API key or OAuth token secret that a package may not
+    # have, and would otherwise fail on every PR.
     Template(
         ".github/workflows/claude.yml",
-        ".github/workflows/claude.yml", true, true
+        ".github/workflows/claude.yml", true, true,
+        :always, :always, :claude_only
     ),
     Template(
         ".github/workflows/claude-code-review.yml",
-        ".github/workflows/claude-code-review.yml", true, true
+        ".github/workflows/claude-code-review.yml", true, true,
+        :always, :always, :claude_only
     ),
     # Scheduled template-sync: re-applies the managed standard and opens a PR
     # when the committed infra has drifted from the kit.
@@ -4031,6 +4041,28 @@ function _bench_selected(t::Template, benchmarks::Bool)
     error("template $(t.src) has unknown bench mode $(t.bench)")
 end
 
+# Whether a template is emitted for the requested `claude_review` value:
+# `:always` always, `:claude_only` only when `claude_review = true`.
+function _claude_selected(t::Template, claude_review::Bool)
+    t.claude === :always && return true
+    t.claude === :claude_only && return claude_review
+    error("template $(t.src) has unknown claude mode $(t.claude)")
+end
+
+"""
+    _detect_claude_review(target_dir)
+
+Whether a repo already ships the Claude workflows, so a resync (`update` with
+no `claude_review` kwarg) preserves an adopter's opt-in, and a package that
+deleted them is not given them back. The committed workflows are the marker; a
+never-scaffolded target has neither and so defaults to opt-out.
+"""
+function _detect_claude_review(target_dir::AbstractString)
+    wf = joinpath(target_dir, ".github", "workflows")
+    return isfile(joinpath(wf, "claude.yml")) ||
+        isfile(joinpath(wf, "claude-code-review.yml"))
+end
+
 """
     _detect_benchmarks(target_dir)
 
@@ -4296,7 +4328,7 @@ function _benchmark_history_triggers(parked::Bool)
 end
 
 """
-    _apply(target_dir; managed_only, force, ad, benchmarks,
+    _apply(target_dir; managed_only, force, ad, benchmarks, claude_review,
         downgrade_compat, unregistered_sources, inputs,
         freshen_reusable_refs, ref_source)
 
@@ -4305,7 +4337,8 @@ Shared worker for `scaffold`/`update`.
 `managed_only` restricts to managed templates (the `update` path). `force`
 overwrites package-owned files too (only meaningful for `scaffold`). `ad`
 selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
-benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
+benchmark CI/suite/docs page; `claude_review` gates the opt-in Claude
+workflows (`claude.yml`, `claude-code-review.yml`); `downgrade_compat` gates the opt-in
 `downgrade-compat` CI job; `unregistered_sources` declares that the package
 pins an unregistered dependency by git `[sources]`, which holds it to the Julia
 1.11 floor. `freshen_reusable_refs` opts into moving each managed caller's
@@ -4319,7 +4352,8 @@ diverged-but-unmarked `test/ad/setup.jl` about to be overwritten.
 """
 function _apply(
         target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool, downgrade_compat::Bool,
+        ad::Bool, benchmarks::Bool, claude_review::Bool,
+        downgrade_compat::Bool,
         unregistered_sources::Bool, inputs::NamedTuple,
         freshen_reusable_refs::Bool = false, ref_source = nothing
     )
@@ -4343,6 +4377,7 @@ function _apply(
         inputs,
         (
             AD = string(ad), BENCHMARKS = string(benchmarks),
+            CLAUDE_REVIEW = string(claude_review),
             BENCHMARKS_NAV = bench_nav, BENCHMARK_PAGE = string(benchmarks),
             DOWNGRADE_COMPAT = string(downgrade_compat),
             UNREGISTERED_SOURCES = string(unregistered_sources),
@@ -4395,6 +4430,7 @@ function _apply(
         managed_only && !t.managed && continue
         _ad_selected(t, ad) || continue
         _bench_selected(t, benchmarks) || continue
+        _claude_selected(t, claude_review) || continue
         from = joinpath(src_dir, t.src)
         isfile(from) || error("missing bundled template $(t.src) at $from")
         to = _dest_path(target_dir, t.dest)
@@ -4842,7 +4878,7 @@ end
 
 """
     scaffold(target_dir; force = false, ad = true, benchmarks = nothing,
-        freshen_reusable_refs = false, kwargs...)
+        claude_review = nothing, freshen_reusable_refs = false, kwargs...)
 
 Adopt the standard EpiAware package tooling in `target_dir` (a package root).
 
@@ -4913,6 +4949,14 @@ package-owned prose hooks. It defaults to `nothing`, which detects the
 target's current state from the benchmark workflows so re-scaffolding
 preserves an opt-in; a fresh package has none, so the default is opt-out.
 [`update`](@ref) detects and preserves the state.
+
+`claude_review` controls the opt-in Claude workflows, `claude.yml` and
+`claude-code-review.yml`. Both need an `ANTHROPIC_API_KEY` or
+`CLAUDE_CODE_OAUTH_TOKEN` secret, so a package without one would see the review
+job fail on every pull request. It defaults to `nothing`, which detects the
+target's current state from the committed workflows so re-scaffolding preserves
+an opt-in and a package that deleted them is not given them back; a fresh
+package has none, so the default is opt-out.
 
 `downgrade_compat` controls the opt-in `downgrade-compat` CI job in
 `test.yaml`, which resolves the oldest compatible dep versions. A package
@@ -5031,6 +5075,7 @@ non-fatal `warnings`.
 function scaffold(
         target_dir::AbstractString; force::Bool = false,
         ad::Bool = true, benchmarks::Union{Nothing, Bool} = nothing,
+        claude_review::Union{Nothing, Bool} = nothing,
         downgrade_compat::Union{Nothing, Bool} = nothing,
         unregistered_sources::Union{Nothing, Bool} = nothing,
         freshen_reusable_refs::Bool = false, ref_source = nothing,
@@ -5038,20 +5083,22 @@ function scaffold(
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
+    claude = claude_review === nothing ?
+        _detect_claude_review(target_dir) : claude_review
     dg = downgrade_compat === nothing ?
         _detect_downgrade_compat(target_dir) : downgrade_compat
     us = unregistered_sources === nothing ?
         _detect_unregistered_sources(target_dir) : unregistered_sources
     return _apply(
         target_dir; managed_only = false, force = force, ad = ad,
-        benchmarks = bench, downgrade_compat = dg,
+        benchmarks = bench, claude_review = claude, downgrade_compat = dg,
         unregistered_sources = us, inputs = inputs,
         freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
 end
 
 """
-    update(target_dir; ad = true, benchmarks = nothing,
+    update(target_dir; ad = true, benchmarks = nothing, claude_review = nothing,
         downgrade_compat = nothing, unregistered_sources = nothing,
         freshen_reusable_refs = false, kwargs...)
 
@@ -5080,7 +5127,7 @@ and the scheduled sync re-passes it. Scaffold a package outside the EpiAware
 org with `org = "<owner>"` and every later sync keeps that owner.
 
 `ad` must match the value the package was scaffolded with (default `true`).
-`benchmarks`, `downgrade_compat` and `unregistered_sources` all default to
+`benchmarks`, `claude_review`, `downgrade_compat` and `unregistered_sources` all default to
 `nothing`, detecting the package's current state from the committed workflows
 and environments so a resync preserves an adopter's opt-in rather than
 stripping it, or reintroducing a job the package deliberately removed (#121).
@@ -5159,19 +5206,22 @@ left absent, self-healing rather than requiring a full `scaffold` re-run.
 function update(
         target_dir::AbstractString; ad::Bool = true,
         benchmarks::Union{Nothing, Bool} = nothing,
+        claude_review::Union{Nothing, Bool} = nothing,
         downgrade_compat::Union{Nothing, Bool} = nothing,
         unregistered_sources::Union{Nothing, Bool} = nothing,
         freshen_reusable_refs::Bool = false, ref_source = nothing, kwargs...
     )
     inputs = scaffold_inputs(target_dir; kwargs...)
     bench = benchmarks === nothing ? _detect_benchmarks(target_dir) : benchmarks
+    claude = claude_review === nothing ?
+        _detect_claude_review(target_dir) : claude_review
     dg = downgrade_compat === nothing ?
         _detect_downgrade_compat(target_dir) : downgrade_compat
     us = unregistered_sources === nothing ?
         _detect_unregistered_sources(target_dir) : unregistered_sources
     return _apply(
         target_dir; managed_only = true, force = false, ad = ad,
-        benchmarks = bench, downgrade_compat = dg,
+        benchmarks = bench, claude_review = claude, downgrade_compat = dg,
         unregistered_sources = us, inputs = inputs,
         freshen_reusable_refs = freshen_reusable_refs, ref_source = ref_source
     )
@@ -5246,7 +5296,8 @@ end
 
 """
     scaffold_generate(target_dir, package; authors = String[], uuid = <fresh>,
-        ad = true, benchmarks = false, unregistered_sources = false, kwargs...)
+        ad = true, benchmarks = false, claude_review = false,
+        unregistered_sources = false, kwargs...)
 
 Generate a fresh package at `target_dir` and adopt the standard tooling.
 
@@ -5267,6 +5318,8 @@ source module, so it works from an empty or non-existent directory.
   - `benchmarks` — forwarded to [`scaffold`](@ref): opt into the benchmark CI +
     suite + docs page. A fresh package has no benchmark workflows to detect, so
     this defaults to `false` (opt-out); pass `benchmarks = true` to enable.
+  - `claude_review` — forwarded to [`scaffold`](@ref): opt into the Claude
+    workflows. Defaults to `false` (opt-out) for a fresh package.
   - `unregistered_sources` — forwarded to [`scaffold`](@ref), and also seeds
     the new `Project.toml`'s `[compat] julia`: `julia = "$(_JULIA_COMPAT)"` by
     default, or `julia = "$(_JULIA_COMPAT_SOURCES)"` when `true`, because
@@ -5283,6 +5336,7 @@ function scaffold_generate(
         authors::AbstractVector{<:AbstractString} = String[],
         uuid::AbstractString = string(UUIDs.uuid4()),
         ad::Bool = true, benchmarks::Bool = false,
+        claude_review::Bool = false,
         unregistered_sources::Bool = false, kwargs...
     )
     mkpath(target_dir)
@@ -5293,6 +5347,6 @@ function scaffold_generate(
     )
     return scaffold(
         target_dir; ad = ad, benchmarks = benchmarks,
-        unregistered_sources = unregistered_sources, kwargs...
+        claude_review = claude_review, unregistered_sources = unregistered_sources, kwargs...
     )
 end

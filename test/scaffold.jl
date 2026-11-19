@@ -8,7 +8,7 @@
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
         scaffold_inputs, update, scaffold_update,
-        _ad_selected, _bench_selected, _backend_extension_files
+        _ad_selected, _bench_selected, _claude_selected, _backend_extension_files
     using Dates: year, now
 
     # Absolute native path of a scaffold destination, mirroring the scaffold's
@@ -97,11 +97,12 @@
     # benchmarks = true); the opt-in benchmark gating (on/off) is covered
     # separately in the `benchmarks_gating` testitem, so tests here scaffold with
     # `benchmarks = true` where they assert the benchmark surface.
-    function _selected(ad, benchmarks)
+    function _selected(ad, benchmarks; claude = true)
         return [
             t
                 for t in SCAFFOLD_TEMPLATES
-                if _ad_selected(t, ad) && _bench_selected(t, benchmarks)
+                if _ad_selected(t, ad) && _bench_selected(t, benchmarks) &&
+                    _claude_selected(t, claude)
         ]
     end
 
@@ -127,7 +128,7 @@
         @testset "scaffold writes managed + owned" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                res = scaffold(dir; benchmarks = true)
+                res = scaffold(dir; benchmarks = true, claude_review = true)
                 # Everything selected for the full standard is newly created;
                 # nothing updated or preserved. (Variant pairs map to one dest.)
                 @test length(res.created) == length(_selected(true, true))
@@ -142,7 +143,7 @@
         @testset "managed CI callers + test infra present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 # A representative slice of the managed infra.
                 for f in (
                         ".github/workflows/test.yaml",
@@ -1202,7 +1203,7 @@
         @testset "benchmark env present so --project=benchmark resolves" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 bp = _dest(dir, "benchmark/Project.toml")
                 @test isfile(bp)
                 txt = read(bp, String)
@@ -1216,7 +1217,7 @@
         @testset "test envs bound EpiAwarePackageTools in [compat]" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 # Every env that depends on the kit must resolve it. The kit is
                 # registered, so that is an ordinary registry bound rather than
                 # a git `[sources]` pin (#361).
@@ -1252,7 +1253,7 @@
         @testset "package-owned skeletons present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 for f in (
                         "test/runtests.jl", "test/package/qa_config.jl",
                         "test/ad/scenarios.jl", "benchmark/benchmarks.jl",
@@ -1332,7 +1333,7 @@
             # Dependabot reviewers, the version assignee, and the Claude gate.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; reviewer = "octocat")
+                scaffold(dir; reviewer = "octocat", claude_review = true)
                 co = read(_dest(dir, ".github/CODEOWNERS"), String)
                 @test occursin("* @octocat", co)
                 @test !occursin("{{", co)
@@ -1448,7 +1449,7 @@
         @testset "update re-applies only managed files, idempotently" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
 
                 # Mutate a package-owned file and a managed file to simulate drift.
                 owned = _dest(dir, "test/package/qa_config.jl")
@@ -1526,8 +1527,8 @@
         @testset "scaffold preserves owned, rewrites managed on re-run" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true)
-                res = scaffold(dir; benchmarks = true)  # second adopt, no force
+                scaffold(dir; benchmarks = true, claude_review = true)
+                res = scaffold(dir; benchmarks = true, claude_review = true)  # second adopt, no force
                 @test isempty(res.created)
                 @test Set(res.updated) ==
                     Set(_dest(dir, d) for d in MANAGED_DESTS)
@@ -1539,8 +1540,8 @@
         @testset "force overwrites owned too" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true)
-                res = scaffold(dir; benchmarks = true, force = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
+                res = scaffold(dir; benchmarks = true, claude_review = true, force = true)
                 @test isempty(res.created)
                 @test isempty(res.preserved)
                 @test length(res.updated) == length(_selected(true, true))
@@ -1631,7 +1632,7 @@
                 @test !occursin("{{", dp)
                 # The manifest count matches the ad=false, benchmarks=false
                 # selection (the fresh default opts out of both).
-                @test length(res.created) == length(_selected(false, false))
+                @test length(res.created) == length(_selected(false, false; claude = false))
             end
         end
 
@@ -1899,7 +1900,7 @@
         @testset "Benchmarks nav nests both suites when both are on" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 pgs = read(_dest(dir, "docs/pages.jl"), String)
                 @test occursin(
                     "\"Performance over time\" => \"benchmarks/over-time.md\"",
@@ -4119,7 +4120,7 @@
             end
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 stale = _dest(dir, "benchmark/comment")
                 mkpath(stale)
                 write(joinpath(stale, "Project.toml"), "name = \"asv_comment\"\n")
@@ -4687,7 +4688,7 @@
         @testset "benchmark CI workflows present, no comment env" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 for f in (
                         ".github/workflows/benchmark.yaml",
                         ".github/workflows/benchmark-history.yaml",
@@ -4904,7 +4905,7 @@
         @testset "docs build reproduces CD (Literate + citations + helpers)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 for f in (
                         "docs/run_literate_tutorial.jl", "docs/docs_config.jl",
                         "docs/release_notes_header.jl",
@@ -4976,7 +4977,7 @@
         @testset "benchmarks_notes.md round-trips update (#202)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 notes = _dest(dir, "docs/benchmarks_notes.md")
                 edit = "\n## Known-broken\n\n`slow_path` skipped: see #123.\n"
                 write(notes, read(notes, String) * edit)
