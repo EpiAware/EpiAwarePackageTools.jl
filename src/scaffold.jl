@@ -4706,11 +4706,11 @@ function _declared_deps(path::AbstractString)
 end
 
 # A warning when the package-owned test/Project.toml lists JET beside
-# DifferentiationInterfaceTest, or `nothing`. DifferentiationInterfaceTest
-# carries JET as a weak dependency bounded below 0.12, which Julia 1.13 needs,
-# so the pair cannot resolve there. The managed linting test item runs JET in
-# the isolated test/jet environment, so the test env does not need it. The file
-# is package-owned, so `update` can only say so.
+# DifferentiationInterfaceTest, or `nothing`. DifferentiationInterfaceTest has
+# JET as a weak dependency bounded below 0.12, but Julia 1.13 needs 0.12 or
+# later, so the pair cannot resolve there. The managed linting test item runs
+# JET in the isolated test/jet environment and the test env does not need it.
+# The file is package-owned, so `update` can only warn.
 function _test_env_jet_gap(target_dir::AbstractString)
     deps = _declared_deps(joinpath(target_dir, "test", "Project.toml"))
     ("JET" in deps && "DifferentiationInterfaceTest" in deps) || return nothing

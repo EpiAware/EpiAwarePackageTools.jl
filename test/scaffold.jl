@@ -5363,9 +5363,9 @@ end # @testitem "scaffold + update (logic)"
     end
 
     @testset "the seeded test env leaves JET to the isolated environment" begin
-        # DifferentiationInterfaceTest bounds JET below 0.12, which Julia 1.13
-        # needs, so seeding both makes the env unresolvable there. JET runs in
-        # test/jet, so neither variant lists it.
+        # DifferentiationInterfaceTest bounds JET below 0.12, but Julia 1.13
+        # needs 0.12 or later, so seeding both makes the env unresolvable there.
+        # JET runs in test/jet and neither variant lists it.
         for ad in (true, false)
             mktempdir() do dir
                 _fake_pkg(dir)
