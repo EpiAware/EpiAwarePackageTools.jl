@@ -1172,10 +1172,10 @@ into a template:
     package's own repo: badges, docs links and the repo slug. Docs are served
     from `epiaware.org/<Repo>.jl` for `$(repr(DEFAULT_ORG))` and from
     `<org>.github.io/<Repo>.jl` otherwise. Pass the owning org for a package
-    hosted elsewhere; the managed `template-sync.yaml` carries it into the scheduled
+    hosted elsewhere. The managed `template-sync.yaml` passes it to the scheduled
     [`update`](@ref) so it survives a resync. The reusable workflows the CI
     callers `uses:` are not among them: those always come from
-    `$(repr(WORKFLOWS_ORG))/.github`, as is the Code of Conduct link.
+    `$(repr(WORKFLOWS_ORG))/.github`, like the Code of Conduct link.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -3203,11 +3203,11 @@ end
 # (`docs_subdomain = true`); the default project-pages path needs no host.
 _docs_host(pkg::AbstractString) = lowercase(pkg) * ".epiaware.org"
 
-# The GitHub Pages domain EpiAware serves project-pages from. A repo without a
+# The GitHub Pages domain EpiAware serves project pages from. A repo without a
 # custom domain is reachable at `<this>/<Repo>.jl/`.
 const DOCS_PAGES_APEX = "epiaware.org"
 
-# The apex a repo's project pages are served from: `epiaware.org` for EpiAware
+# The apex serving the project pages of a repo: `epiaware.org` for EpiAware
 # packages, GitHub's default `<owner>.github.io` for any other owner.
 function _docs_pages_apex(owner::AbstractString)
     return lowercase(owner) == lowercase(DEFAULT_ORG) ? DOCS_PAGES_APEX :
@@ -3648,8 +3648,8 @@ const _STANDARD_SECTIONS_HEADER = string(
     "     edit the package-owned sections outside them, or CITATION.cff. -->"
 )
 
-# The Code of Conduct URL, served from the shared `.github` repo every managed
-# package points at, whichever org owns the package.
+# The Code of Conduct URL. Every managed package links to the shared `.github`
+# repo, whichever org owns the package.
 function _coc_url()
     return "https://github.com/" * WORKFLOWS_ORG *
         "/.github/blob/main/CODE_OF_CONDUCT.md"

@@ -1412,8 +1412,7 @@
                     readme
                 )
                 @test !occursin("seabbs/.github", readme)
-                # Docs are served from the owner's GitHub Pages, not the
-                # EpiAware apex.
+                # Docs are served from the owner's GitHub Pages.
                 @test occursin("seabbs.github.io/Wombat.jl/stable/", readme)
                 @test !occursin("epiaware.org/Wombat.jl", readme)
             end
@@ -4900,7 +4899,7 @@
                     wf
                 )
                 @test occursin(r"version-pr-reaper\.yml@[0-9a-f]{40}\b", wf)
-                # The reusable reads only GITHUB_TOKEN, so nothing is passed.
+                # The reusable reads only GITHUB_TOKEN; nothing is passed.
                 @test !occursin("secrets:", wf)
 
                 # Triggered by a landed release (push to main), a schedule
