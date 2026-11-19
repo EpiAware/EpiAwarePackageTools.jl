@@ -8,7 +8,7 @@
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
         scaffold_inputs, update, scaffold_update,
-        _ad_selected, _bench_selected, _backend_extension_files
+        _template_selected, _backend_extension_files
     using Dates: year, now
 
     # Absolute native path of a scaffold destination, mirroring the scaffold's
@@ -97,12 +97,9 @@
     # benchmarks = true); the opt-in benchmark gating (on/off) is covered
     # separately in the `benchmarks_gating` testitem, so tests here scaffold with
     # `benchmarks = true` where they assert the benchmark surface.
-    function _selected(ad, benchmarks)
-        return [
-            t
-                for t in SCAFFOLD_TEMPLATES
-                if _ad_selected(t, ad) && _bench_selected(t, benchmarks)
-        ]
+    function _selected(ad, benchmarks; claude_review = false)
+        flags = (; ad, benchmarks, claude_review)
+        return [t for t in SCAFFOLD_TEMPLATES if _template_selected(t, flags)]
     end
 
     # The managed / package-owned destination paths for the full standard.
@@ -142,7 +139,7 @@
         @testset "managed CI callers + test infra present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true)
+                scaffold(dir; benchmarks = true, claude_review = true)
                 # A representative slice of the managed infra.
                 for f in (
                         ".github/workflows/test.yaml",
@@ -1332,7 +1329,7 @@
             # Dependabot reviewers, the version assignee, and the Claude gate.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; reviewer = "octocat")
+                scaffold(dir; reviewer = "octocat", claude_review = true)
                 co = read(_dest(dir, ".github/CODEOWNERS"), String)
                 @test occursin("* @octocat", co)
                 @test !occursin("{{", co)
@@ -3450,7 +3447,7 @@
         @testset "update preserves a Dependabot-bumped action pin (#215)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir)
+                scaffold(dir; claude_review = true)
                 # A managed workflow that directly pins third-party actions (not
                 # only the org reusables). Dependabot's github-actions ecosystem
                 # bumps these pins in the live repo just like a reusable SHA.
