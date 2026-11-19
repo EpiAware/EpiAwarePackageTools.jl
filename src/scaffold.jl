@@ -1169,12 +1169,13 @@ into a template:
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
   - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Names the
-    package's own repo: badges, docs links, the repo slug, and the Code of
-    Conduct link. Pass the owning org for a package hosted elsewhere; the
-    managed `template-sync.yaml` carries it into the scheduled
+    package's own repo: badges, docs links and the repo slug. Docs are served
+    from `epiaware.org/<Repo>.jl` for `$(repr(DEFAULT_ORG))` and from
+    `<org>.github.io/<Repo>.jl` otherwise. Pass the owning org for a package
+    hosted elsewhere; the managed `template-sync.yaml` carries it into the scheduled
     [`update`](@ref) so it survives a resync. The reusable workflows the CI
     callers `uses:` are not among them: those always come from
-    `$(repr(WORKFLOWS_ORG))/.github`.
+    `$(repr(WORKFLOWS_ORG))/.github`, as is the Code of Conduct link.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
@@ -1664,7 +1665,7 @@ end
 # lazy leading comment/blank run lets a documented override survive when a
 # rationale comment sits between `uses:` and `with:` (#117). See
 # `_preserve_caller_with_inputs`.
-const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
+const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:|(?m:(?=^[ ]{2}[\w-]+:|^\S|\z)))"
 
 # A `uses:` line repointed at a repo-local reusable *workflow* rather than the
 # org's shared `.github` reusable (#325). The `.github/workflows/` segment is
@@ -3202,9 +3203,16 @@ end
 # (`docs_subdomain = true`); the default project-pages path needs no host.
 _docs_host(pkg::AbstractString) = lowercase(pkg) * ".epiaware.org"
 
-# The GitHub Pages domain the org serves project-pages from. A repo without a
+# The GitHub Pages domain EpiAware serves project-pages from. A repo without a
 # custom domain is reachable at `<this>/<Repo>.jl/`.
 const DOCS_PAGES_APEX = "epiaware.org"
+
+# The apex a repo's project pages are served from: `epiaware.org` for EpiAware
+# packages, GitHub's default `<owner>.github.io` for any other owner.
+function _docs_pages_apex(owner::AbstractString)
+    return lowercase(owner) == lowercase(DEFAULT_ORG) ? DOCS_PAGES_APEX :
+        lowercase(owner) * ".github.io"
+end
 
 """
     _resolve_docs_subdomain(spec, pkg)
@@ -3245,7 +3253,8 @@ end
 _docs_url(repo::Nothing, sub) = sub === nothing ? nothing : String(sub)
 function _docs_url(repo::AbstractString, sub)
     sub === nothing || return String(sub)
-    return DOCS_PAGES_APEX * "/" * last(split(repo, '/'))
+    owner, name = split(repo, '/'; limit = 2)
+    return _docs_pages_apex(owner) * "/" * name
 end
 
 # The optional `with: timeout_minutes:` override on the managed `document.yaml`
@@ -3639,18 +3648,20 @@ const _STANDARD_SECTIONS_HEADER = string(
     "     edit the package-owned sections outside them, or CITATION.cff. -->"
 )
 
-# The org Code of Conduct URL, served from the org's shared `.github` repo.
-function _coc_url(org::AbstractString)
-    return "https://github.com/" * org * "/.github/blob/main/CODE_OF_CONDUCT.md"
+# The Code of Conduct URL, served from the shared `.github` repo every managed
+# package points at, whichever org owns the package.
+function _coc_url()
+    return "https://github.com/" * WORKFLOWS_ORG *
+        "/.github/blob/main/CODE_OF_CONDUCT.md"
 end
 
 # Render the managed standard sections (Contributing / How to cite / Code of
-# conduct) without the markers, parameterised by package/org/repo. `doi` adds a
+# conduct) without the markers, parameterised by package and repo. `doi` adds a
 # version-DOI line to the citation pointer when known (the value persisted in
 # the README DOI badge); otherwise the section points only at `CITATION.cff`.
 function _render_standard_sections(
-        pkg::AbstractString, org::AbstractString,
-        repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing,
+        pkg::AbstractString, repo::AbstractString;
+        doi::Union{Nothing, AbstractString} = nothing,
         org_branding::Bool = false
     )
     doi_line = doi === nothing ? "" :
@@ -3677,7 +3688,7 @@ function _render_standard_sections(
         "\n",
         "## Code of conduct\n\n",
         "Please note that the ", pkg, " project is released with a ",
-        "[Contributor Code of Conduct](", _coc_url(org), "). By contributing, ",
+        "[Contributor Code of Conduct](", _coc_url(), "). By contributing, ",
         "you agree to abide by its terms.\n"
     )
 end
@@ -3716,7 +3727,7 @@ function _apply_standard_sections(
     (pkg === nothing || org === nothing || repo === nothing) &&
         return (:skipped, false)
     body = _render_standard_sections(
-        String(pkg), String(org), String(repo);
+        String(pkg), String(repo);
         doi = inputs.DOI, org_branding = org_branding
     )
     block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *

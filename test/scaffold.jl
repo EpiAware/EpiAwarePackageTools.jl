@@ -1407,10 +1407,52 @@
                 readme = read(joinpath(dir, "README.md"), String)
                 @test occursin("github.com/seabbs/Wombat.jl", readme)
                 @test occursin(
-                    "https://github.com/seabbs/.github/blob/main/" *
+                    "https://github.com/EpiAware/.github/blob/main/" *
                         "CODE_OF_CONDUCT.md",
                     readme
                 )
+                @test !occursin("seabbs/.github", readme)
+                # Docs are served from the owner's GitHub Pages, not the
+                # EpiAware apex.
+                @test occursin("seabbs.github.io/Wombat.jl/stable/", readme)
+                @test !occursin("epiaware.org/Wombat.jl", readme)
+            end
+        end
+
+        @testset "callers name their secrets instead of inheriting" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; org = "seabbs", ad = true)
+                wf(f) = read(_dest(dir, ".github/workflows/" * f), String)
+                tok = "CODECOV_TOKEN: \${{ secrets.CODECOV_TOKEN }}"
+                key = "DOCUMENTER_KEY: \${{ secrets.DOCUMENTER_KEY }}"
+                for f in ("test.yaml", "ad.yaml", "downstream.yaml")
+                    @test occursin(tok, wf(f))
+                end
+                for f in ("document.yaml", "TagBot.yaml", "release-nudge.yaml")
+                    @test occursin(key, wf(f))
+                end
+                for f in (
+                        "pre-commit.yaml", "registrability.yaml",
+                        "cancel-on-close.yaml", "docpreviewcleanup.yaml",
+                        "version-pr-reaper.yaml",
+                    )
+                    @test !occursin("secrets:", wf(f))
+                    @test occursin("EpiAware/.github/.github/workflows/", wf(f))
+                end
+                # A with: override on a caller without secrets survives.
+                caller = _dest(dir, ".github/workflows/cancel-on-close.yaml")
+                txt = read(caller, String)
+                write(
+                    caller,
+                    replace(
+                        txt,
+                        r"(uses: \S+/cancel-on-close\.yml@\S+\n)" =>
+                            s"\1    with:\n      foo: bar\n"
+                    )
+                )
+                update(dir; org = "seabbs", ad = true)
+                @test occursin("foo: bar", read(caller, String))
             end
         end
 
@@ -3435,12 +3477,15 @@
                 # The override survives the resync ...
                 @test occursin("stale_days: 30", after)
                 # ... and the rest of the caller (the SHA pin, the
-                # trailing `secrets: inherit`) is still managed.
+                # trailing named secret) is still managed.
                 @test occursin(
                     "EpiAware/.github/.github/workflows/release-nudge.yml@",
                     after
                 )
-                @test occursin("secrets: inherit", after)
+                @test occursin(
+                    "DOCUMENTER_KEY: \${{ secrets.DOCUMENTER_KEY }}", after
+                )
+                @test !occursin("secrets: inherit", after)
                 # A second update is idempotent on the preserved input.
                 update(dir)
                 @test read(caller, String) == after
@@ -4321,12 +4366,7 @@
                         s"""\1    # Only the changed files: the tree is large.
                         """
                 )
-                overridden = replace(
-                    overridden,
-                    "    secrets: inherit" =>
-                        "      extra_args: '--from-ref origin/main --to-ref HEAD'\n" *
-                        "    secrets: inherit"
-                )
+                overridden *= "      extra_args: '--from-ref origin/main --to-ref HEAD'\n"
                 @test overridden != fresh
                 write(caller, overridden)
                 update(dir; ad = false)
@@ -4363,7 +4403,7 @@
                 @test !occursin("downgrade.yml", txt)
                 # The test job itself is still present and well-formed.
                 @test occursin("tests.yml", txt)
-                @test endswith(txt, "secret\n")
+                @test endswith(txt, "secrets.CODECOV_TOKEN }}\n")
                 @test !endswith(txt, "\n\n")
                 @test !_detect_downgrade_compat(dir)
                 # The common maintenance call: no downgrade_compat kwarg.
@@ -4860,7 +4900,8 @@
                     wf
                 )
                 @test occursin(r"version-pr-reaper\.yml@[0-9a-f]{40}\b", wf)
-                @test occursin("secrets: inherit", wf)
+                # The reusable reads only GITHUB_TOKEN, so nothing is passed.
+                @test !occursin("secrets:", wf)
 
                 # Triggered by a landed release (push to main), a schedule
                 # for a version that moved by another route, and an
