@@ -9,11 +9,6 @@ For what that infrastructure actually contains, see the reference pages on the
 [test infrastructure](@ref test-infrastructure), [benchmarking](@ref
 benchmarking), and [AD tooling](@ref ad-tooling).
 
-## Optional workflows
-
-`claude_review = true` adds the `claude.yml` and `claude-code-review.yml` workflows.
-It defaults to `nothing`, which keeps whatever the repository already has. A fresh package gets neither workflow, and an existing one keeps both.
-
 ## Managed and package-owned files
 
 Every file the kit writes is one of two kinds.

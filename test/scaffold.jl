@@ -97,8 +97,8 @@
     # benchmarks = true); the opt-in benchmark gating (on/off) is covered
     # separately in the `benchmarks_gating` testitem, so tests here scaffold with
     # `benchmarks = true` where they assert the benchmark surface.
-    function _selected(ad, benchmarks; claude_review = false)
-        flags = (; ad, benchmarks, claude_review)
+    function _selected(ad, benchmarks)
+        flags = (; ad, benchmarks)
         return [t for t in SCAFFOLD_TEMPLATES if _template_selected(t, flags)]
     end
 
@@ -139,7 +139,7 @@
         @testset "managed CI callers + test infra present" begin
             mktempdir() do dir
                 _fake_pkg(dir)
-                scaffold(dir; benchmarks = true, claude_review = true)
+                scaffold(dir; benchmarks = true)
                 # A representative slice of the managed infra.
                 for f in (
                         ".github/workflows/test.yaml",
@@ -183,8 +183,6 @@
                         ".github/workflows/registrability.yaml",
                         ".github/workflows/release-nudge.yaml",
                         ".github/workflows/try-this-pr.yaml",
-                        ".github/workflows/claude.yml",
-                        ".github/workflows/claude-code-review.yml",
                         ".github/dependabot.yml", ".github/CODEOWNERS",
                         "codecov.yml", ".pre-commit-config.yaml", "Taskfile.yml",
                     )
@@ -1326,10 +1324,10 @@
                 @test occursin("suffix stripped, no increment", act)
             end
             # With a `reviewer` handle the same input drives CODEOWNERS, the
-            # Dependabot reviewers, the version assignee, and the Claude gate.
+            # Dependabot reviewers, and the version assignee.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; reviewer = "octocat", claude_review = true)
+                scaffold(dir; reviewer = "octocat")
                 co = read(_dest(dir, ".github/CODEOWNERS"), String)
                 @test occursin("* @octocat", co)
                 @test !occursin("{{", co)
@@ -1337,17 +1335,6 @@
                 @test occursin("reviewers:", dep)
                 @test occursin("- \"octocat\"", dep)
                 @test !occursin("{{", dep)
-                claude = read(
-                    _dest(dir, ".github/workflows/claude.yml"),
-                    String
-                )
-                @test occursin("github.actor == 'octocat'", claude)
-                @test !occursin("{{REVIEWER}}", claude)
-                review = read(
-                    _dest(dir, ".github/workflows/claude-code-review.yml"),
-                    String
-                )
-                @test occursin("user.login == 'octocat'", review)
                 # The version-bump assignee default is the handle (a real user
                 # GitHub can assign), not empty.
                 act = read(
@@ -3447,11 +3434,11 @@
         @testset "update preserves a Dependabot-bumped action pin (#215)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
-                scaffold(dir; claude_review = true)
+                scaffold(dir)
                 # A managed workflow that directly pins third-party actions (not
                 # only the org reusables). Dependabot's github-actions ecosystem
                 # bumps these pins in the live repo just like a reusable SHA.
-                wf = _dest(dir, ".github/workflows/claude.yml")
+                wf = _dest(dir, ".github/workflows/auto-version-increment.yaml")
                 before = read(wf, String)
                 @test occursin("actions/checkout@v7", before)
                 # Simulate Dependabot bumping the third-party pin in the live
