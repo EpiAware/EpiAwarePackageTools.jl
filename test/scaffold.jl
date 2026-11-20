@@ -3438,7 +3438,7 @@
                 # A managed workflow that directly pins third-party actions (not
                 # only the org reusables). Dependabot's github-actions ecosystem
                 # bumps these pins in the live repo just like a reusable SHA.
-                wf = _dest(dir, ".github/workflows/auto-version-increment.yaml")
+                wf = _dest(dir, ".github/workflows/template-sync.yaml")
                 before = read(wf, String)
                 @test occursin("actions/checkout@v7", before)
                 # Simulate Dependabot bumping the third-party pin in the live
