@@ -16,4 +16,5 @@ jobs:
     uses: EpiAware/.github/.github/workflows/tagbot.yml@9692b37b9127099d9c1a51db5034a084edaeb56e
     with:
       lookback: ${{ github.event.inputs.lookback || '3' }}
-    secrets: inherit  # pragma: allowlist secret
+    secrets:
+      DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}

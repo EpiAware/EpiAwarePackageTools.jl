@@ -34,4 +34,5 @@ permissions:
 jobs:
   release-nudge:
     uses: EpiAware/.github/.github/workflows/release-nudge.yml@2c7ce73459772f11dad46ac7f456e35f0d296faf
-    secrets: inherit  # pragma: allowlist secret
+    secrets:
+      DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
