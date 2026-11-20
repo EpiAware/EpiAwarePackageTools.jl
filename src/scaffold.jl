@@ -1164,7 +1164,7 @@ into a template:
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
     (`* @{{REVIEWER}}`), the Dependabot `reviewers`, the version-bump assignee.
-    A username or `org/team` slug — GitHub
+    A username or `org/team` slug, because GitHub
     cannot assign a bare org. When omitted (`nothing`), no owner is written
     (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
     so a bare org is never hardcoded.
@@ -1227,7 +1227,7 @@ function scaffold_inputs(
         authors
     hold = holder === nothing ? auth : holder
     # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
-    # `reviewers`, the version bump's assignee.
+    # `reviewers`, and the assignee of the version bump.
     # It must be a username or `org/team` slug: GitHub cannot assign a bare
     # org, so with no handle those owners are left empty rather than producing
     # PRs that error with "can't assign <org> as a reviewer". With no
