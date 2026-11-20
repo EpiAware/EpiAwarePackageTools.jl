@@ -398,6 +398,10 @@ const RETIRED_PATHS = String[
     # collects and uploads via its `upload_coverage` input. Retired rather
     # than left behind running an unnecessary suite alongside it.
     ".github/workflows/codecoverage.yaml",
+    # The Claude review workflows need a token secret most adopters do not
+    # have, and without it the review job fails on every pull request.
+    ".github/workflows/claude.yml",
+    ".github/workflows/claude-code-review.yml",
 ]
 
 # --- stale package-owned prose (#328) ---------------------------------------

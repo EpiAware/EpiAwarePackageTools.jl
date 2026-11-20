@@ -4071,6 +4071,31 @@
             end
         end
 
+        @testset "update drops the Claude workflows" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # An adopter scaffolded by an older kit still carries both
+                # workflows, marked managed; without its token secret the
+                # review job fails on every PR, so a sync must remove them.
+                for wf in (
+                        ".github/workflows/claude.yml",
+                        ".github/workflows/claude-code-review.yml",
+                    )
+                    @test !isfile(_dest(dir, wf))
+                    write(_dest(dir, wf), "name: Claude\n")
+                end
+                res = update(dir)
+                for wf in (
+                        ".github/workflows/claude.yml",
+                        ".github/workflows/claude-code-review.yml",
+                    )
+                    @test !isfile(_dest(dir, wf))
+                    @test _dest(dir, wf) in res.removed
+                end
+            end
+        end
+
         @testset "scaffold results report native paths (#237)" begin
             using EpiAwarePackageTools: _dest_path
             # Destinations are stored posix-style, so joining one onto a root
