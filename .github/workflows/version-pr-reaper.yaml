@@ -55,4 +55,3 @@ jobs:
       # this resolves to `false`, as a string, which is what the
       # reusable's input takes.
       dry_run: ${{ inputs.dry_run && 'true' || 'false' }}
-    secrets: inherit  # pragma: allowlist secret

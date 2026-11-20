@@ -31,4 +31,5 @@ jobs:
       # with silently missing coverage; that is org policy and is left at
       # the default rather than restated here.
       upload_coverage: true
-    secrets: inherit  # pragma: allowlist secret{{DOWNGRADE_COMPAT_JOB}}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}{{DOWNGRADE_COMPAT_JOB}}
