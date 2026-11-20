@@ -4716,11 +4716,8 @@ function _test_env_jet_gap(target_dir::AbstractString)
     ("JET" in deps && "DifferentiationInterfaceTest" in deps) || return nothing
     return string(
         "test/Project.toml lists JET beside DifferentiationInterfaceTest, ",
-        "which cannot resolve on Julia 1.13: DifferentiationInterfaceTest ",
-        "bounds JET below 0.12, and 1.13 admits only 0.12 and later. JET runs ",
-        "in the isolated test/jet environment, so remove it from the `[deps]` ",
-        "and `[compat]` of test/Project.toml (the kit's seed no longer lists ",
-        "it, but a sync does not change a package-owned file)."
+        "which cannot resolve on Julia 1.13. Remove JET from its `[deps]` ",
+        "and `[compat]`; the linting test runs it from test/jet."
     )
 end
 
