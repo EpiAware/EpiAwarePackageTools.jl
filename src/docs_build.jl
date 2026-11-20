@@ -80,7 +80,7 @@ include("ad_benchmarks.jl")
 # writer is observed to abort (`_empty_anchor_aborts`, which stops firing once
 # LuxDL/DocumenterVitepress.jl#375 lands) and the installed version is no newer
 # than the release the body below was copied from.
-const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.5"
+const _VITEPRESS_LAST_KNOWN_BROKEN = v"0.3.9"
 
 # The quoted replacement method, evaluated inside DocumenterVitepress so every
 # name resolves in that module exactly as the original does.

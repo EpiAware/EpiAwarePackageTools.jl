@@ -4537,6 +4537,11 @@ function _apply(
             " to test/Project.toml `[deps]` (#263)."
         )
     )
+    jet_gap = _test_env_jet_gap(target_dir)
+    if jet_gap !== nothing
+        push!(warnings, jet_gap)
+        @warn jet_gap
+    end
     # Injected into the package-owned root Project.toml when absent, on both
     # scaffold and update, and preserved thereafter. Any manifest on disk was
     # resolved under the layout the root Project.toml declared before this
@@ -4709,6 +4714,22 @@ function _declared_deps(path::AbstractString)
         m === nothing || push!(names, String(something(m.captures[1])))
     end
     return names
+end
+
+# A warning when the package-owned test/Project.toml lists JET beside
+# DifferentiationInterfaceTest, or `nothing`. DifferentiationInterfaceTest has
+# JET as a weak dependency bounded below 0.12, but Julia 1.13 needs 0.12 or
+# later, so the pair cannot resolve there. The managed linting test item runs
+# JET in the isolated test/jet environment and the test env does not need it.
+# The file is package-owned, so `update` can only warn.
+function _test_env_jet_gap(target_dir::AbstractString)
+    deps = _declared_deps(joinpath(target_dir, "test", "Project.toml"))
+    ("JET" in deps && "DifferentiationInterfaceTest" in deps) || return nothing
+    return string(
+        "test/Project.toml lists JET beside DifferentiationInterfaceTest, ",
+        "which cannot resolve on Julia 1.13. Remove JET from its `[deps]` ",
+        "and `[compat]`; the linting test runs it from test/jet."
+    )
 end
 
 # Top-level module names introduced by `using`/`import` lines in Julia source.
