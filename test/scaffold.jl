@@ -8,7 +8,7 @@
     using EpiAwarePackageTools
     using EpiAwarePackageTools: SCAFFOLD_TEMPLATES, _templates_dir,
         scaffold_inputs, update, scaffold_update,
-        _template_selected, _backend_extension_files
+        _ad_selected, _bench_selected, _backend_extension_files
     using Dates: year, now
 
     # Absolute native path of a scaffold destination, mirroring the scaffold's
@@ -98,8 +98,11 @@
     # separately in the `benchmarks_gating` testitem, so tests here scaffold with
     # `benchmarks = true` where they assert the benchmark surface.
     function _selected(ad, benchmarks)
-        flags = (; ad, benchmarks)
-        return [t for t in SCAFFOLD_TEMPLATES if _template_selected(t, flags)]
+        return [
+            t
+                for t in SCAFFOLD_TEMPLATES
+                if _ad_selected(t, ad) && _bench_selected(t, benchmarks)
+        ]
     end
 
     # The managed / package-owned destination paths for the full standard.
@@ -1324,7 +1327,7 @@
                 @test occursin("suffix stripped, no increment", act)
             end
             # With a `reviewer` handle the same input drives CODEOWNERS, the
-            # Dependabot reviewers, and the version assignee.
+            # Dependabot reviewers and the version assignee.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; reviewer = "octocat")

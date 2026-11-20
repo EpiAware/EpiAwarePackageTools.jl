@@ -17,21 +17,31 @@
 # infra (overwritten on update); `false` a package-owned skeleton (write once).
 # `substitute = true` runs placeholder substitution on copy.
 #
-# `when` is a NamedTuple of the flags the template depends on and the value
-# each must have for it to be emitted, e.g. `(ad = true,)` or
-# `(benchmarks = true, ad = false)`; an empty `when` means always. A file whose
-# content depends on AD ships as an `(ad = true,)` + `(ad = false,)` pair
-# writing to the same `dest`, so exactly one is emitted.
+# `ad` gates a template on the `ad` flag, so a numerical package opts into the
+# AD CI caller and test harness while a tooling package opts out: `:always`,
+# `:ad_only` (`ad = true`), or `:noad_only` (`ad = false`). A file whose
+# content depends on AD ships as an `:ad_only` + `:noad_only` pair writing to
+# the same `dest`, so exactly one is emitted.
+#
+# `bench` mirrors that for the opt-in `benchmarks` flag: `:always` or
+# `:bench_only`.
 struct Template
     src::String
     dest::String
     managed::Bool
     substitute::Bool
-    when::NamedTuple
+    ad::Symbol
+    bench::Symbol
 end
 
-function Template(src, dest, managed, substitute; when = (;))
-    return Template(src, dest, managed, substitute, when)
+# Convenience constructor: most templates are AD- and benchmark-agnostic.
+function Template(src, dest, managed, substitute)
+    return Template(src, dest, managed, substitute, :always, :always)
+end
+
+# AD-flavoured templates specify only `ad`; still benchmark-agnostic.
+function Template(src, dest, managed, substitute, ad::Symbol)
+    return Template(src, dest, managed, substitute, ad, :always)
 end
 
 # The standard template set. Order is informational only.
@@ -39,8 +49,8 @@ const SCAFFOLD_TEMPLATES = Template[
     # --- root dev config (managed) ---
     # Taskfile + codecov differ by AD content, so each ships as an
     # AD/no-AD pair writing to the same destination.
-    Template("Taskfile.yml", "Taskfile.yml", true, false, when = (ad = true,)),
-    Template("Taskfile.noad.yml", "Taskfile.yml", true, false, when = (ad = false,)),
+    Template("Taskfile.yml", "Taskfile.yml", true, false, :ad_only),
+    Template("Taskfile.noad.yml", "Taskfile.yml", true, false, :noad_only),
     # Substituted for the single-source `{{RUNIC_VERSION}}`/
     # `{{RUNIC_PRE_COMMIT_REV}}` hook `rev`s.
     Template(".pre-commit-config.yaml", ".pre-commit-config.yaml", true, true),
@@ -54,8 +64,8 @@ const SCAFFOLD_TEMPLATES = Template[
     # the managed block survive `update`, rather than being copied verbatim
     # and clobbered on the next sync (#65).
     Template(".secrets.baseline", ".secrets.baseline", true, false),
-    Template("codecov.yml", "codecov.yml", true, true, when = (ad = true,)),
-    Template("codecov.noad.yml", "codecov.yml", true, false, when = (ad = false,)),
+    Template("codecov.yml", "codecov.yml", true, true, :ad_only),
+    Template("codecov.noad.yml", "codecov.yml", true, false, :noad_only),
     # NOTE: `LICENSE` is not a managed template. It is written once from the
     # `license` input (see `_apply_license`) and never overwritten by `update`,
     # so a package that deliberately changes its licence is not silently
@@ -73,8 +83,7 @@ const SCAFFOLD_TEMPLATES = Template[
     # The AD CI caller is opt-in: only scaffolded when `ad = true`.
     Template(
         ".github/workflows/ad.yaml",
-        ".github/workflows/ad.yaml", true, true,
-        when = (ad = true,)
+        ".github/workflows/ad.yaml", true, true, :ad_only
     ),
     Template(
         ".github/workflows/document.yaml",
@@ -140,13 +149,12 @@ const SCAFFOLD_TEMPLATES = Template[
     # timeline with AirspeedVelocity's `benchpkgtable`/`benchpkgplot`.
     Template(
         ".github/workflows/benchmark.yaml",
-        ".github/workflows/benchmark.yaml", true, true,
-        when = (benchmarks = true,)
+        ".github/workflows/benchmark.yaml", true, true, :always, :bench_only
     ),
     Template(
         ".github/workflows/benchmark-history.yaml",
-        ".github/workflows/benchmark-history.yaml", true, true,
-        when = (benchmarks = true,)
+        ".github/workflows/benchmark-history.yaml", true, true, :always,
+        :bench_only
     ),
 
     # --- version automation (managed) ---
@@ -194,26 +202,26 @@ const SCAFFOLD_TEMPLATES = Template[
         "test/formatter/Project.toml", true, true
     ),
     # The AD harness drivers are opt-in (managed, but only when `ad = true`).
-    Template("test/ad/setup.jl", "test/ad/setup.jl", true, true, when = (ad = true,)),
+    Template("test/ad/setup.jl", "test/ad/setup.jl", true, true, :ad_only),
     Template(
         "test/ad/runtests.jl", "test/ad/runtests.jl", true, false,
-        when = (ad = true,)
+        :ad_only
     ),
     # A named-filter diagnostic runner, thin over `run_selected` (#384): fast
     # iteration on one scenario/backend without the full per-backend suite.
     Template(
         "test/ad/run_selected.jl", "test/ad/run_selected.jl", true, true,
-        when = (ad = true,)
+        :ad_only
     ),
     # The benchmark suite drivers are opt-in (managed, only when
     # `benchmarks = true`).
     Template(
-        "benchmark/run.jl", "benchmark/run.jl", true, false,
-        when = (benchmarks = true,)
+        "benchmark/run.jl", "benchmark/run.jl", true, false, :always,
+        :bench_only
     ),
     Template(
         "benchmark/compare.jl", "benchmark/compare.jl", true, false,
-        when = (benchmarks = true,)
+        :always, :bench_only
     ),
 
     # --- documentation: Documenter + DocumenterVitepress (managed) ---
@@ -276,7 +284,7 @@ const SCAFFOLD_TEMPLATES = Template[
     Template(
         "docs/src/benchmarks/ad-comparison.jl",
         "docs/src/benchmarks/ad-comparison.jl", true, true,
-        when = (ad = true,)
+        :ad_only
     ),
 
     # --- package-owned skeletons (written once, never overwritten) ---
@@ -316,22 +324,21 @@ const SCAFFOLD_TEMPLATES = Template[
     # The package-owned prose hook spliced into the generated benchmark page.
     # Opt-in: only written when `benchmarks = true` (no page, no hook otherwise).
     Template(
-        "docs/benchmarks.md", "docs/benchmarks.md", false, true,
-        when = (benchmarks = true,)
+        "docs/benchmarks.md", "docs/benchmarks.md", false, true, :always,
+        :bench_only
     ),
     # The "Skipped & broken benchmarks" notes hook, spliced below the overall
     # trend plot. Same write-once/opt-in lifecycle as the prose hook above.
     Template(
         "docs/benchmarks_notes.md", "docs/benchmarks_notes.md", false,
-        true,
-        when = (benchmarks = true,)
+        true, :always, :bench_only
     ),
     Template("test/runtests.jl", "test/runtests.jl", false, false),
     # The test env differs by AD deps, so it ships as an AD/no-AD pair.
-    Template("test/Project.toml", "test/Project.toml", false, true, when = (ad = true,)),
+    Template("test/Project.toml", "test/Project.toml", false, true, :ad_only),
     Template(
         "test/Project.noad.toml", "test/Project.toml", false, true,
-        when = (ad = false,)
+        :noad_only
     ),
     Template(
         "test/package/qa_config.jl",
@@ -342,31 +349,29 @@ const SCAFFOLD_TEMPLATES = Template[
     # The benchmark environment, so `--project=benchmark` resolves. Opt-in.
     Template(
         "benchmark/Project.toml", "benchmark/Project.toml", false, true,
-        when = (benchmarks = true,)
+        :always, :bench_only
     ),
     # The AD scenarios + registry skeleton are opt-in (only when `ad = true`).
     Template(
         "test/ad/scenarios.jl", "test/ad/scenarios.jl", false, true,
-        when = (ad = true,)
+        :ad_only
     ),
     Template(
         "test/ad/Project.toml", "test/ad/Project.toml", false, true,
-        when = (ad = true,)
+        :ad_only
     ),
     Template(
         "test/ADFixtures/Project.toml",
-        "test/ADFixtures/Project.toml", false, true,
-        when = (ad = true,)
+        "test/ADFixtures/Project.toml", false, true, :ad_only
     ),
     Template(
         "test/ADFixtures/src/ADFixtures.jl",
-        "test/ADFixtures/src/ADFixtures.jl", false, true,
-        when = (ad = true,)
+        "test/ADFixtures/src/ADFixtures.jl", false, true, :ad_only
     ),
     # The package-owned benchmark suite skeleton (the `SUITE`). Opt-in.
     Template(
         "benchmark/benchmarks.jl", "benchmark/benchmarks.jl", false, true,
-        when = (benchmarks = true,)
+        :always, :bench_only
     ),
 ]
 
@@ -1163,8 +1168,8 @@ into a template:
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
-    (`* @{{REVIEWER}}`), the Dependabot `reviewers`, the version-bump assignee.
-    A username or `org/team` slug, because GitHub
+    (`* @{{REVIEWER}}`), the Dependabot `reviewers` and the version-bump
+    assignee. A username or `org/team` slug — GitHub
     cannot assign a bare org. When omitted (`nothing`), no owner is written
     (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
     so a bare org is never hardcoded.
@@ -1227,7 +1232,7 @@ function scaffold_inputs(
         authors
     hold = holder === nothing ? auth : holder
     # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
-    # `reviewers`, and the assignee of the version bump.
+    # `reviewers` and the version bump's assignee.
     # It must be a username or `org/team` slug: GitHub cannot assign a bare
     # org, so with no handle those owners are left empty rather than producing
     # PRs that error with "can't assign <org> as a reviewer". With no
@@ -3999,10 +4004,21 @@ function _apply_agent_file(target_dir::AbstractString, template, inputs)
     return (:injected, true)
 end
 
-# Whether a template is emitted for the given flag values: every flag named in
-# its `when` must have the stated value.
-function _template_selected(t::Template, flags::NamedTuple)
-    return all(k -> getfield(flags, k) == t.when[k], keys(t.when))
+# Whether a template is emitted for the requested `ad` value: `:always` always,
+# `:ad_only` when `ad = true`, `:noad_only` when `ad = false`.
+function _ad_selected(t::Template, ad::Bool)
+    t.ad === :always && return true
+    t.ad === :ad_only && return ad
+    t.ad === :noad_only && return !ad
+    error("template $(t.src) has unknown ad mode $(t.ad)")
+end
+
+# Whether a template is emitted for the requested `benchmarks` value:
+# `:always` always, `:bench_only` only when `benchmarks = true`.
+function _bench_selected(t::Template, benchmarks::Bool)
+    t.bench === :always && return true
+    t.bench === :bench_only && return benchmarks
+    error("template $(t.src) has unknown bench mode $(t.bench)")
 end
 
 """
@@ -4279,8 +4295,7 @@ Shared worker for `scaffold`/`update`.
 `managed_only` restricts to managed templates (the `update` path). `force`
 overwrites package-owned files too (only meaningful for `scaffold`). `ad`
 selects the AD-enabled or AD-disabled standard; `benchmarks` gates the opt-in
-benchmark CI/suite/docs page;
-`downgrade_compat` gates the opt-in
+benchmark CI/suite/docs page; `downgrade_compat` gates the opt-in
 `downgrade-compat` CI job; `unregistered_sources` declares that the package
 pins an unregistered dependency by git `[sources]`, which holds it to the Julia
 1.11 floor. `freshen_reusable_refs` opts into moving each managed caller's
@@ -4294,8 +4309,7 @@ diverged-but-unmarked `test/ad/setup.jl` about to be overwritten.
 """
 function _apply(
         target_dir::AbstractString; managed_only::Bool, force::Bool,
-        ad::Bool, benchmarks::Bool,
-        downgrade_compat::Bool,
+        ad::Bool, benchmarks::Bool, downgrade_compat::Bool,
         unregistered_sources::Bool, inputs::NamedTuple,
         freshen_reusable_refs::Bool = false, ref_source = nothing
     )
@@ -4353,7 +4367,6 @@ function _apply(
             ORG_FOOTER_MESSAGE = _org_footer_message(org_branding),
         )
     )
-    flags = (; ad, benchmarks)
     src_dir = _templates_dir()
     created = String[]
     updated = String[]
@@ -4370,7 +4383,8 @@ function _apply(
     end
     for t in SCAFFOLD_TEMPLATES
         managed_only && !t.managed && continue
-        _template_selected(t, flags) || continue
+        _ad_selected(t, ad) || continue
+        _bench_selected(t, benchmarks) || continue
         from = joinpath(src_dir, t.src)
         isfile(from) || error("missing bundled template $(t.src) at $from")
         to = _dest_path(target_dir, t.dest)
@@ -5222,8 +5236,7 @@ end
 
 """
     scaffold_generate(target_dir, package; authors = String[], uuid = <fresh>,
-        ad = true, benchmarks = false,
-        unregistered_sources = false, kwargs...)
+        ad = true, benchmarks = false, unregistered_sources = false, kwargs...)
 
 Generate a fresh package at `target_dir` and adopt the standard tooling.
 

@@ -98,7 +98,7 @@ The README pitch and its equivalent on the getting-started overview page are wha
 
 An audit against this rule found two deviations in the kit itself.
 
-- `Template.when` in `src/scaffold.jl`, read by `_template_selected`, ties every entry in `SCAFFOLD_TEMPLATES` to a named flag. To add a criterion, add a flag to the `flags` tuple in `_apply` and name it in the `when` of each template that depends on it.
+- `Template.ad::Symbol` and `Template.bench::Symbol` in `src/scaffold.jl`, read by `_ad_selected` and `_bench_selected`, gate every entry in `SCAFFOLD_TEMPLATES` through a `Symbol` switch; adding a new gating criterion means editing the struct and both selector chains.
 This is the primary deviation, and the mirror image of `ad_harness.jl`'s `ADRegistry`, which is duck-typed and method-based and stands as the worked example of the pattern this rule asks for.
 - About eight private content generators in `src/scaffold.jl`, including the tutorial, benchmark and docs-dependency helpers, open with `ad || return ""` or `benchmarks || return ""`.
 This is a weaker deviation: real flag branching, but each function gates one fixed on/off feature rather than an extension point.
