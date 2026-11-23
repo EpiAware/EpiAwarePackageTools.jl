@@ -246,6 +246,22 @@ every package that fits inside the reusable's default should do.
 Raising the cap only stops a job being killed part way; it is worth checking
 first whether the leg is genuinely slow or is hanging.
 
+### Running the backends on more Julia versions
+
+The backends run on Julia `1` by default.
+A package that supports an older Julia, such as the LTS, adds it as
+`julia_versions` in the `with:` block of its `ad.yaml`, which later syncs keep.
+
+```yaml
+    with:
+      backends: '...'
+      julia_versions: '["1", "lts"]'
+```
+
+The first version's legs upload coverage and keep their check names.
+The legs on other versions are named after the backend and the version, for
+example `Enzyme reverse (Julia lts)`.
+
 ## Running AD tests locally
 
 The scaffolded `Taskfile.yml` wraps the AD runs.

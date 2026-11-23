@@ -9,12 +9,15 @@ on:
   merge_group:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A pull request keeps one group, so a new push cancels its superseded
+  # run. Every other run (each merge to `main`) gets its own group and
+  # completes.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   test:
-    uses: EpiAware/.github/.github/workflows/tests.yml@491d0d9979bb59b0f82fc508ca55fb31698eb840
+    uses: EpiAware/.github/.github/workflows/tests.yml@7fa15b7fee0889500d0f7070d01fc79700770fa8
     with:
       # The matrix this package tests on. Seeded, not managed: name your own
       # value here and a resync keeps it (#73, #117). The lts leg runs

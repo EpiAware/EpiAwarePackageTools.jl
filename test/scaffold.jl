@@ -4288,6 +4288,18 @@
             end
         end
 
+        @testset "test and AD runs on main are not cancelled" begin
+            for wf in ("test.yaml", "ad.yaml")
+                txt = read(
+                    joinpath(_templates_dir(), ".github", "workflows", wf), String
+                )
+                @test occursin(
+                    "group: \${{ github.workflow }}-\${{ github.event_name == 'pull_request' && github.ref || github.run_id }}",
+                    txt
+                )
+            end
+        end
+
         @testset "update preserves a with: block documented by comments (#117)" begin
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")

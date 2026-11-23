@@ -33,12 +33,15 @@ on:
   merge_group:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A pull request keeps one group, so a new push cancels its superseded
+  # run. Every other run (each merge to `main`) gets its own group and
+  # completes.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   ad:
-    uses: EpiAware/.github/.github/workflows/ad.yml@00d30434df0edff7bbcc0b488d505a0a9ac1c36b
+    uses: EpiAware/.github/.github/workflows/ad.yml@91cafe2e63269f21c44d77b59ba25f1820b7fb94
     with:
       backends: '{{AD_BACKENDS_JSON}}'
 {{AD_TIMEOUT_LINE}}    secrets:
