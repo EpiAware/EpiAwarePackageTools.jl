@@ -31,7 +31,8 @@ jobs:
       # with silently missing coverage; that is org policy and is left at
       # the default rather than restated here.
       upload_coverage: true
-    secrets: inherit  # pragma: allowlist secret
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   downgrade-compat:
     uses: EpiAware/.github/.github/workflows/downgrade.yml@2c7ce73459772f11dad46ac7f456e35f0d296faf

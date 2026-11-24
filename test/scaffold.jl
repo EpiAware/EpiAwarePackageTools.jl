@@ -186,8 +186,6 @@
                         ".github/workflows/registrability.yaml",
                         ".github/workflows/release-nudge.yaml",
                         ".github/workflows/try-this-pr.yaml",
-                        ".github/workflows/claude.yml",
-                        ".github/workflows/claude-code-review.yml",
                         ".github/dependabot.yml", ".github/CODEOWNERS",
                         "codecov.yml", ".pre-commit-config.yaml", "Taskfile.yml",
                     )
@@ -1329,7 +1327,7 @@
                 @test occursin("suffix stripped, no increment", act)
             end
             # With a `reviewer` handle the same input drives CODEOWNERS, the
-            # Dependabot reviewers, the version assignee, and the Claude gate.
+            # Dependabot reviewers and the version assignee.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; reviewer = "octocat")
@@ -1340,17 +1338,6 @@
                 @test occursin("reviewers:", dep)
                 @test occursin("- \"octocat\"", dep)
                 @test !occursin("{{", dep)
-                claude = read(
-                    _dest(dir, ".github/workflows/claude.yml"),
-                    String
-                )
-                @test occursin("github.actor == 'octocat'", claude)
-                @test !occursin("{{REVIEWER}}", claude)
-                review = read(
-                    _dest(dir, ".github/workflows/claude-code-review.yml"),
-                    String
-                )
-                @test occursin("user.login == 'octocat'", review)
                 # The version-bump assignee default is the handle (a real user
                 # GitHub can assign), not empty.
                 act = read(
@@ -1407,10 +1394,51 @@
                 readme = read(joinpath(dir, "README.md"), String)
                 @test occursin("github.com/seabbs/Wombat.jl", readme)
                 @test occursin(
-                    "https://github.com/seabbs/.github/blob/main/" *
+                    "https://github.com/EpiAware/.github/blob/main/" *
                         "CODE_OF_CONDUCT.md",
                     readme
                 )
+                @test !occursin("seabbs/.github", readme)
+                # Docs are served from the owner's GitHub Pages.
+                @test occursin("seabbs.github.io/Wombat.jl/stable/", readme)
+                @test !occursin("epiaware.org/Wombat.jl", readme)
+            end
+        end
+
+        @testset "callers name their secrets instead of inheriting" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir; org = "seabbs", ad = true)
+                wf(f) = read(_dest(dir, ".github/workflows/" * f), String)
+                tok = "CODECOV_TOKEN: \${{ secrets.CODECOV_TOKEN }}"
+                key = "DOCUMENTER_KEY: \${{ secrets.DOCUMENTER_KEY }}"
+                for f in ("test.yaml", "ad.yaml", "downstream.yaml")
+                    @test occursin(tok, wf(f))
+                end
+                for f in ("document.yaml", "TagBot.yaml", "release-nudge.yaml")
+                    @test occursin(key, wf(f))
+                end
+                for f in (
+                        "pre-commit.yaml", "registrability.yaml",
+                        "cancel-on-close.yaml", "docpreviewcleanup.yaml",
+                        "version-pr-reaper.yaml",
+                    )
+                    @test !occursin("secrets:", wf(f))
+                    @test occursin("EpiAware/.github/.github/workflows/", wf(f))
+                end
+                # A with: override on a caller without secrets survives.
+                caller = _dest(dir, ".github/workflows/cancel-on-close.yaml")
+                txt = read(caller, String)
+                write(
+                    caller,
+                    replace(
+                        txt,
+                        r"(uses: \S+/cancel-on-close\.yml@\S+\n)" =>
+                            s"\1    with:\n      foo: bar\n"
+                    )
+                )
+                update(dir; org = "seabbs", ad = true)
+                @test occursin("foo: bar", read(caller, String))
             end
         end
 
@@ -3435,12 +3463,15 @@
                 # The override survives the resync ...
                 @test occursin("stale_days: 30", after)
                 # ... and the rest of the caller (the SHA pin, the
-                # trailing `secrets: inherit`) is still managed.
+                # trailing named secret) is still managed.
                 @test occursin(
                     "EpiAware/.github/.github/workflows/release-nudge.yml@",
                     after
                 )
-                @test occursin("secrets: inherit", after)
+                @test occursin(
+                    "DOCUMENTER_KEY: \${{ secrets.DOCUMENTER_KEY }}", after
+                )
+                @test !occursin("secrets: inherit", after)
                 # A second update is idempotent on the preserved input.
                 update(dir)
                 @test read(caller, String) == after
@@ -3454,7 +3485,7 @@
                 # A managed workflow that directly pins third-party actions (not
                 # only the org reusables). Dependabot's github-actions ecosystem
                 # bumps these pins in the live repo just like a reusable SHA.
-                wf = _dest(dir, ".github/workflows/claude.yml")
+                wf = _dest(dir, ".github/workflows/template-sync.yaml")
                 before = read(wf, String)
                 @test occursin("actions/checkout@v7", before)
                 # Simulate Dependabot bumping the third-party pin in the live
@@ -4084,6 +4115,31 @@
             end
         end
 
+        @testset "update drops the Claude workflows" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # An adopter scaffolded by an older kit still carries both
+                # workflows, marked managed; without its token secret the
+                # review job fails on every PR, so a sync must remove them.
+                for wf in (
+                        ".github/workflows/claude.yml",
+                        ".github/workflows/claude-code-review.yml",
+                    )
+                    @test !isfile(_dest(dir, wf))
+                    write(_dest(dir, wf), "name: Claude\n")
+                end
+                res = update(dir)
+                for wf in (
+                        ".github/workflows/claude.yml",
+                        ".github/workflows/claude-code-review.yml",
+                    )
+                    @test !isfile(_dest(dir, wf))
+                    @test _dest(dir, wf) in res.removed
+                end
+            end
+        end
+
         @testset "scaffold results report native paths (#237)" begin
             using EpiAwarePackageTools: _dest_path
             # Destinations are stored posix-style, so joining one onto a root
@@ -4321,12 +4377,7 @@
                         s"""\1    # Only the changed files: the tree is large.
                         """
                 )
-                overridden = replace(
-                    overridden,
-                    "    secrets: inherit" =>
-                        "      extra_args: '--from-ref origin/main --to-ref HEAD'\n" *
-                        "    secrets: inherit"
-                )
+                overridden *= "      extra_args: '--from-ref origin/main --to-ref HEAD'\n"
                 @test overridden != fresh
                 write(caller, overridden)
                 update(dir; ad = false)
@@ -4363,7 +4414,7 @@
                 @test !occursin("downgrade.yml", txt)
                 # The test job itself is still present and well-formed.
                 @test occursin("tests.yml", txt)
-                @test endswith(txt, "secret\n")
+                @test endswith(txt, "secrets.CODECOV_TOKEN }}\n")
                 @test !endswith(txt, "\n\n")
                 @test !_detect_downgrade_compat(dir)
                 # The common maintenance call: no downgrade_compat kwarg.
@@ -4860,7 +4911,8 @@
                     wf
                 )
                 @test occursin(r"version-pr-reaper\.yml@[0-9a-f]{40}\b", wf)
-                @test occursin("secrets: inherit", wf)
+                # The reusable reads only GITHUB_TOKEN; nothing is passed.
+                @test !occursin("secrets:", wf)
 
                 # Triggered by a landed release (push to main), a schedule
                 # for a version that moved by another route, and an
@@ -5362,22 +5414,36 @@ end # @testitem "scaffold + update (logic)"
         end
     end
 
-    @testset "the JET bound is one every leg of the matrix can resolve" begin
+    @testset "the seeded test env leaves JET to the isolated environment" begin
+        # DifferentiationInterfaceTest bounds JET below 0.12, but Julia 1.13
+        # needs 0.12 or later, so seeding both makes the env unresolvable there.
+        # JET runs in test/jet and neither variant lists it.
         for ad in (true, false)
             mktempdir() do dir
                 _fake_pkg(dir)
                 scaffold(dir; ad = ad)
-                compat = read(_p(dir, "test/Project.toml"), String)
-                # JET publishes nothing past 0.9.18 for Julia 1.10, so a bound
-                # starting at 0.10 makes the seeded lts leg unresolvable and
-                # the matrix a lie. The bound reaches back to 0.9 in both the
-                # AD and no-AD variants, which had drifted apart.
-                #
-                # This costs the downgrade job nothing: `julia-downgrade-compat`
-                # resolves `projects: '.'` — the root Project.toml — so the
-                # test environment's bounds are never floor-resolved.
-                @test occursin(r"JET = \"0\.9,", compat)
+                proj = read(_p(dir, "test/Project.toml"), String)
+                @test !occursin("JET", proj)
+                @test occursin("JET", read(_p(dir, "test/jet/Project.toml"), String))
             end
+        end
+    end
+
+    @testset "update warns about JET beside DifferentiationInterfaceTest" begin
+        mktempdir() do dir
+            _fake_pkg(dir)
+            scaffold(dir)
+            @test !any(w -> occursin("lists JET", w), update(dir).warnings)
+            tp = _p(dir, "test/Project.toml")
+            write(
+                tp, replace(
+                    read(tp, String),
+                    "[deps]\n" => "[deps]\nJET = \"c3a54625-cd67-489e-a8e7-0a5a0ff4e31b\"\n"
+                )
+            )
+            ws = filter(w -> occursin("lists JET", w), update(dir).warnings)
+            @test length(ws) == 1
+            @test occursin("Julia 1.13", only(ws))
         end
     end
 
