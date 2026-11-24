@@ -41,7 +41,7 @@ concurrency:
 
 jobs:
   ad:
-    uses: EpiAware/.github/.github/workflows/ad.yml@91cafe2e63269f21c44d77b59ba25f1820b7fb94
+    uses: EpiAware/.github/.github/workflows/ad.yml@24fcf1ef918d135df4a0675f57db15f6d572fd66
     with:
       backends: '{{AD_BACKENDS_JSON}}'
 {{AD_TIMEOUT_LINE}}    secrets:

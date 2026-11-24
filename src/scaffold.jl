@@ -744,7 +744,7 @@ end
 # here, so refresh both together.
 const _REUSABLE_SEED_REFS = Dict{String, String}(
     "ad.yml" =>
-        "91cafe2e63269f21c44d77b59ba25f1820b7fb94",  # pragma: allowlist secret
+        "24fcf1ef918d135df4a0675f57db15f6d572fd66",  # pragma: allowlist secret
     "cancel-on-close.yml" =>
         "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret
     "docs-preview-cleanup.yml" =>
