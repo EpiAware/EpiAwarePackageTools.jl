@@ -175,6 +175,11 @@ The formatter check reports any file under `src`, `test`, `docs`, `benchmark`,
 or `ext` that is not formatted, without modifying it.
 Runic is unconfigurable — there is one canonical style, so no per-package
 config file; see [Package standards](@ref standards).
+The kit holds Runic to a floor rather than an exact pin, in the pre-commit
+hook, the test environment and the formatter environment alike.
+The floor names the release whose style the managed trees carry, so every
+environment resolves the newest Runic at or above it, and a Runic release
+that changes layout moves the floor together with the reformat.
 The JET runner fails on any static-analysis report by default.
 A package whose public surface is DynamicPPL `@model` functions can drop a
 package-owned `test/jet/jet_config.jl` defining a `JET_REPORT_FILTER` predicate

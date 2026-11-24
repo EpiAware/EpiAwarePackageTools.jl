@@ -47,7 +47,7 @@ permissions:
 
 jobs:
   reap:
-    uses: {{ORG}}/.github/.github/workflows/version-pr-reaper.yml@a6d230a9b2338d2802d8876f9e8b5377489dcdb6
+    uses: EpiAware/.github/.github/workflows/version-pr-reaper.yml@a6d230a9b2338d2802d8876f9e8b5377489dcdb6
     with:
       # The reusable honours `dry_run` on whatever trigger fires, so the
       # caller decides when a run is a preview: only a dispatch with the
@@ -55,4 +55,3 @@ jobs:
       # this resolves to `false`, as a string, which is what the
       # reusable's input takes.
       dry_run: ${{ inputs.dry_run && 'true' || 'false' }}
-    secrets: inherit  # pragma: allowlist secret

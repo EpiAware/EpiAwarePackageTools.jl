@@ -41,4 +41,5 @@ jobs:
     uses: EpiAware/.github/.github/workflows/ad.yml@00d30434df0edff7bbcc0b488d505a0a9ac1c36b
     with:
       backends: '{{AD_BACKENDS_JSON}}'
-{{AD_TIMEOUT_LINE}}    secrets: inherit  # pragma: allowlist secret
+{{AD_TIMEOUT_LINE}}    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

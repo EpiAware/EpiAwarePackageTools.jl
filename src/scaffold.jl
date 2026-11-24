@@ -136,16 +136,6 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/try-this-pr.yaml",
         ".github/workflows/try-this-pr.yaml", true, true
     ),
-    # The Claude Code review bot, gated on the `reviewer` handle so only that
-    # user's comments/PRs trigger it.
-    Template(
-        ".github/workflows/claude.yml",
-        ".github/workflows/claude.yml", true, true
-    ),
-    Template(
-        ".github/workflows/claude-code-review.yml",
-        ".github/workflows/claude-code-review.yml", true, true
-    ),
     # Scheduled template-sync: re-applies the managed standard and opens a PR
     # when the committed infra has drifted from the kit.
     Template(
@@ -206,7 +196,7 @@ const SCAFFOLD_TEMPLATES = Template[
         "test/formatter/runtests.jl",
         "test/formatter/runtests.jl", true, false
     ),
-    # Substituted for the single-source `{{RUNIC_VERSION}}` compat pin.
+    # Substituted for the single-source `{{RUNIC_VERSION}}` compat bound.
     Template(
         "test/formatter/Project.toml",
         "test/formatter/Project.toml", true, true
@@ -408,6 +398,10 @@ const RETIRED_PATHS = String[
     # collects and uploads via its `upload_coverage` input. Retired rather
     # than left behind running an unnecessary suite alongside it.
     ".github/workflows/codecoverage.yaml",
+    # The Claude review workflows need a token secret most adopters do not
+    # have, and without it the review job fails on every pull request.
+    ".github/workflows/claude.yml",
+    ".github/workflows/claude-code-review.yml",
 ]
 
 # --- stale package-owned prose (#328) ---------------------------------------
@@ -579,13 +573,29 @@ const DEFAULT_ORG = "EpiAware"
 # this kit's own repo. Fixed, whatever org an adopting package lives in.
 const WORKFLOWS_ORG = "EpiAware"
 
-# The single source of truth for the pinned Runic version (#114), feeding the
-# `.pre-commit-config.yaml` hook `additional_dependencies` pin and the
-# `test/formatter/Project.toml` compat pin. `runic-check.yml` greps the
-# calling repo's `.pre-commit-config.yaml` for the literal string
-# `Runic@<runic_version>` and fails if absent, so it does not need this value
-# passed as a workflow input the way `format-check.yml` did.
-const _RUNIC_VERSION = "1.7.0"
+# The single source of truth for the Runic bound, feeding the
+# `.pre-commit-config.yaml` hook `additional_dependencies` spec, the
+# `runic_version` input the `pre-commit.yaml` caller passes to
+# `runic-check.yml`, and the Runic compat entry of the test environment and
+# of the isolated `test/formatter` environment.
+#
+# A floor, not an exact pin: the release whose style the managed trees carry.
+# Every environment resolves the newest Runic at or above it, so a Runic
+# release reaches every package without a lockstep bump of four files in
+# every repo, and Dependabot has nothing to move in the formatter
+# environment. The downgrade job floors the test environment to exactly this
+# release, so the floor has to be one that formats the trees the way they
+# are committed. A Runic release that changes layout therefore moves the
+# floor here, alongside the reformat that goes with it.
+#
+# The cost is that two environments built at different times around such a
+# release can hold different Runic versions, so one check disagrees with the
+# other until the stale environment is rebuilt.
+#
+# `runic-check.yml` greps the calling repo's `.pre-commit-config.yaml` for the
+# literal string `Runic@<runic_version>` and fails if absent, so the hook
+# spec and this value have to agree to the character.
+const _RUNIC_VERSION = "1.10"
 
 # The single source of truth for the pinned `runic-pre-commit` hook revision,
 # feeding the `.pre-commit-config.yaml` `rev`. Released independently of Runic
@@ -660,7 +670,7 @@ end
 # every dependency at the lowest version its `[compat]` admits, so the version
 # it runs on has to be one where that floor-resolved environment still loads.
 # JET publishes nothing for 1.11 beyond 0.9.19/0.9.20, which need JuliaSyntax
-# 0.4 and cannot coexist with the pinned Runic 1.7.0 (JuliaSyntax 1). Pinning
+# 0.4 and cannot coexist with Runic 1 (JuliaSyntax 1). Pinning
 # this job low would only make CI red on a conflict unrelated to the package
 # under test, so it stays on the current release.
 const _JULIA_DOWNGRADE_VERSION = "'1'"
@@ -1153,17 +1163,18 @@ into a template:
   - `authors` — `{{AUTHORS}}`; default the joined `Project.toml` `authors`.
   - `holder` — copyright holder (`{{HOLDER}}`); default `authors`.
   - `org` — GitHub org (`{{ORG}}`); default `$(repr(DEFAULT_ORG))`. Names the
-    package's own repo: badges, docs links, the repo slug, and the Code of
-    Conduct link. Pass the owning org for a package hosted elsewhere; the
-    managed `template-sync.yaml` carries it into the scheduled
+    package's own repo: badges, docs links and the repo slug. Docs are served
+    from `epiaware.org/<Repo>.jl` for `$(repr(DEFAULT_ORG))` and from
+    `<org>.github.io/<Repo>.jl` otherwise. Pass the owning org for a package
+    hosted elsewhere. The managed `template-sync.yaml` passes it to the scheduled
     [`update`](@ref) so it survives a resync. The reusable workflows the CI
     callers `uses:` are not among them: those always come from
-    `$(repr(WORKFLOWS_ORG))/.github`.
+    `$(repr(WORKFLOWS_ORG))/.github`, like the Code of Conduct link.
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
-    (`* @{{REVIEWER}}`), the Dependabot `reviewers`, the version-bump assignee,
-    and the Claude bot's actor gate. A username or `org/team` slug — GitHub
+    (`* @{{REVIEWER}}`), the Dependabot `reviewers` and the version-bump
+    assignee. A username or `org/team` slug — GitHub
     cannot assign a bare org. When omitted (`nothing`), no owner is written
     (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
     so a bare org is never hardcoded.
@@ -1226,7 +1237,7 @@ function scaffold_inputs(
         authors
     hold = holder === nothing ? auth : holder
     # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
-    # `reviewers`, the version bump's assignee and the Claude bot's actor gate.
+    # `reviewers` and the version bump's assignee.
     # It must be a username or `org/team` slug: GitHub cannot assign a bare
     # org, so with no handle those owners are left empty rather than producing
     # PRs that error with "can't assign <org> as a reviewer". With no
@@ -1648,7 +1659,7 @@ end
 # lazy leading comment/blank run lets a documented override survive when a
 # rationale comment sits between `uses:` and `with:` (#117). See
 # `_preserve_caller_with_inputs`.
-const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:)"
+const _CALLER_JOB = r"(uses:[ \t]*\S+/\.github/\.github/workflows/([^@\s]+)@\S+\r?\n)((?:[ \t]*(?:#[^\r\n]*)?\r?\n)*?(?:([ \t]+)with:\r?\n(?:\4[ \t]+\S.*\r?\n?)*)?)([ \t]*secrets:|(?m:(?=^[ ]{2}[\w-]+:|^\S|\z)))"
 
 # A `uses:` line repointed at a repo-local reusable *workflow* rather than the
 # org's shared `.github` reusable (#325). The `.github/workflows/` segment is
@@ -1792,11 +1803,17 @@ function _merge_with_blocks(
     # package-owned unmatched content, exactly like an extra key — keep it
     # alongside the seed's own trailing lines (if any) rather than dropping it.
     trailing = isempty(e.trailing) ? s.trailing : vcat(s.trailing, e.trailing)
-    # The destination's leading comments are its rationale for the block
-    # (#117). Only the lines the template does not emit itself are kept:
-    # appending the head wholesale would re-append the template's own comments
-    # on every sync, growing the file without bound.
-    extra_head = [l for l in e.head if !(l in s.head)]
+    # The destination's leading comments are its rationale for an override
+    # (#117): a key only the package carries, or a seed-default key it names.
+    # They are kept only when the block holds one. A block of managed keys
+    # alone has nothing of the package's to explain, so its head is the
+    # template's to re-render, and a comment the template has since reworded
+    # does not linger beside the new wording in every adopter. Of a kept head,
+    # only the lines the template does not emit itself survive: appending it
+    # wholesale would re-append the template's own comments on every sync,
+    # growing the file without bound.
+    overrides = !isempty(extra) || !isempty(overridden)
+    extra_head = overrides ? [l for l in e.head if !(l in s.head)] : String[]
     head = vcat(s.head, extra_head)
     isempty(extra) && isempty(e.trailing) && isempty(overridden) &&
         isempty(extra_head) && return seed
@@ -2128,9 +2145,9 @@ end
 function _ad_backends_json()
     entries = [
         string(
-                "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
-                b.slug, "\"}"
-            ) for b in _AD_BACKENDS
+            "{\"name\":\"", b.header, "\",\"tag\":\"", b.tag, "\",\"flag\":\"",
+            b.slug, "\"}"
+        ) for b in _AD_BACKENDS
     ]
     return "[" * join(entries, ",") * "]"
 end
@@ -2496,9 +2513,9 @@ function _extensions_nav(target_dir::AbstractString)
     isempty(pages) && return ""
     entries = [
         string(
-                "        \"", p.title, "\" => \"extensions/", p.slug,
-                ".md\""
-            ) for p in pages
+            "        \"", p.title, "\" => \"extensions/", p.slug,
+            ".md\""
+        ) for p in pages
     ]
     return string(
         ",\n    \"Extensions\" => [\n", join(entries, ",\n"),
@@ -2609,9 +2626,9 @@ function _extension_pages_unlinked(target_dir::AbstractString)
     entries = join(
         (
             string(
-                    "\"", p.title, "\" => \"extensions/", p.slug,
-                    ".md\""
-                ) for p in missing_pages
+                "\"", p.title, "\" => \"extensions/", p.slug,
+                ".md\""
+            ) for p in missing_pages
         ), ", "
     )
     return string(
@@ -3180,9 +3197,16 @@ end
 # (`docs_subdomain = true`); the default project-pages path needs no host.
 _docs_host(pkg::AbstractString) = lowercase(pkg) * ".epiaware.org"
 
-# The GitHub Pages domain the org serves project-pages from. A repo without a
+# The GitHub Pages domain EpiAware serves project pages from. A repo without a
 # custom domain is reachable at `<this>/<Repo>.jl/`.
 const DOCS_PAGES_APEX = "epiaware.org"
+
+# The apex serving the project pages of a repo: `epiaware.org` for EpiAware
+# packages, GitHub's default `<owner>.github.io` for any other owner.
+function _docs_pages_apex(owner::AbstractString)
+    return lowercase(owner) == lowercase(DEFAULT_ORG) ? DOCS_PAGES_APEX :
+        lowercase(owner) * ".github.io"
+end
 
 """
     _resolve_docs_subdomain(spec, pkg)
@@ -3223,7 +3247,8 @@ end
 _docs_url(repo::Nothing, sub) = sub === nothing ? nothing : String(sub)
 function _docs_url(repo::AbstractString, sub)
     sub === nothing || return String(sub)
-    return DOCS_PAGES_APEX * "/" * last(split(repo, '/'))
+    owner, name = split(repo, '/'; limit = 2)
+    return _docs_pages_apex(owner) * "/" * name
 end
 
 # The optional `with: timeout_minutes:` override on the managed `document.yaml`
@@ -3617,18 +3642,20 @@ const _STANDARD_SECTIONS_HEADER = string(
     "     edit the package-owned sections outside them, or CITATION.cff. -->"
 )
 
-# The org Code of Conduct URL, served from the org's shared `.github` repo.
-function _coc_url(org::AbstractString)
-    return "https://github.com/" * org * "/.github/blob/main/CODE_OF_CONDUCT.md"
+# The Code of Conduct URL. Every managed package links to the shared `.github`
+# repo, whichever org owns the package.
+function _coc_url()
+    return "https://github.com/" * WORKFLOWS_ORG *
+        "/.github/blob/main/CODE_OF_CONDUCT.md"
 end
 
 # Render the managed standard sections (Contributing / How to cite / Code of
-# conduct) without the markers, parameterised by package/org/repo. `doi` adds a
+# conduct) without the markers, parameterised by package and repo. `doi` adds a
 # version-DOI line to the citation pointer when known (the value persisted in
 # the README DOI badge); otherwise the section points only at `CITATION.cff`.
 function _render_standard_sections(
-        pkg::AbstractString, org::AbstractString,
-        repo::AbstractString; doi::Union{Nothing, AbstractString} = nothing,
+        pkg::AbstractString, repo::AbstractString;
+        doi::Union{Nothing, AbstractString} = nothing,
         org_branding::Bool = false
     )
     doi_line = doi === nothing ? "" :
@@ -3655,7 +3682,7 @@ function _render_standard_sections(
         "\n",
         "## Code of conduct\n\n",
         "Please note that the ", pkg, " project is released with a ",
-        "[Contributor Code of Conduct](", _coc_url(org), "). By contributing, ",
+        "[Contributor Code of Conduct](", _coc_url(), "). By contributing, ",
         "you agree to abide by its terms.\n"
     )
 end
@@ -3694,7 +3721,7 @@ function _apply_standard_sections(
     (pkg === nothing || org === nothing || repo === nothing) &&
         return (:skipped, false)
     body = _render_standard_sections(
-        String(pkg), String(org), String(repo);
+        String(pkg), String(repo);
         doi = inputs.DOI, org_branding = org_branding
     )
     block = STANDARD_SECTIONS_START * "\n" * _STANDARD_SECTIONS_HEADER *
@@ -4504,6 +4531,11 @@ function _apply(
             " to test/Project.toml `[deps]` (#263)."
         )
     )
+    jet_gap = _test_env_jet_gap(target_dir)
+    if jet_gap !== nothing
+        push!(warnings, jet_gap)
+        @warn jet_gap
+    end
     # Injected into the package-owned root Project.toml when absent, on both
     # scaffold and update, and preserved thereafter. Any manifest on disk was
     # resolved under the layout the root Project.toml declared before this
@@ -4676,6 +4708,22 @@ function _declared_deps(path::AbstractString)
         m === nothing || push!(names, String(something(m.captures[1])))
     end
     return names
+end
+
+# A warning when the package-owned test/Project.toml lists JET beside
+# DifferentiationInterfaceTest, or `nothing`. DifferentiationInterfaceTest has
+# JET as a weak dependency bounded below 0.12, but Julia 1.13 needs 0.12 or
+# later, so the pair cannot resolve there. The managed linting test item runs
+# JET in the isolated test/jet environment and the test env does not need it.
+# The file is package-owned, so `update` can only warn.
+function _test_env_jet_gap(target_dir::AbstractString)
+    deps = _declared_deps(joinpath(target_dir, "test", "Project.toml"))
+    ("JET" in deps && "DifferentiationInterfaceTest" in deps) || return nothing
+    return string(
+        "test/Project.toml lists JET beside DifferentiationInterfaceTest, ",
+        "which cannot resolve on Julia 1.13. Remove JET from its `[deps]` ",
+        "and `[compat]`; the linting test runs it from test/jet."
+    )
 end
 
 # Top-level module names introduced by `using`/`import` lines in Julia source.
