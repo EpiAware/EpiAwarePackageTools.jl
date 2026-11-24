@@ -186,8 +186,6 @@
                         ".github/workflows/registrability.yaml",
                         ".github/workflows/release-nudge.yaml",
                         ".github/workflows/try-this-pr.yaml",
-                        ".github/workflows/claude.yml",
-                        ".github/workflows/claude-code-review.yml",
                         ".github/dependabot.yml", ".github/CODEOWNERS",
                         "codecov.yml", ".pre-commit-config.yaml", "Taskfile.yml",
                     )
@@ -1329,7 +1327,7 @@
                 @test occursin("suffix stripped, no increment", act)
             end
             # With a `reviewer` handle the same input drives CODEOWNERS, the
-            # Dependabot reviewers, the version assignee, and the Claude gate.
+            # Dependabot reviewers and the version assignee.
             mktempdir() do dir
                 _fake_pkg(dir; name = "Wombat")
                 scaffold(dir; reviewer = "octocat")
@@ -1340,17 +1338,6 @@
                 @test occursin("reviewers:", dep)
                 @test occursin("- \"octocat\"", dep)
                 @test !occursin("{{", dep)
-                claude = read(
-                    _dest(dir, ".github/workflows/claude.yml"),
-                    String
-                )
-                @test occursin("github.actor == 'octocat'", claude)
-                @test !occursin("{{REVIEWER}}", claude)
-                review = read(
-                    _dest(dir, ".github/workflows/claude-code-review.yml"),
-                    String
-                )
-                @test occursin("user.login == 'octocat'", review)
                 # The version-bump assignee default is the handle (a real user
                 # GitHub can assign), not empty.
                 act = read(
@@ -3498,7 +3485,7 @@
                 # A managed workflow that directly pins third-party actions (not
                 # only the org reusables). Dependabot's github-actions ecosystem
                 # bumps these pins in the live repo just like a reusable SHA.
-                wf = _dest(dir, ".github/workflows/claude.yml")
+                wf = _dest(dir, ".github/workflows/template-sync.yaml")
                 before = read(wf, String)
                 @test occursin("actions/checkout@v7", before)
                 # Simulate Dependabot bumping the third-party pin in the live
@@ -4125,6 +4112,31 @@
                 res = update(dir)
                 @test !isfile(stale)
                 @test stale in res.removed
+            end
+        end
+
+        @testset "update drops the Claude workflows" begin
+            mktempdir() do dir
+                _fake_pkg(dir; name = "Wombat")
+                scaffold(dir)
+                # An adopter scaffolded by an older kit still carries both
+                # workflows, marked managed; without its token secret the
+                # review job fails on every PR, so a sync must remove them.
+                for wf in (
+                        ".github/workflows/claude.yml",
+                        ".github/workflows/claude-code-review.yml",
+                    )
+                    @test !isfile(_dest(dir, wf))
+                    write(_dest(dir, wf), "name: Claude\n")
+                end
+                res = update(dir)
+                for wf in (
+                        ".github/workflows/claude.yml",
+                        ".github/workflows/claude-code-review.yml",
+                    )
+                    @test !isfile(_dest(dir, wf))
+                    @test _dest(dir, wf) in res.removed
+                end
             end
         end
 
