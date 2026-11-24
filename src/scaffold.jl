@@ -136,16 +136,6 @@ const SCAFFOLD_TEMPLATES = Template[
         ".github/workflows/try-this-pr.yaml",
         ".github/workflows/try-this-pr.yaml", true, true
     ),
-    # The Claude Code review bot, gated on the `reviewer` handle so only that
-    # user's comments/PRs trigger it.
-    Template(
-        ".github/workflows/claude.yml",
-        ".github/workflows/claude.yml", true, true
-    ),
-    Template(
-        ".github/workflows/claude-code-review.yml",
-        ".github/workflows/claude-code-review.yml", true, true
-    ),
     # Scheduled template-sync: re-applies the managed standard and opens a PR
     # when the committed infra has drifted from the kit.
     Template(
@@ -408,6 +398,10 @@ const RETIRED_PATHS = String[
     # collects and uploads via its `upload_coverage` input. Retired rather
     # than left behind running an unnecessary suite alongside it.
     ".github/workflows/codecoverage.yaml",
+    # The Claude review workflows need a token secret most adopters do not
+    # have, and without it the review job fails on every pull request.
+    ".github/workflows/claude.yml",
+    ".github/workflows/claude-code-review.yml",
 ]
 
 # --- stale package-owned prose (#328) ---------------------------------------
@@ -1179,8 +1173,8 @@ into a template:
   - `repo` — `owner/name` slug (`{{REPO}}`); default `"{org}/{package}.jl"`.
   - `reviewer` — the GitHub handle (`{{REVIEWER}}`) that drives every place a
     real reviewer/code-owner is needed: the `.github/CODEOWNERS` rule
-    (`* @{{REVIEWER}}`), the Dependabot `reviewers`, the version-bump assignee,
-    and the Claude bot's actor gate. A username or `org/team` slug — GitHub
+    (`* @{{REVIEWER}}`), the Dependabot `reviewers` and the version-bump
+    assignee. A username or `org/team` slug — GitHub
     cannot assign a bare org. When omitted (`nothing`), no owner is written
     (CODEOWNERS ships a commented placeholder, Dependabot gets no `reviewers`)
     so a bare org is never hardcoded.
@@ -1243,7 +1237,7 @@ function scaffold_inputs(
         authors
     hold = holder === nothing ? auth : holder
     # The `reviewer` handle drives the CODEOWNERS line, the Dependabot
-    # `reviewers`, the version bump's assignee and the Claude bot's actor gate.
+    # `reviewers` and the version bump's assignee.
     # It must be a username or `org/team` slug: GitHub cannot assign a bare
     # org, so with no handle those owners are left empty rather than producing
     # PRs that error with "can't assign <org> as a reviewer". With no
