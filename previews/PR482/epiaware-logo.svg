@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 420" role="img" aria-label="EpiAware">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 20 400 400" role="img" aria-label="EpiAware">
   <title>EpiAware</title>
+  <desc>A hexagon enclosing a small directed graph of component distributions feeding an ensemble of trajectories.</desc>
   <polygon points="200,30 364.5,125 364.5,315 200,410 35.5,315 35.5,125" fill="none" stroke="#64748b" stroke-width="2" stroke-linejoin="round" opacity="0.4"/>
 
   <!-- Composable DAG feeding into an ensemble of trajectories -->
