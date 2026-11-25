@@ -246,6 +246,32 @@ every package that fits inside the reusable's default should do.
 Raising the cap only stops a job being killed part way; it is worth checking
 first whether the leg is genuinely slow or is hanging.
 
+### Running the backends on another Julia version
+
+The backends run on Julia `1`.
+A package that supports an older Julia, such as the LTS, adds a second caller of its own beside the managed `ad.yaml`, which syncs leave alone.
+It turns coverage off, so each per-backend flag still gets one report.
+
+```yaml
+# .github/workflows/ad-lts.yaml
+name: AD (Julia LTS)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ad:
+    uses: EpiAware/.github/.github/workflows/ad.yml@24fcf1ef918d135df4a0675f57db15f6d572fd66
+    with:
+      backends: '...'
+      julia-version: 'lts'
+      coverage: false
+```
+
+Copy `backends` from the managed `ad.yaml`.
+
 ## Running AD tests locally
 
 The scaffolded `Taskfile.yml` wraps the AD runs.

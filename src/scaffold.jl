@@ -738,7 +738,7 @@ end
 # here, so refresh both together.
 const _REUSABLE_SEED_REFS = Dict{String, String}(
     "ad.yml" =>
-        "00d30434df0edff7bbcc0b488d505a0a9ac1c36b",  # pragma: allowlist secret
+        "24fcf1ef918d135df4a0675f57db15f6d572fd66",  # pragma: allowlist secret
     "cancel-on-close.yml" =>
         "6d4e35e2515f947acbf7d2a683cbf02b341005c7",  # pragma: allowlist secret
     "docs-preview-cleanup.yml" =>
@@ -763,7 +763,7 @@ const _REUSABLE_SEED_REFS = Dict{String, String}(
     "tagbot.yml" =>
         "9692b37b9127099d9c1a51db5034a084edaeb56e",  # pragma: allowlist secret
     "tests.yml" =>
-        "491d0d9979bb59b0f82fc508ca55fb31698eb840",  # pragma: allowlist secret
+        "7fa15b7fee0889500d0f7070d01fc79700770fa8",  # pragma: allowlist secret
     "version-pr-reaper.yml" =>
         "a6d230a9b2338d2802d8876f9e8b5377489dcdb6",  # pragma: allowlist secret
 )

@@ -9,7 +9,10 @@ on:
   merge_group:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A pull request keeps one group, so a new push cancels its superseded
+  # run. Every other run (each merge to `main`) gets its own group and
+  # completes.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
