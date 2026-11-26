@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   pre-commit:
-    uses: EpiAware/.github/.github/workflows/runic-check.yml@2c7ce73459772f11dad46ac7f456e35f0d296faf
+    uses: EpiAware/.github/.github/workflows/runic-check.yml@59ec75be81cbc2cf83d9cb172bf22e29e1391a91
     with:
       # `runic-check.yml` does not install Runic itself: pre-commit's native
       # `language: julia` builds the hook's own env from the
